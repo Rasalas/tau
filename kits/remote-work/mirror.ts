@@ -93,13 +93,13 @@ export class MirrorStore {
    * A folder and branch named after the work, not the transfer id: a slug of
    * its name (the id without one), numbered when either is taken.
    */
-  private async placeFor(mirror: string, input: { transfer: string; repo: RepoIdentity; name?: string; from?: string }): Promise<{ worktree: string; branch: string }> {
+  private async placeFor(mirror: string, input: { transfer: string; repo: RepoIdentity; name?: string; from?: string; repository?: string }): Promise<{ worktree: string; branch: string }> {
     const stem = slugOf(input.name ?? "", input.transfer);
     for (let attempt = 1; attempt < 100; attempt += 1) {
       const slug = attempt === 1 ? stem : `${stem}-${attempt}`;
       const worktree = join(this.root, "worktrees", folderName(input.repo.name), slug);
       const branch = `tau/${slugOf(input.from ?? "", "remote")}/${slug}`;
-      const taken = await exists(worktree) || await this.git(mirror, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).then(() => true, () => false);
+      const taken = await exists(worktree) || await this.git(mirror, [...(input.repository ? [] : ["--git-dir", mirror]), "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).then(() => true, () => false);
       if (!taken) return { worktree, branch };
     }
     throw new HostCommandError(`Every worktree name for ${stem} is taken.`);
@@ -176,10 +176,10 @@ export class MirrorStore {
       let state: PrepareResult["mirror"];
       let detail: string;
       if (await exists(join(mirror, "HEAD"))) {
-        const origin = (await this.git(mirror, ["config", "--get", "remote.origin.url"]).catch(() => "")).trim();
+        const origin = (await this.git(mirror, ["--git-dir", mirror, "config", "--get", "remote.origin.url"]).catch(() => "")).trim();
         if (origin) {
           step("mirror", "running", "Fetching origin");
-          const fetched = await this.git(mirror, ["fetch", "--quiet", "--no-tags", "origin"], { timeoutMs: 5 * 60_000 }).then(() => true, () => false);
+          const fetched = await this.git(mirror, ["--git-dir", mirror, "fetch", "--quiet", "--no-tags", "origin"], { timeoutMs: 5 * 60_000 }).then(() => true, () => false);
           state = fetched ? "fetched" : "kept";
           detail = fetched ? "Mirror updated from origin" : "Origin did not answer; the mirror stays as it was";
         } else {
@@ -195,7 +195,7 @@ export class MirrorStore {
             step("mirror", "running", "Cloning origin");
             await this.git(this.root, ["clone", "--bare", "--quiet", "--no-tags", "--template=", "--", repo.origin!, temporary], { timeoutMs: 60 * 60_000 });
             // Later fetches keep origin's branches apart from the worktrees' own.
-            await this.git(temporary, ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]);
+            await this.git(temporary, ["--git-dir", temporary, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]);
             state = "cloned";
             detail = "Cloned from origin";
           } else {
@@ -203,15 +203,15 @@ export class MirrorStore {
             state = "empty";
             detail = repo.origin ? "Origin is not readable from here; everything comes in the bundle" : "New mirror; everything comes in the bundle";
           }
-          await this.git(temporary, ["config", "core.hooksPath", this.noHooksDir]);
-          await this.git(temporary, ["config", "gc.autoDetach", "false"]);
+          await this.git(temporary, ["--git-dir", temporary, "config", "core.hooksPath", this.noHooksDir]);
+          await this.git(temporary, ["--git-dir", temporary, "config", "gc.autoDetach", "false"]);
           await rename(temporary, mirror);
         } catch (error) {
           await rm(temporary, { recursive: true, force: true }).catch(() => undefined);
           throw new Error(`The mirror could not be made: ${gitMessage(error)}`, { cause: error });
         }
       }
-      const tips = (await this.git(mirror, ["for-each-ref", "--sort=-committerdate", `--count=${MAX_TIPS}`, "--format=%(objectname)", "refs/heads", "refs/remotes", "refs/tau/incoming", "refs/tau/result"]))
+      const tips = (await this.git(mirror, ["--git-dir", mirror, "for-each-ref", "--sort=-committerdate", `--count=${MAX_TIPS}`, "--format=%(objectname)", "refs/heads", "refs/remotes", "refs/tau/incoming", "refs/tau/result"]))
         .split("\n").map((line) => line.trim()).filter((line) => SHA.test(line));
       return { protocol: REMOTE_WORK_PROTOCOL, tips: [...new Set(tips)], mirror: state, detail };
     });
@@ -226,6 +226,7 @@ export class MirrorStore {
     const { transfer, repo, base } = input;
     if (!TRANSFER_ID.test(transfer) || !SHA.test(base)) throw new HostCommandError("A transfer needs its id and the commit it carries.");
     const mirror = input.repository ?? this.mirrorPath(repo.key);
+    const gitDir = input.repository ? [] : ["--git-dir", mirror];
     return this.serial(repo.key, async () => {
       if (input.repository && (await readRepoIdentity(input.repository, this.git)).key !== repo.key) throw new HostCommandError("The selected target checkout belongs to another project.");
       if (!input.repository && !await exists(join(mirror, "HEAD"))) throw new HostCommandError("This machine has no mirror of the project yet; prepare it first.");
@@ -233,29 +234,29 @@ export class MirrorStore {
       step("unpack", "running", input.bundle ? "Checking the bundle" : "Looking for the commit");
       if (input.bundle) {
         try {
-          await this.git(mirror, ["bundle", "verify", "--quiet", input.bundle], { timeoutMs: 10 * 60_000 });
+          await this.git(mirror, [...gitDir, "bundle", "verify", "--quiet", input.bundle], { timeoutMs: 10 * 60_000 });
         } catch (error) {
           throw new Error(`The bundle does not fit this machine's mirror: ${gitMessage(error)}`, { cause: error });
         }
-        await this.git(mirror, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", input.bundle, `+refs/tau/transfer/${transfer}:${incomingRef(transfer)}`], { timeoutMs: 30 * 60_000 });
+        await this.git(mirror, [...gitDir, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", input.bundle, `+refs/tau/transfer/${transfer}:${incomingRef(transfer)}`], { timeoutMs: 30 * 60_000 });
       } else {
-        await this.git(mirror, ["cat-file", "-e", `${base}^{commit}`]).catch((error) => {
+        await this.git(mirror, [...gitDir, "cat-file", "-e", `${base}^{commit}`]).catch((error) => {
           throw new Error(`This machine's mirror does not have ${base.slice(0, 12)}, and no bundle came with it.`, { cause: error });
         });
-        await this.git(mirror, ["update-ref", incomingRef(transfer), base]);
+        await this.git(mirror, [...gitDir, "update-ref", incomingRef(transfer), base]);
       }
-      const arrived = (await this.git(mirror, ["rev-parse", "--verify", incomingRef(transfer)])).trim();
+      const arrived = (await this.git(mirror, [...gitDir, "rev-parse", "--verify", incomingRef(transfer)])).trim();
       if (arrived !== base) throw new Error(`The bundle carried ${arrived.slice(0, 12)}, not ${base.slice(0, 12)}.`);
       step("unpack", "done", input.bundle ? "Bundle verified and fetched" : "The mirror had every commit");
 
       const { worktree, branch } = await this.placeFor(mirror, input);
       step("worktree", "running", "Checking out");
       await mkdir(join(worktree, ".."), { recursive: true });
-      await this.git(mirror, ["worktree", "add", "--quiet", "--no-track", "-b", branch, worktree, base], { timeoutMs: 30 * 60_000 });
-      await this.git(mirror, ["config", branchBaseConfigKey(branch), base]);
+      await this.git(mirror, [...gitDir, "worktree", "add", "--quiet", "--no-track", "-b", branch, worktree, base], { timeoutMs: 30 * 60_000 });
+      await this.git(mirror, [...gitDir, "config", branchBaseConfigKey(branch), base]);
       if (input.repository) {
-        const target = (await this.git(mirror, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
-        if (target) await this.git(mirror, ["config", branchReviewTargetConfigKey(branch), target]);
+        const target = (await this.git(mirror, [...gitDir, "symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
+        if (target) await this.git(mirror, [...gitDir, "config", branchReviewTargetConfigKey(branch), target]);
       }
       step("worktree", "done", worktree);
       const entry: ReceivedWorktree = {
@@ -288,6 +289,7 @@ export class MirrorStore {
   async result(transfer: string, device?: string): Promise<ResultAnswer> {
     const entry = await this.get(transfer, device);
     const mirror = entry.repository ?? this.mirrorPath(entry.key);
+    const gitDir = entry.repository ? [] : ["--git-dir", mirror];
     return this.serial(entry.key, async () => {
       const { worktree, base } = entry;
       if (!await exists(worktree)) throw new HostCommandError(`The worktree of transfer ${transfer} is gone from this machine.`);
@@ -300,12 +302,12 @@ export class MirrorStore {
       const tip = (await this.git(worktree, ["rev-parse", "--verify", "HEAD"])).trim();
       await rm(this.outgoingPath(transfer), { force: true });
       if (tip === base) return { state: "nothing", tip };
-      await this.git(mirror, ["update-ref", resultRef(transfer), tip]);
-      const commits = Number((await this.git(mirror, ["rev-list", "--count", tip, `^${base}`])).trim()) || 0;
-      const files = (await this.git(mirror, ["diff", "--name-only", "-z", base, tip])).split("\0").filter(Boolean).length;
+      await this.git(mirror, [...gitDir, "update-ref", resultRef(transfer), tip]);
+      const commits = Number((await this.git(mirror, [...gitDir, "rev-list", "--count", tip, `^${base}`])).trim()) || 0;
+      const files = (await this.git(mirror, [...gitDir, "diff", "--name-only", "-z", base, tip])).split("\0").filter(Boolean).length;
       await mkdir(join(this.root, "outgoing"), { recursive: true });
       const path = this.outgoingPath(transfer);
-      await this.git(mirror, ["bundle", "create", "--quiet", path, "--stdin"], { stdin: `${resultRef(transfer)}\n^${base}\n`, timeoutMs: 30 * 60_000 });
+      await this.git(mirror, [...gitDir, "bundle", "create", "--quiet", path, "--stdin"], { stdin: `${resultRef(transfer)}\n^${base}\n`, timeoutMs: 30 * 60_000 });
       const size = (await stat(path)).size;
       return { state: "bundle", tip, commits, files, size, sha256: await sha256File(path) };
     });
@@ -333,12 +335,13 @@ export class MirrorStore {
   async remove(transfer: string, device?: string): Promise<void> {
     const entry = await this.get(transfer, device);
     const mirror = entry.repository ?? this.mirrorPath(entry.key);
+    const gitDir = entry.repository ? [] : ["--git-dir", mirror];
     await this.serial(entry.key, async () => {
-      if (await exists(entry.worktree)) await this.git(mirror, ["worktree", "remove", "--force", "--force", entry.worktree]).catch(() => "");
+      if (await exists(entry.worktree)) await this.git(mirror, [...gitDir, "worktree", "remove", "--force", "--force", entry.worktree]).catch(() => "");
       await rm(entry.worktree, { recursive: true, force: true });
-      await this.git(mirror, ["worktree", "prune"]).catch(() => "");
-      await this.git(mirror, ["branch", "-D", entry.branch]).catch(() => "");
-      for (const ref of [incomingRef(transfer), resultRef(transfer)]) await this.git(mirror, ["update-ref", "-d", ref]).catch(() => "");
+      await this.git(mirror, [...gitDir, "worktree", "prune"]).catch(() => "");
+      await this.git(mirror, [...gitDir, "branch", "-D", entry.branch]).catch(() => "");
+      for (const ref of [incomingRef(transfer), resultRef(transfer)]) await this.git(mirror, [...gitDir, "update-ref", "-d", ref]).catch(() => "");
       await rm(this.outgoingPath(transfer), { force: true });
       this.book = (await this.load()).filter((candidate) => candidate.transfer !== transfer);
       await this.save();

@@ -292,9 +292,12 @@ async function resolveBranchBase(cwd: string, requested?: string, runGit: GitRun
         upstream,
       ].filter(Boolean);
   for (const candidate of candidates) {
-    const exists = await runGit(cwd, ["rev-parse", "--verify", "--quiet", candidate]).then(() => true).catch(() => false);
+    const remoteRef = `refs/remotes/${candidate}`;
+    const isRemote = !candidate.startsWith("refs/") && await runGit(cwd, ["show-ref", "--verify", "--quiet", remoteRef]).then(() => true).catch(() => false);
+    const comparisonRef = isRemote ? remoteRef : candidate;
+    const exists = await runGit(cwd, ["rev-parse", "--verify", "--quiet", comparisonRef]).then(() => true).catch(() => false);
     if (!exists) continue;
-    const mergeBase = (await runGit(cwd, ["merge-base", candidate, "HEAD"]).catch(() => "")).trim();
+    const mergeBase = (await runGit(cwd, ["merge-base", comparisonRef, "HEAD"]).catch(() => "")).trim();
     if (mergeBase) return { ref: candidate, mergeBase };
   }
   throw new Error("No branch comparison base is available.");

@@ -1,3 +1,4 @@
+import { gitEnvironment } from "tau/host-extension";
 import { spawn } from "node:child_process";
 
 export interface GitResult {
@@ -26,7 +27,7 @@ export function gitCall(git = "git", onSpawn?: () => void): GitCall {
     delete env.ELECTRON_RUN_AS_NODE;
     Object.assign(env, options.env);
     onSpawn?.();
-    const child = spawn(git, args, { cwd: options.cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true, ...(options.signal ? { signal: options.signal } : {}) });
+    const child = spawn(git, args, { cwd: options.cwd, env: gitEnvironment(env), stdio: ["pipe", "pipe", "pipe"], windowsHide: true, ...(options.signal ? { signal: options.signal } : {}) });
     const out: Buffer[] = [];
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => out.push(chunk));

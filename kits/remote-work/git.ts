@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { gitExecutable } from "tau/host-extension";
+import { gitEnvironment, gitExecutable } from "tau/host-extension";
 import type { AgentGitRunner } from "../workspace/agent-worktrees.js";
 
 const execFileAsync = promisify(execFile);
@@ -36,7 +36,7 @@ export function createGitRunner({ config = [], env: base = process.env }: GitRun
       maxBuffer: 64 * 1024 * 1024,
       timeout: options.timeoutMs ?? 120_000,
       windowsHide: true,
-      env: options.indexFile ? { ...env, GIT_INDEX_FILE: options.indexFile, GIT_OPTIONAL_LOCKS: "0" } : env,
+      env: gitEnvironment(options.indexFile ? { ...env, GIT_INDEX_FILE: options.indexFile, GIT_OPTIONAL_LOCKS: "0" } : env),
     });
     if (options.stdin !== undefined) child.child.stdin?.end(options.stdin);
     const { stdout } = await child;

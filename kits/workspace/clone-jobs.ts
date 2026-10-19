@@ -1,3 +1,4 @@
+import { gitEnvironment } from "tau/host-extension";
 import { spawn as spawnProcess, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { lstat, readdir, rm, stat } from "node:fs/promises";
@@ -78,7 +79,7 @@ export class CloneJobs {
       stdio: ["ignore", "ignore", "pipe"],
       windowsHide: true,
       // No terminal can answer a credential prompt; git fails instead of waiting.
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+      env: gitEnvironment({ ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" }),
     });
     const job: Job = { snapshot, child, parent, cancelled: false, tail: [] };
     this.jobs.set(snapshot.id, job);

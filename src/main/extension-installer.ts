@@ -1,3 +1,4 @@
+import { gitEnvironment } from "./git-environment.js";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -55,12 +56,13 @@ export interface InstalledExtension {
   error?: string;
 }
 
-function run(command: string, args: string[], options: { cwd?: string; signal?: AbortSignal }): Promise<{ stdout: string; stderr: string }> {
+function run(command: string, args: string[], options: { cwd?: string; signal?: AbortSignal; git?: boolean }): Promise<{ stdout: string; stderr: string }> {
   // npm is `npm.cmd` on Windows, which only runs through cmd.exe.
   const invocation = commandInvocation(command, args);
   return execFileAsync(invocation.command, invocation.args, {
     ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     windowsHide: true,
+    ...(options.git ? { env: gitEnvironment() } : {}),
     ...(options.cwd ? { cwd: options.cwd } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     timeout: COMMAND_TIMEOUT_MS,
@@ -104,13 +106,13 @@ async function fetchSource(source: ExtensionSource, home: string, options: Insta
     const exists = await stat(join(directory, ".git")).then((info) => info.isDirectory()).catch(() => false);
     if (exists) {
       options.progress?.(`git pull ${source.value}`);
-      await run(locate(options, "git") ?? gitExecutable(), ["pull", "--ff-only"], { cwd: directory, signal: options.signal });
+      await run(locate(options, "git") ?? gitExecutable(), ["pull", "--ff-only"], { cwd: directory, signal: options.signal, git: true });
       return directory;
     }
     await mkdir(gitStoreDirectory(home), { recursive: true, mode: 0o700 });
     await rm(directory, { recursive: true, force: true });
     options.progress?.(`git clone --depth 1 ${source.value}`);
-    await run(locate(options, "git") ?? gitExecutable(), ["clone", "--depth", "1", "--", source.value, directory], { signal: options.signal });
+    await run(locate(options, "git") ?? gitExecutable(), ["clone", "--depth", "1", "--", source.value, directory], { signal: options.signal, git: true });
     return directory;
   }
   if (!await stat(directory).then((info) => info.isDirectory()).catch(() => false)) {
@@ -192,10 +194,10 @@ async function syncGitExclude(cwd: string, options: InstallerOptions): Promise<v
       return source.kind === "path" && outside(cwd, source.value);
     } catch { return false; }
   });
-  const excludePath = await run(git, ["rev-parse", "--git-path", "info/exclude"], { cwd }).then(({ stdout }) => resolve(cwd, stdout.trim()), () => undefined);
+  const excludePath = await run(git, ["rev-parse", "--git-path", "info/exclude"], { cwd, git: true }).then(({ stdout }) => resolve(cwd, stdout.trim()), () => undefined);
   if (!excludePath) return;
   // A tracked file is a change others see either way; ignoring it would only hide that.
-  if (machineOnly && await run(git, ["ls-files", "--error-unmatch", "--", ".tau/packages.json"], { cwd }).then(() => true, () => false)) return;
+  if (machineOnly && await run(git, ["ls-files", "--error-unmatch", "--", ".tau/packages.json"], { cwd, git: true }).then(() => true, () => false)) return;
   const text = await readFile(excludePath, "utf8").catch(() => "");
   const lines = text.split("\n");
   const at = lines.indexOf(EXCLUDE_MARK);
