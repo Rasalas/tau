@@ -226,6 +226,8 @@ export function SettingsScreen({
       commandLabel: commands.find((command) => command.id === binding.commandId)?.label,
     })),
   }), search) : [];
+  // Results can shrink without a keystroke (a contribution unloads); keep the highlight on a row.
+  const active = Math.min(activeResult, Math.max(found.length - 1, 0));
   const clearSearch = () => { setSearch(""); setActiveResult(0); };
   const openFound = (entry: SettingsSearchEntry) => {
     if (entry.filter !== undefined) setKeybindingFilter((current) => ({ filter: entry.filter!, seq: current.seq + 1 }));
@@ -404,14 +406,14 @@ export function SettingsScreen({
                 placeholder="Search settings"
                 aria-label="Search settings"
                 aria-controls={found.length > 0 ? "settings-search-results" : undefined}
-                aria-activedescendant={found[activeResult] ? `settings-search-result-${activeResult}` : undefined}
+                aria-activedescendant={found[active] ? `settings-search-result-${active}` : undefined}
                 onChange={(event) => { setSearch(event.target.value); setActiveResult(0); }}
                 onKeyDown={(event) => {
                   if (event.key === "Escape" && search) { event.preventDefault(); event.stopPropagation(); clearSearch(); return; }
                   if (found.length === 0) return;
-                  if (event.key === "ArrowDown") { event.preventDefault(); setActiveResult((index) => (index + 1) % found.length); }
-                  if (event.key === "ArrowUp") { event.preventDefault(); setActiveResult((index) => (index - 1 + found.length) % found.length); }
-                  if (event.key === "Enter") { event.preventDefault(); const entry = found[activeResult]; if (entry) openFound(entry); }
+                  if (event.key === "ArrowDown") { event.preventDefault(); setActiveResult((active + 1) % found.length); }
+                  if (event.key === "ArrowUp") { event.preventDefault(); setActiveResult((active - 1 + found.length) % found.length); }
+                  if (event.key === "Enter") { event.preventDefault(); const entry = found[active]; if (entry) openFound(entry); }
                 }}
               />
               {search ? (
@@ -427,8 +429,8 @@ export function SettingsScreen({
                       type="button"
                       id={`settings-search-result-${index}`}
                       role="option"
-                      aria-selected={index === activeResult}
-                      className={`settings-search-result ${index === activeResult ? "active" : ""}`}
+                      aria-selected={index === active}
+                      className={`settings-search-result ${index === active ? "active" : ""}`}
                       onMouseMove={() => setActiveResult(index)}
                       onClick={() => openFound(entry)}
                     >

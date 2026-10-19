@@ -461,6 +461,8 @@ function openWindow(): BrowserWindow {
   });
   if (backgroundMode) mainWindow.showInactive();
   mainWindow.webContents.on("before-input-event", quitShortcut);
+  // Ctrl/⌘+wheel never reaches a menu accelerator; Chromium leaves the zoom to the app.
+  mainWindow.webContents.on("zoom-changed", (_event, direction) => zoomWorkbench(direction));
   installWorkbenchEditingMenu(mainWindow.webContents, (items, point) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     Menu.buildFromTemplate(items).popup({ window: mainWindow, x: point.x, y: point.y });

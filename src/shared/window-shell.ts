@@ -22,6 +22,10 @@ export const APP_MENU_CHORDS = {
   zoomIn: "mod+=",
   zoomInPlus: "mod++",
   zoomOut: "mod+-",
+  // The keypad sends its own key codes; the number-row chords never match it.
+  actualSizeKeypad: "mod+num0",
+  zoomInKeypad: "mod+numadd",
+  zoomOutKeypad: "mod+numsub",
   quit: "mod+q",
 } as const;
 

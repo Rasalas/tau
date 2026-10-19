@@ -70,6 +70,13 @@ describe("offerings", () => {
     expect(byPrice.map((group) => group.ways[0]!.model.id)).toEqual(["gpt-5.6-luna", "gpt-5.6-sol"]);
   });
 
+  it("keeps equal search matches in the order their runtime lists them", () => {
+    const newer = offering("pi", { provider: "openai", id: "gpt-5.7", name: "GPT-5.7" });
+    const older = offering("pi", { provider: "openai", id: "gpt-5.5", name: "GPT-5.5" });
+    // The catalog lists the newer one first; name order would put 5.5 before it.
+    expect(searchOfferings([older, newer], "gpt", "relevance").map((entry) => entry.key)).toEqual([newer.key, older.key]);
+  });
+
   it("keeps a family's later ways when another model ranks between them", () => {
     const expensive = { ...lunaCodex, model: { ...lunaCodex.model, price: { input: 100, output: 100 } } };
     const entries = modelEntries(searchOfferings([sol, expensive, lunaPi], "gpt", "price"));

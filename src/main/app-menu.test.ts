@@ -35,7 +35,12 @@ describe("the app menu", () => {
     click(item(view, "Zoom Out"));
     click(item(view, "Actual Size"));
     expect(on.zoom.mock.calls).toEqual([["in"], ["out"], ["reset"]]);
-    expect(view.map((entry) => entry.accelerator).filter(Boolean)).toEqual(["CmdOrCtrl+0", "CmdOrCtrl+=", "CmdOrCtrl+Plus", "CmdOrCtrl+-"]);
+    expect(view.map((entry) => entry.accelerator).filter(Boolean)).toEqual(["CmdOrCtrl+0", "CmdOrCtrl+=", "CmdOrCtrl+Plus", "CmdOrCtrl+-", "CmdOrCtrl+num0", "CmdOrCtrl+numadd", "CmdOrCtrl+numsub"]);
+    // The keypad items only listen, and zoom like the number row.
+    const hidden = view.filter((entry) => entry.visible === false && /num/u.test(entry.accelerator ?? ""));
+    expect(hidden).toHaveLength(3);
+    for (const entry of hidden) click(entry, true);
+    expect(on.zoom.mock.calls.slice(3)).toEqual([["reset"], ["in"], ["out"]]);
     expect(view.some((entry) => entry.role === "zoomIn" || entry.role === "zoomOut" || entry.role === "resetZoom")).toBe(false);
   });
 
