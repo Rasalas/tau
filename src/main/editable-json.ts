@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
+import { renameReplacing } from "./atomic-rename.js";
 import { dirname, resolve } from "node:path";
 
 function missing(error: unknown): boolean {
@@ -66,7 +67,7 @@ export async function writeJson(path: string, data: unknown): Promise<void> {
     } finally {
       await handle.close();
     }
-    await rename(temp, path);
+    await renameReplacing(temp, path);
   } finally {
     await rm(temp, { force: true });
   }

@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import { HostCommandError, type HostCommandCall, type HostExtensionContext } from "tau/host-extension";
 import { REVIEW_HOST_EXTENSION_ID } from "./protocol.js";
@@ -100,7 +101,7 @@ export function createGitHubRouting(context: HostExtensionContext, local: Source
       await mkdir(services.stateDir, { recursive: true });
       const temp = `${file}.${process.pid}.tmp`;
       await writeFile(temp, `${contents}\n`, { mode: 0o600 });
-      await rename(temp, file);
+      await renameReplacing(temp, file);
     });
     return writes;
   };

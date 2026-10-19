@@ -1,4 +1,5 @@
-import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import type { HostExtension, HostExtensionContext, PiUserKeybindings } from "tau/host-extension";
@@ -85,7 +86,7 @@ export async function editKeybindingsFile(agentDir: string, edit: (file: Record<
   const temp = join(dirname(path), `.keybindings.json.${process.pid}.${Date.now()}.tmp`);
   try {
     await writeFile(temp, `${JSON.stringify(file, null, 2)}\n`, "utf8");
-    await rename(temp, path);
+    await renameReplacing(temp, path);
   } finally {
     await rm(temp, { force: true });
   }

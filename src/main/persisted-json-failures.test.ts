@@ -71,6 +71,19 @@ describe("persisted JSON failures", () => {
     expect(await readFile(path, "utf8")).toBe("{broken");
   });
 
+  it("saves on Windows after a scanner briefly holds the target", async () => {
+    const { directory, path, logger } = await fixture();
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    vi.mocked(rename).mockRejectedValueOnce(Object.assign(new Error("busy"), { code: "EBUSY" })).mockImplementation(actual.rename);
+    await writePersistedJson(path, 1, { items: ["kept"] }, { logger });
+    platform.mockRestore();
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ version: 1, items: ["kept"] });
+    expect(vi.mocked(rename)).toHaveBeenCalledTimes(2);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect((await readdir(directory)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
   it.each(["open", "writeFile", "sync", "close", "rename", "directorySync"] as const)("cleans up and reports a %s failure", async (stage) => {
     const { directory, path, logger } = await fixture();
     const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");

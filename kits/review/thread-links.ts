@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import { REQUEST_SERVICES, type PullRequestRef, type RequestService, type ThreadPullRequestLink } from "./protocol.js";
 
@@ -96,7 +97,7 @@ export class ThreadLinkStore {
       await mkdir(this.stateDir, { recursive: true });
       const temporary = join(this.stateDir, `${FILE}.${process.pid}.tmp`);
       await writeFile(temporary, snapshot);
-      await rename(temporary, join(this.stateDir, FILE));
+      await renameReplacing(temporary, join(this.stateDir, FILE));
     }).catch(() => undefined);
     return this.writing;
   }

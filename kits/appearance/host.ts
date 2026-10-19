@@ -1,4 +1,5 @@
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
 import { APPEARANCE_EXTENSION_ID, type SaveThemeInput, type SaveThemeResult } from "./protocol.js";
@@ -43,7 +44,7 @@ export function createAppearanceHostExtension(): WorkerHostExtension & { permiss
         // Written aside and moved, so the watcher never reads half a file.
         const partial = `${path}.${process.pid}.tmp`;
         await writeFile(partial, themeFileCss(theme), "utf8");
-        await rename(partial, path);
+        await renameReplacing(partial, path);
         return { id: theme.id, path };
       });
     },

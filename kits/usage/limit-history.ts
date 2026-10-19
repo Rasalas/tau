@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { dirname } from "node:path";
 import type { UsageLimitAccount, UsageLimitSample } from "./protocol.js";
 
@@ -52,7 +53,7 @@ export class LimitHistory {
     this.samples = this.samples.slice(-MAX_SAMPLES);
     await mkdir(dirname(this.file), { recursive: true });
     await writeFile(`${this.file}.tmp`, JSON.stringify(this.samples));
-    await rename(`${this.file}.tmp`, this.file);
+    await renameReplacing(`${this.file}.tmp`, this.file);
     return [...this.samples];
   }
 }

@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
-import { rename, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { dirname } from "node:path";
 
 /**
@@ -70,6 +71,6 @@ export class OpenCodeServerSettings {
     mkdirSync(dirname(this.file), { recursive: true });
     const temporary = `${this.file}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify(Object.fromEntries(this.servers), null, 2)}\n`, { mode: 0o600 });
-    await rename(temporary, this.file);
+    await renameReplacing(temporary, this.file);
   }
 }

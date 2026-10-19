@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, TOOLS, type ActionInput, type Device, type DeviceHost, type DeviceSettings, type HubState, type FoldState, type Target } from "./protocol.js";
 import { quote, run, stop, type Run } from "./process.js";
@@ -81,7 +82,7 @@ export class DeviceManager {
     await mkdir(this.directory, { recursive: true });
     const pending = join(this.directory, "settings.pending.json");
     await writeFile(pending, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
-    await rename(pending, join(this.directory, "settings.json"));
+    await renameReplacing(pending, join(this.directory, "settings.json"));
     this.generation++;
     for (const hub of this.hubs.values()) stop(hub.child);
     this.hubs.clear(); this.scales.clear();

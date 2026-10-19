@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { renameReplacing } from "./atomic-rename.js";
 import { basename, dirname, join } from "node:path";
 
 /** What every persisted store logs through; kept minimal so `console` satisfies it by default. */
@@ -140,7 +141,7 @@ async function writeOnce(path: string, version: number, data: Record<string, unk
     } finally {
       await handle.close();
     }
-    await rename(temp, path);
+    await renameReplacing(temp, path);
     await chmod(path, 0o600).catch(() => undefined);
     await syncDirectory(dir);
   } catch (error) {

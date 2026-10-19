@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import { HostCommandError, type HostExtensionServices, type HostThread, type UiPromptAttachment, type UiThreadUsage } from "tau/host-extension";
 import type {
@@ -106,7 +107,7 @@ export class HostedThreads {
       await mkdir(this.options.stateDir, { recursive: true });
       const temporary = `${this.bookPath}.${process.pid}.tmp`;
       await writeFile(temporary, `${JSON.stringify(entries, null, 1)}\n`, { mode: 0o600 });
-      await rename(temporary, this.bookPath);
+      await renameReplacing(temporary, this.bookPath);
     });
     this.writing = write;
     return write;

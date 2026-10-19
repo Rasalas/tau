@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { dirname, join } from "node:path";
 import type { HostExtension } from "tau/host-extension";
 import { anthropicIdentity, readPiChatgptIdentity, type AccountIdentity } from "./account-identity.js";
@@ -52,7 +53,7 @@ export function createPiLimitsHostExtension(options: PiLimitsOptions = {}): Host
         try {
           await mkdir(dirname(file), { recursive: true });
           await writeFile(temporary, JSON.stringify({ providers: Object.fromEntries(held) }));
-          await rename(temporary, file);
+          await renameReplacing(temporary, file);
         } catch (error) {
           services.log("pi-limits.save-failed", error instanceof Error ? error.message : String(error));
         }

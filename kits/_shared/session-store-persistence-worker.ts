@@ -350,7 +350,7 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
       else throw new Error("Unknown SQLite session operation");
       port.postMessage({ id: request.id, value });
     } catch (error) {
-      port.postMessage({ id: request.id, error: error instanceof Error ? error.message : String(error) });
+      port.postMessage({ id: request.id, error: error instanceof Error ? error.message : String(error), errcode: (error as { errcode?: unknown }).errcode });
     }
   });
 }

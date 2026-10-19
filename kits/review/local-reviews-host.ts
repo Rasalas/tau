@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join, sep } from "node:path";
 import { HostCommandError, type HostExtensionContext, type UiMessage } from "tau/host-extension";
 import {
@@ -98,7 +99,7 @@ export class LocalReviewBook {
       await mkdir(this.stateDir, { recursive: true });
       const temporary = join(this.stateDir, `${FILE}.${process.pid}.tmp`);
       await writeFile(temporary, snapshot);
-      await rename(temporary, join(this.stateDir, FILE));
+      await renameReplacing(temporary, join(this.stateDir, FILE));
     }).catch(() => undefined);
     await this.writing;
     return book;

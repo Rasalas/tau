@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import { assertAllowedCloneSource, HostCommandError, tauHomeDir } from "tau/host-extension";
 import { branchBaseConfigKey, branchReviewTargetConfigKey } from "../workspace/agent-worktrees.js";
@@ -129,7 +130,7 @@ export class MirrorStore {
     await mkdir(this.options.stateDir, { recursive: true });
     const temporary = `${this.bookPath}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify(this.book ?? [], null, 1)}\n`, { mode: 0o600 });
-    await rename(temporary, this.bookPath);
+    await renameReplacing(temporary, this.bookPath);
   }
 
   async list(): Promise<ReceivedWorktree[]> {

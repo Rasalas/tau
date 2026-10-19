@@ -232,6 +232,16 @@ it.each(["missing", "corrupt"])("never imports stale backups when a published da
   expect(JSON.parse(await readFile(filePath, "utf8")).layout).toBe("sqlite-sessions");
 });
 
+it("reports a database file that is not a database as a sentence with a next step", async () => {
+  const { filePath } = await fixture();
+  await writeFile(filePath, JSON.stringify({ version: 1, sessions: [{ tauThreadId: "old" }] }));
+  const store = makeStore(filePath); await store.load(); await store.dispose();
+  await writeFile(store.databasePath, "not a database, not a database, not a database");
+  const failure = await makeStore(filePath).load().catch((error: Error) => error);
+  expect((failure as Error).message).toMatch(/SQLITE_NOTADB.*Keep a copy/u);
+  expect(((failure as Error).cause as Error).message).toBe("file is not a database");
+});
+
 it("refuses a database removed after load, rejects future touched records and preserves independent IDs", async () => {
   const { filePath } = await fixture();
   const store = makeStore(filePath);
