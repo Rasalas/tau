@@ -120,6 +120,20 @@ describe("the Preview on another device", () => {
     await waitFor(() => expect(inputs(invoke)).toContainEqual({ kind: "key", key: "Enter" }));
   });
 
+  it("pastes this device's clipboard into the focused field", async () => {
+    const readText = vi.fn(async () => "pasted-token");
+    Object.defineProperty(navigator, "clipboard", { value: { readText }, configurable: true });
+    const { invoke } = setup();
+    await picture();
+    fireEvent.click(screen.getByRole("button", { name: "Paste" }));
+    await waitFor(() => expect(inputs(invoke)).toContainEqual({ kind: "text", text: "pasted-token" }));
+    readText.mockRejectedValueOnce(new Error("denied"));
+    fireEvent.click(screen.getByRole("button", { name: "Paste" }));
+    expect(await screen.findByText("Could not read the clipboard.")).toBeTruthy();
+    expect(inputs(invoke)).toHaveLength(1);
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
   it("lets a Read-only device watch, and says why it cannot drive", async () => {
     const { invoke } = setup({ readOnly: true });
     const image = await picture();

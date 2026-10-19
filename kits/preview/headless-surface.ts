@@ -3,6 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { HeadlessPreviewRecorder } from "./headless-recorder.js";
 import { PreviewBrowserProcess } from "./browser-process.js";
+import { requireBrowserFonts } from "./browser-fonts.js";
 import { previewFileAllowed, savePreviewDownload } from "./headless-files.js";
 import type { PreviewSurface, PreviewSurfaceOptions } from "./host.js";
 import { EMPTY_PREVIEW_STATE, type PreviewState } from "./protocol.js";
@@ -44,6 +45,7 @@ export const HEADLESS_DOCUMENT_URL = "https://tau-preview.invalid/";
 /** A headless Chromium page behind the same interface as the desktop view. */
 export async function createHeadlessPreviewSurface(options: PreviewSurfaceOptions, executable: string, stateDir: string, document?: HeadlessDocument): Promise<PreviewSurface> {
   const profile = profilePath(stateDir, options.partition);
+  await requireBrowserFonts();
   await mkdir(profile, { recursive: true, mode: 0o700 });
   options.signal?.throwIfAborted();
   const browser = new PreviewBrowserProcess(executable, profile);
