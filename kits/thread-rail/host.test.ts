@@ -16,7 +16,7 @@ import type {
   HostThreadLifecycle,
   HostTurnObserver,
 } from "tau/host-extension";
-import type { UiSession } from "tau";
+import type { ExtensionUiPrompt, UiSession } from "tau";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { ownedProcessTree } from "../../src/main/test-support/owned-process-tree.js";
 import { MACHINE_STATE_TOPIC, MACHINE_META_EVENT, MACHINE_TRASH_EVENT } from "./machine-state.js";
@@ -63,6 +63,7 @@ async function harness(setup: Setup = {}) {
   const instructions: unknown[] = [];
   const runtimeExtensions: string[] = [];
   const lifecycles: HostThreadLifecycle[] = [];
+  const decorators: Array<(prompt: ExtensionUiPrompt) => void | (() => void)> = [];
   const start = vi.fn(async (options: { cwd: string }) => ({ sessionId: `started-${start.mock.calls.length}`, cwd: options.cwd }));
   const trash: Array<{ sessionId: string }> = [];
   const removed = vi.fn(async (sessionId: string) => { trash.push({ sessionId }); });
@@ -88,6 +89,8 @@ async function harness(setup: Setup = {}) {
     registerRuntimeExtension: (name) => { runtimeExtensions.push(name); return () => undefined; },
     registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
     registerThreadLifecycle: (lifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
+    decorateUiPrompt: (decorator) => { decorators.push(decorator); return () => undefined; },
+    thread: () => undefined,
   };
   const registry = await activateHostKit(
     createThreadRailHostExtension({
@@ -126,7 +129,7 @@ async function harness(setup: Setup = {}) {
     const offered = (await Promise.all(toolProviders.map((provider) => provider({ sessionId: threadId, cwd: "/project" })))).flat();
     return new Map<string, HostMcpTool>(offered.map((tool) => [tool.name, tool]));
   };
-  return { invoke, events, observers, lifecycles, start, stateDir, removed, restored, registry, tools, instructions, runtimeExtensions };
+  return { invoke, events, observers, lifecycles, decorators, start, stateDir, removed, restored, registry, tools, instructions, runtimeExtensions };
 }
 
 function machineServices(initial: HostMachine[] = [], self = "here") {
@@ -192,6 +195,23 @@ describe("Thread Rail host", () => {
     const state = await invoke("state");
     expect(state.threads.settled).toEqual({ keptAt: NOW + 10, activityAt: NOW + 10 });
     expect(state.threads.snoozed).toEqual({ activityAt: NOW + 10 });
+  });
+
+  it("brings every shelved or snoozed ancestor back when a sub-agent asks, and leaves the rest alone", async () => {
+    const sessions = [
+      { ...session("child", "/project"), parentThreadId: "parent" },
+      { ...session("parent", "/project"), parentThreadId: "root" },
+      session("root", "/project"),
+      session("other", "/project"),
+    ];
+    const { invoke, decorators } = await harness({ sessions });
+    await invoke("patch", { patches: { parent: { settledAt: 1, settledBy: "user" }, root: { snoozedUntil: NOW + DAY_MS }, other: { settledAt: 1, settledBy: "user" }, child: { settledAt: 1, settledBy: "user" } } });
+    decorators[0]!({ id: "q1", sessionId: "child", kind: "input", title: "Which file?" });
+    const state = await invoke("state");
+    expect(state.threads.parent).toEqual({ keptAt: NOW });
+    expect(state.threads.root).toBeUndefined();
+    expect(state.threads.other).toMatchObject({ settledAt: 1 });
+    expect(state.threads.child).toMatchObject({ settledAt: 1 });
   });
 
   it("settles a quiet thread and one whose request merged, but never one that is running", async () => {

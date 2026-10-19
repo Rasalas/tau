@@ -68,7 +68,13 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
         if (change.delivery && !services.settings) context.emit(NOTIFY_EVENT, change.delivery);
         else void audible(change.delivery).then((delivery) => { if (delivery) context.emit(NOTIFY_EVENT, delivery); });
       };
-      const raise = (threadId: string, reason: AttentionReason): void => {
+      /** The threads from this one up to the one the user started; just this one when it has no parent. */
+      const chainOf = (threadId: string): string[] => {
+        const chain = [threadId];
+        for (let parent = services.thread(threadId)?.parentThreadId; parent && !chain.includes(parent); parent = services.thread(parent)?.parentThreadId) chain.push(parent);
+        return chain;
+      };
+      const raise = (threadId: string, reason: AttentionReason, shownOn: readonly string[] = []): void => {
         if (!threadId) return;
         const thread = services.thread(threadId);
         // A sub-agent reports to the thread that spawned it, not to the user.
@@ -79,7 +85,7 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
           reason,
           ...(title ? { title } : {}),
           ...(thread?.sessionFile ? { path: thread.sessionFile } : {}),
-        }));
+        }, shownOn));
       };
       const stops = [
         // Once the thread is done, not after each turn of its queue.
@@ -87,13 +93,16 @@ export function createNotificationsHostExtension(options: NotificationsHostOptio
           runEnded: (sessionId, outcome) => raise(sessionId, outcome === "failed" ? "failed" : "completed"),
         }),
         services.decorateUiPrompt((prompt) => {
-          raise(prompt.sessionId, promptReason(prompt));
-          asking.set(prompt.sessionId, (asking.get(prompt.sessionId) ?? 0) + 1);
+          // A sub-agent's question is the user's to answer: it reaches them once, on the thread they started.
+          const chain = chainOf(prompt.sessionId);
+          const target = chain.at(-1)!;
+          raise(target, promptReason(prompt), chain.slice(0, -1));
+          asking.set(target, (asking.get(target) ?? 0) + 1);
           return () => {
-            const left = (asking.get(prompt.sessionId) ?? 1) - 1;
-            if (left > 0) { asking.set(prompt.sessionId, left); return; }
-            asking.delete(prompt.sessionId);
-            publish(book.answered(prompt.sessionId));
+            const left = (asking.get(target) ?? 1) - 1;
+            if (left > 0) { asking.set(target, left); return; }
+            asking.delete(target);
+            publish(book.answered(target));
           };
         }),
         services.registerThreadLifecycle({ threadDeleted: async (sessionId) => publish(book.drop(sessionId)) }),

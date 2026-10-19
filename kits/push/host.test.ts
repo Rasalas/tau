@@ -217,6 +217,16 @@ describe("the push host half", () => {
     expect(apple.requests).toHaveLength(2);
   });
 
+  it("pushes a sub-agent's question once, as the thread the user started", async () => {
+    const { decorators, setUp, settle, apple } = await harness();
+    await setUp();
+    decorators[0]!({ id: "q1", sessionId: "child", kind: "input", title: "Which file?" });
+    decorators[0]!({ id: "q2", sessionId: "child", kind: "input", title: "And which dir?" });
+    await settle();
+    expect(apple.requests).toHaveLength(1);
+    expect(JSON.parse(apple.requests[0]!.body)).toMatchObject({ aps: { "thread-id": "t1" }, kind: "question" });
+  });
+
   it("holds news back while the user is at Tau and sends it once they are away, if still unseen", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {

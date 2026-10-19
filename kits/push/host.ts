@@ -449,7 +449,11 @@ export function createPushHostExtension(options: PushHostOptions = {}): HostExte
         services.decorateUiPrompt((prompt) => {
           activityLater(prompt.sessionId, "needs-input", { state: "waiting", reason: questionText(prompt) });
           const approval = prompt.kind === "confirm" || (prompt.kind === "select" && prompt.options?.some((option) => APPROVAL_OPTION.test(option)));
-          raiseLater(prompt.sessionId, approval ? "approval" : "question", questionText(prompt));
+          // A sub-agent's question reaches the phone once, on the thread the user started.
+          const above = new Set([prompt.sessionId]);
+          let root = prompt.sessionId;
+          for (let parent = services.thread(root)?.parentThreadId; parent && !above.has(parent); parent = services.thread(root)?.parentThreadId) { above.add(parent); root = parent; }
+          raiseLater(root, approval ? "approval" : "question", questionText(prompt));
         }),
         services.registerThreadLifecycle({ threadDeleted: async (sessionId) => { lastPushed.delete(sessionId); } }),
         services.clients.observe({
