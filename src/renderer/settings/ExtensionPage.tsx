@@ -3,7 +3,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, Settings2, Sparkles, X } from
 import { errorMessage } from "../../workbench/error-message";
 import type { ExtensionInspection, HostExtensionSummary, UiModel } from "../../shared/contracts";
 import type { ExtensionRegistry, ExtensionSummary, SettingsSectionProps } from "../extension-system";
-import { NETWORK_ADVISORY_NOTE, PERMISSION_NOTES, type ExtensionPermission } from "../../shared/extension-permissions";
+import { IN_PROCESS_WARNING, PERMISSION_NOTES, permissionTitle, workerDescription, type ExtensionPermission } from "../../shared/extension-permissions";
 import { usePreferences } from "../renderer-services-context";
 import { catalogLevels } from "../../workbench/runtime-catalog-store";
 import { useRuntimeCatalog } from "../use-runtime-catalog";
@@ -18,24 +18,6 @@ import { Badge, Button, Select, SettingsState, Switch, ValueList, type ValueList
 import { extensionBlurb, stateLabel, type ExtensionEntry } from "./extension-catalog";
 import { SettingRow, SettingsSection } from "./settings-layout";
 import { runtimePage } from "./settings-nav";
-
-/** Each permission in the words of what it lets a package do. */
-const PERMISSION_TITLES: Readonly<Record<ExtensionPermission, string>> = {
-  "workspace:read": "Read the project's files",
-  "workspace:write": "Change the project's files",
-  "workspace:switch": "Open another project",
-  sessions: "Read and write threads",
-  "runtime:extend": "Give agents new tools and behaviour",
-  process: "Start programs on this machine",
-  network: "Reach the network",
-  packages: "Install and remove extension packages",
-  machines: "Work on your other machines",
-  native: "Load compiled code into Tau",
-};
-
-export function permissionTitle(permission: string): string {
-  return PERMISSION_TITLES[permission as ExtensionPermission] ?? permission;
-}
 
 /** A model choice an extension declared; empty means the thread's own model. */
 function ModelOptionRow({ label, value, models, disabled, thinkingLevel, onThinkingLevelChange, onChange }: {
@@ -292,8 +274,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
   };
 
   const isolation = entry.host?.isolation ?? entry.pkg?.isolation ?? summary?.isolation;
-  const workerDescription = "It runs in a process of its own: it reads its own files, writes only to its own data folder, and cannot reach the network, start programs or load compiled code without the matching permission."
-    + (entry.permissions.includes("process") || entry.permissions.includes("native") ? " With the permission to start programs or load compiled code it could get around these limits." : "");
+  const workerText = workerDescription(entry.permissions);
   const details: ValueListItem[] = [
     { label: "Version", value: entry.version ?? "Not declared", mono: Boolean(entry.version) },
     { label: "Source", value: originText(entry, distribution) },
@@ -339,9 +320,9 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
               </ul>
             ) : <p className="extension-approval-quiet">It asks for no permissions.</p>}
             {isolation === "in-process" ? (
-              <p className="extension-approval-warning" role="note"><AlertTriangle size={14} aria-hidden />It {NETWORK_ADVISORY_NOTE}, so it can read and write files, reach the network, start programs and load compiled code whatever it asked for.</p>
+              <p className="extension-approval-warning" role="note"><AlertTriangle size={14} aria-hidden />{IN_PROCESS_WARNING}</p>
             ) : (
-              <p className="extension-approval-quiet">{workerDescription}</p>
+              <p className="extension-approval-quiet">{workerText}</p>
             )}
             <div className="extension-approval-actions">
               <Button variant="primary" onClick={() => void answer(true)}>Allow and turn on</Button>
@@ -432,7 +413,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
           {isolation ? (
             <SettingRow
               title={isolation === "in-process" ? "Runs inside Tau's own process" : "Runs in a worker of its own"}
-              description={isolation === "in-process" ? "Its permissions are a promise, not a fence: inside Tau's own process, it cannot be held to them." : workerDescription}
+              description={isolation === "in-process" ? "Its permissions are a promise, not a fence: inside Tau's own process, it cannot be held to them." : workerText}
             />
           ) : null}
           {entry.permissions.length === 0 ? <p className="settings-group-note">It asks for no permissions.</p> : null}

@@ -1,6 +1,7 @@
 import { HostCommandError, type HostExtension, type HostExtensionContext, type InstalledPackage, type PackageScope } from "tau/host-extension";
 import { isAbsolute } from "node:path";
 import { registerNewPackage } from "./new-package-tool.js";
+import { PackageInstalls } from "./install-tool.js";
 import { PACKAGES_EXTENSION_ID, type PackageRow } from "./protocol.js";
 
 const record = (input: unknown): Record<string, unknown> =>
@@ -60,7 +61,7 @@ export function createPackagesHostExtension(): HostExtension {
   return {
     id: PACKAGES_EXTENSION_ID,
     name: "Packages",
-    permissions: ["packages", "runtime:extend"],
+    permissions: ["packages", "sessions", "runtime:extend"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       const announce = (name: string, payload: unknown) => {
@@ -144,7 +145,9 @@ export function createPackagesHostExtension(): HostExtension {
         };
       }, { long: true });
       const stopNewPackage = registerNewPackage(context);
-      return () => { stopBuilds?.(); stopNewPackage(); };
+      const installs = new PackageInstalls(context);
+      installs.register();
+      return () => { installs.close(); stopBuilds?.(); stopNewPackage(); };
     },
   };
 }

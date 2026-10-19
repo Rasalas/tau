@@ -3,6 +3,7 @@ import type { GlobalHostEvent, HostExtensionSummary, PackageBuildError } from ".
 import { grantPackage, isPackageGranted, readExtensionGrants } from "./extension-grants.js";
 import { listExtensionPackages, packageIsolation, type ExtensionPackage, type HostPackageLoadResult, type LoadedHostPackage } from "./extension-packages.js";
 import type { HostExtension, HostExtensionRegistry } from "./host-extensions.js";
+import { approvePackageFolder, reviewPackageFolder, type PackageReview } from "./package-approval.js";
 
 export interface ExtensionPackageActivatorOptions {
   registry: HostExtensionRegistry;
@@ -85,6 +86,29 @@ export class ExtensionPackageActivator {
     await grantPackage(pkg.manifest, granted, this.options.grantsFilePath, pkg.grantIdentity);
     this.options.log(granted ? "host-extension.granted" : "host-extension.revoked", id);
     await this.refresh();
+  }
+
+  /**
+   * Reads a package folder below the global extension folder, compiles it
+   * without running it and applies the scan, so the folder shows up waiting
+   * for approval. Grants nothing.
+   */
+  async review(path: string): Promise<PackageReview> {
+    const review = await reviewPackageFolder(path, this.folderOptions());
+    await this.refresh();
+    return review;
+  }
+
+  /** The owner's yes for the folder `fingerprint` describes; the package starts at once. */
+  async approve(path: string, fingerprint: string, owner: boolean): Promise<PackageReview> {
+    const id = await approvePackageFolder(path, fingerprint, { ...this.folderOptions(), owner });
+    this.options.log("host-extension.granted", id);
+    await this.refresh();
+    return reviewPackageFolder(path, this.folderOptions());
+  }
+
+  private folderOptions() {
+    return { cwd: this.options.cwd(), agentDir: this.options.agentDir, ...(this.options.grantsFilePath ? { grantsFilePath: this.options.grantsFilePath } : {}) };
   }
 
   /** Rows for packages the registry cannot know about, because their code was never loaded. */

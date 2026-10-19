@@ -60,6 +60,33 @@ export const PERMISSION_NOTES: Readonly<Partial<Record<ExtensionPermission, stri
  */
 export const NETWORK_ADVISORY_NOTE = "runs inside Tau's own process; permissions are not enforced there";
 
+/** Each permission in the words of what it lets a package do. */
+const PERMISSION_TITLES: Readonly<Record<ExtensionPermission, string>> = {
+  "workspace:read": "Read the project's files",
+  "workspace:write": "Change the project's files",
+  "workspace:switch": "Open another project",
+  sessions: "Read and write threads",
+  "runtime:extend": "Give agents new tools and behaviour",
+  process: "Start programs on this machine",
+  network: "Reach the network",
+  packages: "Install and remove extension packages",
+  machines: "Work on your other machines",
+  native: "Load compiled code into Tau",
+};
+
+export function permissionTitle(permission: string): string {
+  return PERMISSION_TITLES[permission as ExtensionPermission] ?? permission;
+}
+
+/** What the approval box says about a package that runs in the host process. */
+export const IN_PROCESS_WARNING = `It ${NETWORK_ADVISORY_NOTE}, so it can read and write files, reach the network, start programs and load compiled code whatever it asked for.`;
+
+/** What the approval box says about a package that runs in a worker. */
+export function workerDescription(permissions: readonly string[]): string {
+  return "It runs in a process of its own: it reads its own files, writes only to its own data folder, and cannot reach the network, start programs or load compiled code without the matching permission."
+    + (permissions.includes("process") || permissions.includes("native") ? " With the permission to start programs or load compiled code it could get around these limits." : "");
+}
+
 /**
  * Where a package's host half runs. `worker` is the default for packages: a
  * worker thread with a heap cap, no Electron and only the serializable facade.
@@ -123,6 +150,8 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   listPackages: "packages",
   installPackage: "packages",
   newPackage: "packages",
+  reviewPackage: "packages",
+  approvePackage: "packages",
   removePackage: "packages",
   updatePackages: "packages",
   // Trusting a project lets its .tau packages load, as installing one does.

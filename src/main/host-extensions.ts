@@ -47,6 +47,7 @@ import { authorizeReadPaths } from "./host-read-paths.js";
 import { ownerRefusal, readOnlyRefusal } from "./host-method-access.js";
 import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 import type { PackageScope } from "./extension-sources.js";
+import type { PackageReview } from "./package-approval.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
 import { ExecutionPolicyRegistry, type HostExecutionPolicy, type HostExecutionPolicyServices } from "./host-execution-policy.js";
 import { BIND_NETWORK_EXTENSION } from "./host-network-contributions.js";
@@ -1174,6 +1175,21 @@ export interface HostExtensionServices {
    * installed or approved. New in API 1.75.0; in-process only.
    */
   newPackage(spec: HostNewPackageSpec): Promise<HostNewPackage>;
+  /**
+   * Reads a package folder directly inside the global extension folder (a path
+   * relative to it works too), compiles each half without running it and
+   * scans it in, so it waits for approval. Throws for any other folder.
+   * Grants nothing (`packages`). New in API 1.75.0.
+   */
+  reviewPackage(path: string): Promise<PackageReview>;
+  /**
+   * Records the user's yes for the folder `fingerprint` (from `reviewPackage`)
+   * names and starts the package. Only an owner connection counts (no native
+   * dialog: the click is the approval) and a folder that changed since the
+   * review is refused. Call it only from an `access: "owner"` command that the
+   * user's click reached, never from a tool (`packages`). New in API 1.75.0.
+   */
+  approvePackage(path: string, fingerprint: string): Promise<PackageReview>;
   removePackage(source: string, scope: PackageScope): Promise<PackageRemoval>;
   /** Re-fetches one source, or every source both files list. */
   updatePackages(source?: string, progress?: (message: string) => void): Promise<InstalledPackage[]>;
@@ -1351,6 +1367,7 @@ export interface HostExtensionInvocationContext {
 // shape and the scope name; both are plain data, so they travel as types only.
 export type { InstalledExtension as InstalledPackage, RemovalResult as PackageRemoval } from "./extension-installer.js";
 export type { PackageScope } from "./extension-sources.js";
+export type { PackageReview } from "./package-approval.js";
 export type {
   HostExecutionPolicy,
   HostExecutionPolicyChange,

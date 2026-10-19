@@ -2043,6 +2043,7 @@ It also exports the renderer's shared state and presentation:
 | `useAppUpdate`, type `AppUpdate` | (new in API 1.28.0) the Tau release the host downloaded, `{ version, install() }`, or undefined. |
 | `hostConnectionState` | API 1.63.0: the active machine's current connection state outside React (`connected`, `reconnecting`, `resyncing`, `refused`), or `undefined` without a host client. Subscribe through `context.events.on("host-connection", …)` for changes. Treat every state except `connected` as unavailable for writes. |
 | `useClientStorage`, `getClientStorage`, type `ClientStorage` | the renderer's key/value storage, in and out of the component tree. API 1.63.0: a `host:` key opts into machine-scoped storage on desktop windows too. The phone app keeps each host's keys apart; a key under `device:` (API 1.30.0) is the device's own and shared across its hosts, as Usage Kit's choice of juicebars. |
+| `permissionTitle(permission)`, `PERMISSION_NOTES`, `IN_PROCESS_WARNING`, `workerDescription(permissions)` | (new in API 1.75.0) the approval box's wording, as Settings → Extensions shows it, for a card that asks the same question. |
 | `useHostCapabilities`, `useHostName`, `hostHasLocalFiles`, `hostIsReadOnly` | what the connected host announced (`useHostName`, API 1.38.0: the name it gave, for "this page runs on …"); the two functions read the ambient client when given none. `readOnly` (new in API 1.13.0) is true on a device paired Read only (ADR 0024): the host refuses every call that changes something, so disable a write with that reason, or leave it out, rather than offer it. `READ_ONLY_REASON` is core's wording for a disabled control. Core does it for the composer (a note instead of the field), setting rows (inert, with the reason), the palette and chords (for every command and row without `access: "read"`), the title menu (new thread, pin and settle included), the compact list (its Stop, swipe tray and new-thread button), Edit/Fork, the changes tree and the Models page's model, thinking and runtime; preferences stay on the device, and a copied chat goes to the device's own clipboard. |
 | `useCommandAllowed(extensionId, command)`, `hostCommandAllowed(extensionId, command, client?)` | (new in API 1.13.0) whether this device may run a kit's host command: always with Full access; on a Read-only device only a command registered `access: "read"`, and none until the host has said which those are (the hook re-renders then). One line disables a control: `disabled={!allowed}` with `READ_ONLY_REASON` as its tooltip. The function is for palette sources and other code outside a component. |
 | `useKeepClear` | keeps a floating element clear of the reserved regions of the window. |
@@ -4707,7 +4708,7 @@ A package's `permissions` array draws from a fixed list
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics, send them files; and take files their agents sent here (`services.blobs`). |
 | `native` | (API 1.17.0) load compiled code: a `.node` addon (by `require`, `import` or `process.dlopen`), a SQLite extension (`DatabaseSync#loadExtension`), the raw handles of `process.binding` and `process._linkedBinding`, and V8 flags (`v8.setFlagsFromString`). In a worker all of these are refused without it; see §6. Compiled code runs outside the worker's guards and caps and a crash in it stops the host, so grant it like `in-process`. An `in-process` package loads addons through `services.loadDependency` and needs no grant for it. |
-| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `newPackage`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), and read the last build of each package half (`packageBuilds`, K112). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
+| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `newPackage`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), read the last build of each package half (`packageBuilds`, K112), and review a package folder in the global extension folder and record the user's allow for it (`reviewPackage`, `approvePackage`, API 1.75.0). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 **Permissions gate the host half.** A desktop half runs in the window with
 what the user can do there: every `WorkbenchActions` member is ungated,
@@ -5321,7 +5322,7 @@ the port — nothing that hands out a live object. From
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex`, `executionPolicy` (a provider is a live object) |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
 | `clients.observe`, `clients.count` | |
-| `refreshExtensionPackages` | `listPackages`, `installPackage`, `newPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback), `projectTrust`, `packageBuilds` |
+| `refreshExtensionPackages` | `listPackages`, `installPackage`, `newPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback), `reviewPackage`, `approvePackage`, `projectTrust`, `packageBuilds` |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.import`, `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
 | `sessions.remove`, `sessions.restore`, `sessions.trash`, `sessions.purge` | |
@@ -5460,6 +5461,32 @@ and drives it through `installExtensionSource`, `listExtensionPackages` and
 `loadHostExtensionPackages` directly, including running its worker and
 invoking a command. Read it for the lowest-level API surface (no Electron, no
 UI) a package goes through.
+
+**Asking the user from a thread: `reviewPackage`, `approvePackage` (API 1.75.0,
+`packages`).** A package folder written straight into the global extension
+folder (`~/.tau/extensions/<name>`, or `TAU_PACKAGES_HOME`'s `.tau/extensions`)
+is scanned without `/install`. `services.reviewPackage(path)` takes such a
+folder (its name, or an absolute path; anything else, a nested folder or a link
+out of it throws), compiles each half without running it and scans it in, so
+it waits for approval. It answers `{ id, name, version?, description?,
+directory, permissions, isolation, desktop, host, granted, fingerprint,
+buildErrors }`; `buildErrors` is empty when the package builds, else each
+entry has the file and the esbuild diagnostics with line and column. It grants
+nothing. `services.approvePackage(path, fingerprint)` records the user's yes
+for the folder the fingerprint names (files, permissions, isolation) and starts
+it. Only an owner connection counts and there is no native dialog: the click
+on the card is the approval. A folder that changed since the review is
+refused. Call it only from a command registered `access: "owner"`
+that the user's click reached, never from a tool. Neither is available to a
+worker. Tau's Packages kit uses them for `tau_install_package { path }`, a Pi
+and MCP tool for the agent: build errors come back as `{ status:
+"build_failed", id, errors: [{ file, line?, column?, message }] }`; otherwise a
+card above the thread's composer (permissions, isolation, **Allow and turn
+on**, **Not now**, **Details**) waits and the tool answers `{ status: "running"
+| "declined" | "ended", id, message }`. A package already allowed and
+unchanged answers `running` at once. A change to any file of an allowed
+package turns it off until it is allowed again, so the agent calls the tool
+again after editing.
 
 To test interactively in the running app, `/install <path to your package>`
 (`-l` for project scope), approve it in Settings → Extensions, and use it; no
