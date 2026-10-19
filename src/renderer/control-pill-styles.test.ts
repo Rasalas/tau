@@ -52,3 +52,13 @@ describe("the row's pill family", () => {
     expect(own(await rules("../../kits/review/styles.css"), ".review-turn-pill")).toEqual([]);
   });
 });
+
+describe("the composer's small controls on a phone", () => {
+  it("give the send options and the dictation button a finger's target", async () => {
+    const compact = await rules("./profile-compact.css");
+    expect(compact.find((rule) => rule.selector === 'body[data-profile="compact"] .send-button.send-mode-options')?.body).toMatch(/width: var\(--touch-target\);/u);
+    const shell = await rules("../../mobile/src/ui/shell.css");
+    expect(shell.find((rule) => rule.selector === ".dictation-button")?.body).toMatch(/position: relative;/u);
+    expect(shell.find((rule) => rule.selector === ".dictation-button::before")?.body).toMatch(/inset: calc\(\(var\(--touch-target\) - 36px\) \/ -2\);/u);
+  });
+});

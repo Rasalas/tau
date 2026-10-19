@@ -28,6 +28,17 @@ describe("composer drafts", () => {
     expect(readComposerDraft(storage, "session:one")).toBe("");
   });
 
+  it("reports a refused write instead of throwing", () => {
+    const storage = createMemoryStorage();
+    const pending = createNewThreadDraft({ projectPath: "/repos/tau", projectName: "tau" });
+    writeNewThreadDraft(storage, pending);
+    expect(writeComposerDraft(storage, "session:one", "saved")).toBe(true);
+    storage.set = () => { throw new Error("quota"); };
+    expect(writeComposerDraft(storage, "session:one", "lost")).toBe(false);
+    expect(writeComposerDraft(storage, draftKey(undefined, pending), "lost")).toBe(false);
+    expect(readComposerDraft(storage, "session:one")).toBe("saved");
+  });
+
   it("persists text independently for sessions and unstarted project threads", () => {
     const storage = createMemoryStorage();
     writeComposerDraft(storage, draftKey("one"), "session text");

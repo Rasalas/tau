@@ -100,6 +100,7 @@ const noSubscribe = () => () => {};
 const noVersion = () => 0;
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 const NO_INLINES: readonly never[] = [];
+const DRAFT_UNSAVED = "Draft not saved: this device's storage is full. It is lost if the app reloads before you send it.";
 const NO_GATES: readonly ComposerGateContribution[] = [];
 // The picker is its own chunk: nothing of it is drawn until it opens.
 const ModelPicker = lazy(() => import("./ModelPicker").then((module) => ({ default: module.ModelPicker })));
@@ -414,17 +415,25 @@ export function Composer({
   }, [clientStorage]);
 
   const chipLayer = useRef<ChipLayerApi | undefined>(undefined);
+  // Warned once per run of refused writes; a later saved keystroke ends it and takes the warning down.
+  const draftUnsaved = useRef<{ dismiss?(): void }>(undefined);
   const updateDraft = useCallback((edited: string) => {
     // An edit that cut into a chip (a Backspace, Vim's `x`, Readline's ctrl+w) takes the whole chip.
     const next = chipLayer.current?.repair(scopeStore.getSnapshot(attachmentScope).draft, edited)?.text ?? edited;
     scopeStore.setDraft(attachmentScope, next);
-    writeComposerDraft(clientStorage, draftStorageKey, next);
+    const saved = writeComposerDraft(clientStorage, draftStorageKey, next);
+    if (saved) { draftUnsaved.current?.dismiss?.(); draftUnsaved.current = undefined; }
+    else if (!draftUnsaved.current) {
+      const actions = shellContext?.actions;
+      if (actions?.toast) draftUnsaved.current = actions.toast({ id: "composer.draft-unsaved", type: "warning", title: DRAFT_UNSAVED, timeoutMs: 0 });
+      else { draftUnsaved.current = {}; onNotify?.(DRAFT_UNSAVED, "warning"); }
+    }
     onChange?.(next);
     setSelectedSkills((current) => {
       const kept = current.filter((skill) => namesSelectedSkill(next, skill));
       return kept.length === current.length ? current : kept;
     });
-  }, [attachmentScope, clientStorage, draftStorageKey, onChange, scopeStore]);
+  }, [attachmentScope, clientStorage, draftStorageKey, onChange, onNotify, scopeStore, shellContext?.actions]);
 
   const selectCommand = (command: UiComposerCommand) => {
     if (!trigger) return;

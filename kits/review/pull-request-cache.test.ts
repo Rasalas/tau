@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PullRequestCache, OFFLINE_REASON } from "./pull-request-cache.js";
 import { pullRequestClient } from "./pull-request-client.js";
 import { createMemoryStorage } from "../../src/renderer/test-support/kit-harness.js";
@@ -19,6 +19,7 @@ describe("request offline cache", () => {
     await client.threads(url);
     transport.invoke.mockResolvedValue({ entries: [{ title: "Saved request" }] });
     const list = await client.list({ workspace: "ws", state: "open", limit: 100 });
+    cache.flush();
     transport.invoke.mockClear();
     const restored = pullRequestClient(transport, new PullRequestCache(storage, false));
     expect((await restored.view(url, true)).title).toBe("Saved request");
@@ -77,6 +78,7 @@ describe("request offline cache", () => {
     const cache = new PullRequestCache(storage);
     const transport = host({ body: "x".repeat(350_000) });
     for (let i = 0; i < 10; i++) await cache.invoke(transport, "pr-view", { url: `${url}${i}` });
+    cache.flush();
     expect(storage.get("host:tau.review.offline.v1")!.length * 2).toBeLessThanOrEqual(4 * 1024 * 1024);
     expect(cache.peek("pr-view", { url: `${url}0` })).toBeUndefined();
     transport.invoke.mockResolvedValue({ body: "x".repeat(600_000) });
@@ -110,6 +112,7 @@ it("retains an old request that was reopened offline before evicting untouched r
   await cache.invoke(transport, "pr-view", { url: `${url}0` });
   cache.setConnected(true);
   await cache.invoke(transport, "pr-view", { url: `${url}12` });
+  cache.flush();
   expect(cache.peek("pr-view", { url: `${url}0` })).toBeDefined();
   expect(cache.peek("pr-view", { url: `${url}1` })).toBeUndefined();
   expect(new PullRequestCache(storage, false).peek("pr-view", { url: `${url}0` })).toBeDefined();
@@ -127,6 +130,7 @@ it("does not recreate a cache cleared externally while a read was pending", asyn
   for (const key of storage.keys()) storage.remove(key);
   finish({ title: "Late" });
   await request;
+  cache.flush();
   expect(storage.keys()).toEqual([]);
 });
 
@@ -138,4 +142,51 @@ it("does not let list-row pipeline reads evict recently opened requests", async 
   transport.invoke.mockResolvedValue({});
   for (let i = 0; i < 20; i++) await cache.invoke(transport, "pr-pipeline", { url: `${url}${i}`, runs: [] });
   expect(cache.peek("pr-view", { url })).toBeDefined();
+});
+
+
+describe("writing the cache", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  it("writes the files of an opened request together, without reading the cache back", async () => {
+    vi.useFakeTimers();
+    const storage = createMemoryStorage();
+    const set = vi.spyOn(storage, "set");
+    const get = vi.spyOn(storage, "get");
+    const cache = new PullRequestCache(storage);
+    const transport = host({ title: "request" });
+    await cache.invoke(transport, "pr-view", { url });
+    for (let i = 0; i < 30; i++) await cache.invoke(transport, "pr-file", { url, path: `src/${i}.ts` });
+    expect(set).toHaveBeenCalledTimes(1);
+    vi.runAllTimers();
+    expect(set).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(new PullRequestCache(storage, false).peek("pr-file", { url, path: "src/29.ts" })).toBeDefined();
+  });
+
+  it("writes a waiting save when stopped", async () => {
+    const storage = createMemoryStorage();
+    const cache = new PullRequestCache(storage);
+    const transport = host({ title: "request" });
+    await cache.invoke(transport, "pr-view", { url });
+    await cache.invoke(transport, "pr-files", { url });
+    cache.stop();
+    expect(new PullRequestCache(storage, false).peek("pr-files", { url })).toBeDefined();
+  });
+
+  it("keeps a phone's cache small and shrinks one saved under the desktop's bound", async () => {
+    const storage = createMemoryStorage();
+    const transport = host({ body: "x".repeat(100_000) });
+    const desktop = new PullRequestCache(storage);
+    for (let i = 0; i < 10; i++) await desktop.invoke(transport, "pr-view", { url: `${url}${i}` });
+    desktop.stop();
+    expect(storage.get("host:tau.review.offline.v1")!.length * 2).toBeGreaterThan(1024 * 1024);
+    vi.stubGlobal("document", { body: { dataset: { client: "compact" } }, addEventListener: () => undefined, removeEventListener: () => undefined });
+    const phone = new PullRequestCache(storage);
+    expect(storage.get("host:tau.review.offline.v1")!.length * 2).toBeLessThanOrEqual(512 * 1024);
+    expect(phone.peek("pr-view", { url: `${url}9` })).toBeDefined();
+    transport.invoke.mockResolvedValue({ body: "x".repeat(200_000) });
+    await phone.invoke(transport, "pr-view", { url });
+    expect(phone.peek("pr-view", { url })).toBeUndefined();
+  });
 });

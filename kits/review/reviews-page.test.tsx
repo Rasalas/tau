@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionClient, PageProps, UiSession, WorkbenchActions } from "tau";
 import { TestPageActionSlot, TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
@@ -324,6 +324,18 @@ describe("the Reviews inbox", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({ kind: "note", text: "Keep the old name", threadId: "t1" })));
     fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
     expect(switchSession).toHaveBeenCalledWith("/sessions/t1.jsonl");
+  });
+
+  it("replaces a file's load error with its diff once a later load succeeds", async () => {
+    const key = reviewKey("/repo/shop-api", "feat/pairing-flake");
+    const { invoke, parts } = setup({ compact: true, params: { tab: "inbox", review: key } });
+    const answer = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command, input) => command === "file-diff" ? Promise.reject(new Error("diff unreadable")) : answer(command, input));
+    expect(await screen.findByText("diff unreadable")).toBeTruthy();
+    invoke.mockImplementation(async (command, input) => command === "local-reviews" ? { ...ANSWER, branches: [branch("pairing-flake", { tip: "moved-tip" }), ...ANSWER.branches.slice(1)] } : answer(command, input));
+    await act(() => parts.store.refresh());
+    expect(await screen.findByRole("button", { name: "Note on line 2" })).toBeTruthy();
+    expect(screen.queryByText("diff unreadable")).toBeNull();
   });
 
   it("keeps notes on a phone's diff lines for later and sends them as one turn (2o)", async () => {

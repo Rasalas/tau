@@ -1,5 +1,5 @@
 import { createDecipheriv } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -91,5 +91,18 @@ it("allows a later turn in a completed thread and retains the old activity's fin
     expect(send).toHaveBeenCalledTimes(2);
     expect(reopened.state(old)).toBe("completed");
     expect(reopened.state({ ...old, activityId: send.mock.calls[1]![0].activity!.activityId })).toBe("running");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+it("writes nothing at a turn while no phone asked for activities", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tau-start-idle-"));
+  try {
+    const store = await ActivityStarts.open(dir, { warn: () => undefined });
+    const send = vi.fn(async (_request: RelaySend) => ({ ok: true as const }));
+    await store.start("thread", "Task", NOW, new Set(["phone"]), () => false, send);
+    await store.retain(new Set(["phone"]), NOW);
+    expect(await readdir(dir)).toEqual([]);
+    await store.register(readActivityStart(input, "phone", NOW));
+    expect(await readdir(dir)).toEqual(["activity-starts.json"]);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

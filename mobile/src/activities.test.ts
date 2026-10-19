@@ -58,4 +58,30 @@ describe("widget snapshots", () => {
       follow.stop();
     } finally { vi.useRealTimers(); }
   });
+
+  it("rests the two-minute beat while the app is in the background and catches up on return", async () => {
+    vi.useFakeTimers();
+    try {
+      let shown = true;
+      let changed!: () => void;
+      const native = port();
+      const limits = vi.fn(async () => ({ checkedAt: NOW, accounts: [], sources: [] }));
+      const follow = followActivities("host-a", {
+        onHostEvent: () => () => undefined,
+        bootstrap: vi.fn(async () => { throw Error("offline"); }),
+        invokeHostExtension: vi.fn(async (extension: string) => { if (extension === "tau.usage") return limits(); throw Error("missing kit"); }),
+      }, native, () => NOW, "", { visible: () => shown, subscribe: (listener) => { changed = listener; return () => undefined; } });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(limits).toHaveBeenCalledOnce();
+      shown = false; changed();
+      await vi.advanceTimersByTimeAsync(10 * 120_000);
+      expect(limits).toHaveBeenCalledOnce();
+      shown = true; changed();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(limits).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(limits).toHaveBeenCalledTimes(3);
+      follow.stop();
+    } finally { vi.useRealTimers(); }
+  });
 });

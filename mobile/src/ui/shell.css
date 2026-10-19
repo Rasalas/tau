@@ -142,7 +142,9 @@ html, body { margin: 0; background: var(--shell); }
 
 .shell-fatal { padding: calc(24px + env(safe-area-inset-top, 0px)) 24px; font: 15px/1.5 var(--sans); color: var(--ink); }
 
-.dictation-button { width: 36px; height: 36px; }
+/* Drawn 36 px, tapped at the touch target like the composer's other controls. */
+.dictation-button { position: relative; width: 36px; height: 36px; }
+.dictation-button::before { content: ""; position: absolute; inset: calc((var(--touch-target) - 36px) / -2); }
 
 /* A host's preference stays below its navigation row, with the shared switch. */
 .shell-paired-host { display: block; padding-right: 0; }
