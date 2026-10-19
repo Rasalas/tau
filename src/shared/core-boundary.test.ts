@@ -98,8 +98,6 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./package-approval.js", // `services.reviewPackage` / `approvePackage`: a package folder checked and allowed (API 1.75.0).
   "./native-grant-ask.js", // The native package-grant dialog, with the dev-only answer seam.
   "./new-package.js", // `services.newPackage`: a package to start from in the global extension folder (API 1.75.0).
-  "./package-approval.js", // `services.reviewPackage` and `approvePackage`: a package folder reviewed, then allowed through the native dialog (API 1.75.0).
-  "./native-grant-ask.js", // The native consent dialog's own prompt, kept out of the renderer's host connection.
   "./own-packages.js", // The host's record of the packages `newPackage` wrote, next to the grants (ADR 0036, 2026-10-19).
   "./host-method-access.js",   "./host-pairing-terminal.js",   "./host-rate-limit.js",
   "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",
