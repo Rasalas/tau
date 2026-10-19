@@ -36,6 +36,17 @@ export interface SqliteSessionRead {
   hydrated: boolean;
   usageHydrated: boolean;
 }
+/** Page accounting of the database file, as the maintenance steps read it. */
+export interface SqliteDatabaseStats {
+  pageSize: number;
+  pageCount: number;
+  freePages: number;
+  /** 0 none, 1 full, 2 incremental. */
+  autoVacuum: number;
+  /** The legacy import is recorded; the pre-SQLite files are no longer needed for it. */
+  migrated: boolean;
+  lastReclaim?: { at: number; bytes: number };
+}
 export interface SqliteStoreRead {
   sessions: SqliteSessionRead[];
   models: Array<{ id: string; raw: unknown }>;
@@ -90,6 +101,7 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
       }
       if (version === 0) {
         db.exec(`
+          PRAGMA auto_vacuum = INCREMENTAL;
           PRAGMA journal_mode = WAL;
           PRAGMA synchronous = FULL;
           BEGIN IMMEDIATE;
@@ -144,6 +156,32 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
       try { db.exec("ROLLBACK"); } catch { /* Keep the original failure. */ }
       throw error;
     } finally { permissions(); }
+  };
+
+  const pragma = (db: import("node:sqlite").DatabaseSync, name: string) => Number(db.prepare(`PRAGMA ${name}`).get()![name]);
+  const stats = (): SqliteDatabaseStats => {
+    const db = open(false);
+    const meta = (key: string) => db.prepare("SELECT value FROM store_meta WHERE key = ?").get(key)?.value;
+    const last = meta("last_reclaim");
+    return { pageSize: pragma(db, "page_size"), pageCount: pragma(db, "page_count"), freePages: pragma(db, "freelist_count"),
+      autoVacuum: pragma(db, "auto_vacuum"), migrated: meta("import_digest") !== undefined,
+      ...(last === undefined ? {} : { lastReclaim: JSON.parse(String(last)) }) };
+  };
+  const maintain = (request: { operation: string; pages?: number; at?: number; bytes?: number }): SqliteDatabaseStats => {
+    const db = open(false);
+    try {
+      if (request.operation === "convert-incremental") db.exec("PRAGMA auto_vacuum = INCREMENTAL; VACUUM;");
+      else if (request.operation === "reclaim-step") db.exec(`PRAGMA incremental_vacuum(${Math.max(1, Math.floor(request.pages!))})`);
+      else if (request.operation === "reclaim-finish") {
+        if (request.bytes! > 0) {
+          db.prepare("INSERT INTO store_meta VALUES ('last_reclaim', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+            .run(JSON.stringify({ at: request.at, bytes: request.bytes }));
+        }
+        // In WAL mode the file only shrinks once the log is folded back and truncated.
+        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      }
+    } finally { permissions(); }
+    return stats();
   };
 
   const write = (changes: SqliteChanges, importing = false, importDigest?: string) => {
@@ -281,7 +319,7 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   };
 
-  port.on("message", (request: { id: number; operation: string; changes?: SqliteChanges; digest?: string; threadId?: string; threadIds?: string[]; textChars?: number; version?: number; summaries?: Array<{ id: string; revision: string; payload: string }> }) => {
+  port.on("message", (request: { id: number; operation: string; changes?: SqliteChanges; digest?: string; threadId?: string; threadIds?: string[]; textChars?: number; version?: number; summaries?: Array<{ id: string; revision: string; payload: string }>; pages?: number; at?: number; bytes?: number }) => {
     try {
       let value: unknown;
       if (request.operation === "initialize") {
@@ -306,6 +344,8 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
         }
       });
       else if (request.operation === "write") write(request.changes!);
+      else if (request.operation === "database-status") value = stats();
+      else if (["convert-incremental", "reclaim-step", "reclaim-finish"].includes(request.operation)) value = maintain(request);
       else if (request.operation === "close") { database?.close(); database = undefined; }
       else throw new Error("Unknown SQLite session operation");
       port.postMessage({ id: request.id, value });

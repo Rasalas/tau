@@ -2,6 +2,7 @@ import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
 import { SessionStorePersistence } from "../_shared/session-store-persistence.js";
+import type { SessionDatabase } from "../_shared/session-database-protocol.js";
 
 /**
  * App-data persistence for an ACP runtime's threads, one file per kit: the
@@ -207,6 +208,7 @@ export class AcpSessionStore<K extends string = string> {
   }
 
   get databasePath(): string { return this.persistence.databasePath; }
+  get database(): SessionDatabase { return this.persistence; }
   dispose(): Promise<void> { return this.persistence.dispose(); }
   flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
 

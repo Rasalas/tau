@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, parseSkillEnvelope, readUsageTurns, unpricedUsage, type PersistedJsonLogger, type ThreadTitleSource, type UiCompaction, type UiContextUsage, type UiMessage, type UiSkillInvocation, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
 import { SessionStorePersistence, sessionMessageIndex } from "../_shared/session-store-persistence.js";
+import type { SessionDatabase } from "../_shared/session-database-protocol.js";
 import { recoverUsageTurns } from "./sdk-usage.js";
 
 /** Bumped when the on-disk shape changes; `load()` stays backward compatible. */
@@ -481,6 +482,7 @@ export class ClaudeRuntimeSessionStore {
   }
 
   get databasePath(): string { return this.persistence.databasePath; }
+  get database(): SessionDatabase { return this.persistence; }
   dispose(): Promise<void> { return this.persistence.dispose(); }
   flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
 

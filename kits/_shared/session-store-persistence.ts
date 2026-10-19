@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, copyFile, readdir, stat } from "node:fs/promises";
-import { constants } from "node:fs";
+import { chmod, copyFile, readdir, rm, rmdir, stat } from "node:fs/promises";
+import { constants, existsSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
 import { isDeepStrictEqual } from "node:util";
 import { readPersistedJson, THREAD_TEXT_CHARS, threadTextsDelta, tryProcessLock, writePersistedJson, type PersistedJsonLogger, type StoredThreadText, type ThreadText, type ThreadTextsAnswer } from "tau/host-extension";
-import { sessionStoreSqliteWorkerMain, type SqliteChanges, type SqliteSessionChange, type SqliteStoreRead } from "./session-store-persistence-worker.js";
+import { sessionStoreSqliteWorkerMain, type SqliteChanges, type SqliteDatabaseStats, type SqliteSessionChange, type SqliteStoreRead } from "./session-store-persistence-worker.js";
+import type { SessionDatabaseStatus } from "./session-database-protocol.js";
 
 interface SessionStoreData<T, M> { sessions: T[]; models?: Record<string, M[]> }
 interface Changes<T, M> {
@@ -19,6 +20,31 @@ interface MessagePointer { epoch: string; count: number; parts: number; tailCoun
 const MESSAGE_CHUNK_MAX_COUNT = 64;
 const HISTORY_CACHE_ENTRIES = 8;
 const HISTORY_CACHE_CHARS = 4_000_000;
+const INCREMENTAL = 2;
+const LEGACY_FILE = /^(session|models|message)-[a-f0-9]{64}.*\.(json|tmp)$/;
+
+/** Idle maintenance: when it runs, what is worth reclaiming, and how long the pre-SQLite files stay. */
+export interface SessionDatabaseMaintenance {
+  /** Quiet time after the last store request before maintenance starts. */
+  idleMs: number;
+  /** Least time between two scheduled passes. */
+  minIntervalMs: number;
+  minBytes: number;
+  /** Free share of the file. */
+  minRatio: number;
+  /** Bytes returned per worker round, so a pending write can interrupt. */
+  stepBytes: number;
+  /** Wait after the migration before its source files go. */
+  legacyGraceMs: number;
+}
+export const SESSION_DATABASE_MAINTENANCE: SessionDatabaseMaintenance = {
+  idleMs: 60_000, minIntervalMs: 30 * 60_000, minBytes: 8 * 1024 * 1024, minRatio: 0.25, stepBytes: 4 * 1024 * 1024, legacyGraceMs: 7 * 86_400_000,
+};
+
+/** Enough of the file is free to be worth a pass. */
+export function reclaimDue(stats: Pick<SqliteDatabaseStats, "pageSize" | "pageCount" | "freePages">, rules: Pick<SessionDatabaseMaintenance, "minBytes" | "minRatio">): boolean {
+  return stats.freePages * stats.pageSize >= rules.minBytes && stats.freePages >= stats.pageCount * rules.minRatio;
+}
 
 /** Durable changed-row transactions; synchronous SQLite work stays off the host loop. */
 export class SessionStorePersistence<T extends { tauThreadId: string }, M = never> {
@@ -45,6 +71,10 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
   private sequence = 0;
   private disposed = false;
   private closing?: Promise<void>;
+  private maintenanceTimer?: ReturnType<typeof setTimeout>;
+  private maintaining = false;
+  private lastMaintenanceAt = 0;
+  private readonly rules: SessionDatabaseMaintenance;
   private readonly requests = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   private readonly directory: string;
 
@@ -68,7 +98,11 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     /** Invalidate summaries when a runtime changes how persisted usage is decoded. */
     summaryVersion?: number;
     logger?: PersistedJsonLogger;
-  }) { this.databasePath = `${options.filePath}.sqlite`; this.directory = `${options.filePath}.records`; }
+    maintenance?: Partial<SessionDatabaseMaintenance>;
+  }) {
+    this.databasePath = `${options.filePath}.sqlite`; this.directory = `${options.filePath}.records`;
+    this.rules = { ...SESSION_DATABASE_MAINTENANCE, ...options.maintenance };
+  }
 
   private request(operation: string, values: Record<string, unknown> = {}): Promise<unknown> {
     if (this.disposed) return Promise.reject(new Error("Session store is disposed"));
@@ -84,6 +118,7 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
           worker.unref();
           this.timer = setTimeout(() => { if (this.worker === worker && !this.requests.size) { this.worker = undefined; void worker.terminate(); } }, 30_000);
           this.timer.unref();
+          this.scheduleMaintenance();
         }
       });
       const failed = (error: Error) => {
@@ -125,8 +160,102 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
 
   dispose(): Promise<void> {
     if (this.closing) return this.closing;
-    this.closing = this.flushAndRelease().finally(() => { this.disposed = true; });
+    this.closing = this.flushAndRelease().finally(() => { this.disposed = true; clearTimeout(this.maintenanceTimer); });
     return this.closing;
+  }
+
+  /** After a quiet spell, never during startup: the timer only arms once the store has been used. */
+  private scheduleMaintenance(): void {
+    if (this.disposed || this.closing || this.maintaining || this.readOnlyData) return;
+    clearTimeout(this.maintenanceTimer);
+    const wait = Math.max(this.rules.idleMs, this.lastMaintenanceAt + this.rules.minIntervalMs - Date.now());
+    this.maintenanceTimer = setTimeout(() => {
+      if (this.requests.size || this.pendingWrites.size) { this.scheduleMaintenance(); return; }
+      this.reclaim(false).catch((error) => this.options.logger?.warn("Session database maintenance failed", error));
+    }, wait);
+    this.maintenanceTimer.unref();
+  }
+
+  private async measure(): Promise<number> {
+    let size = 0;
+    for (const path of [this.databasePath, `${this.databasePath}-wal`]) size += await stat(path).then((info) => info.size, () => 0);
+    return size;
+  }
+
+  private status(stats: SqliteDatabaseStats | undefined, sizeBytes: number): SessionDatabaseStatus {
+    return { sizeBytes, reclaimableBytes: stats ? stats.freePages * stats.pageSize : 0, ...(stats?.lastReclaim ? { lastReclaim: stats.lastReclaim } : {}) };
+  }
+
+  /** File size and free space, read without migrating anything; a store with no database reports zero. */
+  async databaseStatus(): Promise<SessionDatabaseStatus> {
+    if (this.disposed || this.closing || !existsSync(this.databasePath)) return this.status(undefined, 0);
+    return this.locked(async () => {
+      try {
+        await this.checkMarker();
+        return this.status(await this.request("database-status") as SqliteDatabaseStats, await this.measure());
+      } catch { return this.status(undefined, await this.measure()); }
+      finally { await this.closeWorker(); }
+    });
+  }
+
+  /**
+   * Gives deleted rows' space back: converts the file to incremental vacuum
+   * once, returns free pages in steps that stop for any queued write, folds
+   * the log back, and drops the pre-SQLite files after a recorded migration.
+   * `force` ignores the size thresholds (the "Reclaim now" button).
+   */
+  reclaim(force = true): Promise<SessionDatabaseStatus> {
+    if (this.disposed || this.closing) return Promise.reject(new Error("Session store is disposed"));
+    const run = this.writing.catch(() => undefined).then(async () => {
+      if (!existsSync(this.databasePath)) return this.status(undefined, 0);
+      await this.loadData();
+      if (this.readOnlyData) return this.status(undefined, await this.measure());
+      return this.locked(() => this.reclaimLocked(force));
+    });
+    this.writing = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async reclaimLocked(force: boolean): Promise<SessionDatabaseStatus> {
+    await this.checkMarker();
+    this.maintaining = true;
+    try {
+      let stats = await this.request("database-status") as SqliteDatabaseStats;
+      const pagesBefore = stats.pageCount;
+      let deferred = this.pendingWrites.size > 0;
+      if (!deferred && stats.autoVacuum !== INCREMENTAL) stats = await this.request("convert-incremental") as SqliteDatabaseStats;
+      if (!deferred && (force ? stats.freePages > 0 : reclaimDue(stats, this.rules))) {
+        const pages = Math.max(1, Math.floor(this.rules.stepBytes / stats.pageSize));
+        while (stats.freePages > 0) {
+          if (this.pendingWrites.size) { deferred = true; break; }
+          stats = await this.request("reclaim-step", { pages }) as SqliteDatabaseStats;
+        }
+      }
+      let reclaimedBytes = 0;
+      if (!this.pendingWrites.size) {
+        reclaimedBytes = Math.max(0, pagesBefore - stats.pageCount) * stats.pageSize;
+        stats = await this.request("reclaim-finish", { at: Date.now(), bytes: reclaimedBytes }) as SqliteDatabaseStats;
+        if (stats.migrated) await this.removeLegacy();
+      } else deferred = true;
+      await this.closeWorker();
+      return { ...this.status(stats, await this.measure()), reclaimedBytes, ...(deferred ? { deferred } : {}) };
+    } finally {
+      this.lastMaintenanceAt = Date.now();
+      await this.closeWorker().catch(() => undefined);
+      this.maintaining = false;
+    }
+  }
+
+  /** Only once the database holds the recorded import, and only after a grace period for a rollback by hand. */
+  private async removeLegacy(): Promise<void> {
+    const backup = `${this.options.filePath}.pre-sqlite`;
+    const born = await stat(backup).then((info) => info.mtimeMs, () => stat(this.directory).then((info) => info.mtimeMs, () => undefined));
+    if (born === undefined || Date.now() - born < this.rules.legacyGraceMs) return;
+    try {
+      for (const name of await readdir(this.directory).catch(() => [])) if (LEGACY_FILE.test(name)) await rm(join(this.directory, name), { force: true });
+      await rmdir(this.directory).catch(() => undefined);
+      await rm(backup, { force: true });
+    } catch (error) { this.options.logger?.warn("Pre-SQLite session files were not removed", error); }
   }
 
   /** Compatibility full-record read. Store recovery uses loadMetadata instead. */

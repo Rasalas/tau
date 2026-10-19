@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
 import { SessionStorePersistence, sessionMessageIndex } from "../_shared/session-store-persistence.js";
+import type { SessionDatabase } from "../_shared/session-database-protocol.js";
 
 /**
  * App-data persistence for Codex threads: the Tau thread → Codex thread
@@ -262,6 +263,7 @@ export class CodexSessionStore {
   }
 
   get databasePath(): string { return this.persistence.databasePath; }
+  get database(): SessionDatabase { return this.persistence; }
   dispose(): Promise<void> { return this.persistence.dispose(); }
   flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
 

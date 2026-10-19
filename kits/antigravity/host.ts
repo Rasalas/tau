@@ -13,6 +13,7 @@ import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
 import { AntigravitySignInSettings, METHOD_LABELS, antigravityAccount, antigravitySignInMethods, callbackAddress, credentialEnvironment, methodProblem, usesBrowser } from "./sign-in.js";
 import { AntigravityThreadRuntimeBackend, antigravityModelProvider, antigravityUsageOrigin, type AntigravitySessionInput, type AntigravitySessionLike } from "./thread-backend.js";
+import { registerSessionDatabase } from "../_shared/session-database.js";
 
 export { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID };
 
@@ -53,6 +54,7 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       const adapter = createAntigravityRuntimeAdapter();
       const storePath = AntigravitySessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
       const store = new AntigravitySessionStore({ filePath: storePath });
+      registerSessionDatabase(context, store.database);
       const activity = new TurnActivityStore({ directory: join(dirname(storePath), "antigravity-activity") });
       const override = new CommandOverride(join(services.stateDir, "settings.json"), ANTIGRAVITY_COMMAND_VARIABLE, env);
       const resolveExecutable = (command = override.current()?.command) => resolveAntigravity({ override: command, stateDir: services.stateDir, platform, arch, findCommand: services.findCommand });

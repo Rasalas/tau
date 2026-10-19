@@ -42,6 +42,7 @@ import { createGrokRuntimeAdapter } from "./runtime-adapter.js";
 import { openGrokSession, probeGrok } from "./session.js";
 import { GrokSessionStore } from "./session-store.js";
 import { GrokThreadRuntimeBackend, grokUsageOrigin, type GrokSessionInput, type GrokSessionLike } from "./thread-backend.js";
+import { registerSessionDatabase } from "../_shared/session-database.js";
 
 export { GROK_BACKEND_KIND, GROK_HOST_EXTENSION_ID };
 
@@ -96,6 +97,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
       const customModels = async () => customModelIds((await services.settings?.())?.values.customModels);
       const storePath = GrokSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
       const store = new GrokSessionStore({ filePath: storePath });
+      registerSessionDatabase(context, store.database);
       const activity = new TurnActivityStore({ directory: join(dirname(storePath), "grok-activity") });
       const readVersion = options.readVersion ?? readGrokVersion;
       const readModels = options.readModels ?? readGrokModels;
