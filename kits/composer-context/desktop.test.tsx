@@ -113,7 +113,7 @@ function activate(storeAttachment?: () => void) {
       case "read-files": return (fields.files as Array<{ path: string }>).map((file) => ({ path: file.path, text: `contents of ${file.path}` }));
       case "describe-attachments": return (fields.paths as string[]).map((path) => ({ path, ...(path.endsWith(".txt") ? { text: "folded text" } : {}) }));
       case "snapshot-thread":
-        if (fields.threadId === "gone") throw new Error("That thread is not on this host any more.");
+        if (fields.threadId === "gone") throw new Error("That thread is no longer on this machine.");
         return { name: "thread-Fix login.md", path: "/state/attachments/t1/ab-thread-Fix login.md", size: 33, text: "# Fix login\n\n### You\n\nhi\n", turns: 3, total: 5 };
       case "list-files": return ["src/notes.md", "src/alpha.ts"];
       case "list-pull-requests": return [{ number: 42, title: "Chips", url: "https://example.test/pr/42", branch: "chips" }];
@@ -170,7 +170,7 @@ describe("Composer Context desktop", () => {
     const { registry, labels } = activate();
     const [main, drop] = registry.getComposerInlines();
     act(() => { drop!.drop!.take(JSON.stringify({ threadId: "gone", title: "Old" }), inline()); });
-    await expect(main!.prepareSend!({ ...inline(), text: "" })).rejects.toThrow("Old could not be attached: That thread is not on this host any more.");
+    await expect(main!.prepareSend!({ ...inline(), text: "" })).rejects.toThrow("Old could not be attached: That thread is no longer on this machine.");
     act(() => main!.settleSend!(SCOPE, false));
     expect(labels()).toEqual(["Old"]);
   });

@@ -115,7 +115,7 @@ describe("Composer Context host", () => {
     expect(old.name).toBe("thread-Old chat.md");
     expect(old.path).toMatch(/attachments[/\\]draft-1[/\\]/u);
     expect(old.text).toContain("### You\n\nhello\n\n### Assistant\n\nhi");
-    await expect(invoke("snapshot-thread", { scope: "s", threadId: "nope", title: "x" })).rejects.toThrow(/not on this host/u);
+    await expect(invoke("snapshot-thread", { scope: "s", threadId: "nope", title: "x" })).rejects.toThrow(/no longer on this machine/u);
     await expect(invoke("snapshot-thread", { scope: "s", threadId: "blank", title: "x" })).rejects.toThrow(/no messages/u);
     await expect(invoke("snapshot-thread", { scope: "s", threadId: "", title: "x" })).rejects.toThrow(/No thread/u);
   });

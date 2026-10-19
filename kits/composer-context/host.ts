@@ -181,7 +181,7 @@ export function createComposerContextHostExtension(): HostExtension {
         if (live) messages = await live.transcript();
         else {
           const known = (await services.sessions.list()).find((session) => session.sessionId === threadId);
-          if (!known) throw new HostCommandError("That thread is not on this host any more.");
+          if (!known) throw new HostCommandError("That thread is no longer on this machine.");
           messages = messagesOfEntries(services.sessions.open(known.path).entries());
         }
         const title = live?.sessionName() || text(fields.title);
