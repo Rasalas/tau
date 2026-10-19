@@ -218,6 +218,16 @@ describe("PreviewPanel tools", () => {
     expect(calls).toContainEqual(["open", { url: "http://localhost:8000/" }]);
   });
 
+  it("marks what the address bar submits as typed, so the host can search", async () => {
+    const calls = connect({});
+    render(panel());
+    await settle();
+    const address = screen.getByLabelText("Preview address");
+    fireEvent.change(address, { target: { value: "react useEffect cleanup" } });
+    fireEvent.submit(address.closest("form")!);
+    expect(calls).toContainEqual(["open", { url: "react useEffect cleanup", typed: true }]);
+  });
+
   it("puts a picked element into the composer as a chip and an image", async () => {
     connect({ pick: { element: PICKED, image: { data: "iVBORw0KGgo=", width: 3, height: 4 } } });
     previewStore.set({ ...EMPTY_PREVIEW_STATE, url: "http://localhost:8000/", title: "Home" });

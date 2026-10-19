@@ -1,5 +1,6 @@
 import type { PreferencesStore } from "tau";
 import { PREVIEW_HOST_EXTENSION_ID, type PreviewDefaults } from "./protocol.js";
+import { readSearch } from "./search.js";
 import { readDefaults } from "./viewport.js";
 
 /** Settings → Preview's keys: strings under `values.tau.preview`, switches under `options.tau.preview`. */
@@ -8,6 +9,8 @@ export const PREVIEW_SETTINGS = {
   zoom: "default-zoom",
   appearance: "default-appearance",
   linkTarget: "link-target",
+  searchEngine: "search-engine",
+  searchUrl: "search-url",
   frameRate: "recording-frame-rate",
   showKeys: "recording-keys",
   showClicks: "recording-clicks",
@@ -35,6 +38,7 @@ export function defaultsFromSettings(settings: { values: Readonly<Record<string,
       showKeys: options[PREVIEW_SETTINGS.showKeys] === true,
       showClicks: options[PREVIEW_SETTINGS.showClicks] === true,
     },
+    search: readSearch(values[PREVIEW_SETTINGS.searchEngine], values[PREVIEW_SETTINGS.searchUrl]),
   });
 }
 

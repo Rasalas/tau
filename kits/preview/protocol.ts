@@ -4,6 +4,7 @@
  */
 import type { ComponentType } from "react";
 import type { WorkbenchActions } from "tau";
+import type { PreviewSearch } from "./search.js";
 import type { PreviewAnnotationResult, PreviewAnnotationTool, PreviewPickedElement } from "./page-overlay.js";
 
 export const PREVIEW_HOST_EXTENSION_ID = "tau.preview";
@@ -34,6 +35,8 @@ export interface PreviewDefaults {
   zoom: number;
   appearance: PreviewAppearance;
   recording: PreviewRecordingOptions;
+  /** What the address bar searches with when the input is not an address. */
+  search: PreviewSearch;
 }
 
 export type PreviewMiniCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -275,7 +278,8 @@ export function cookieImportFailure(message: string): CookieImportFailure | unde
 }
 
 export interface PreviewHostCommands {
-  "open": { input: { url: string }; output: PreviewState };
+  /** `typed` marks the address bar: text that is not an address is searched for. */
+  "open": { input: { url: string; typed?: boolean }; output: PreviewState };
   "navigate": { input: PreviewNavigateInput; output: PreviewState };
   "close": { input: undefined; output: PreviewState };
   "bounds": { input: PreviewBounds; output: void };
