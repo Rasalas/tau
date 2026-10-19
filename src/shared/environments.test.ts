@@ -18,6 +18,18 @@ const session = (id: string, modifiedAt: number, extra: Partial<UiSession> = {})
 });
 
 describe("a machine's addresses", () => {
+  it("refuses plaintext fallback for secure credentials, including stale saved endpoints", () => {
+    const secure = { url: "https://studio.example/" };
+    const plain = { url: "http://10.0.0.4:7788/", kind: "lan" as const };
+    expect(orderEndpoints([plain, secure], plain.url)).toEqual([secure]);
+    expect(orderEndpoints([plain], secure.url)).toEqual([]);
+    expect(refreshEndpoints([secure], [plain], secure.url)).toEqual([secure]);
+    expect(refreshEndpoints([plain, secure], [])).toEqual([secure]);
+    expect(refreshEndpoints([plain], [plain], secure.url)).toEqual([]);
+    expect(orderEndpoints([plain])).toEqual([plain]);
+    expect(refreshEndpoints([plain], [plain], plain.url)).toEqual([plain]);
+  });
+
   it("are tried nearest first, and the one that worked last before all", () => {
     const endpoints = [
       { url: "https://studio.tail.ts.net:7788/", kind: "magicdns" as const },

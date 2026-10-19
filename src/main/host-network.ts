@@ -57,7 +57,7 @@ export function planNetworkBinds(settings: UiNetworkSettings, interfaces: Interf
 
 function tailscaleAddresses(interfaces: Interfaces): string[] {
   return Object.values(interfaces).flat()
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined && !entry.internal && isTailscaleAddress(entry.address))
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined && !entry.internal && isTailscaleAddress(entry.address, interfaces))
     .map((entry) => entry.address);
 }
 

@@ -20,7 +20,7 @@ const names = { localName: "Mac-mini.local", magicDns: "mac-mini.tail5e6f7a.ts.n
 
 describe("address classes", () => {
   it.each([
-    ["100.64.0.1", true], ["100.127.255.254", true], ["100.63.0.1", false], ["100.128.0.1", false],
+    ["100.64.0.1", false], ["100.127.255.254", false], ["100.63.0.1", false], ["100.128.0.1", false],
     ["fd7a:115c:a1e0::1", true], ["FD7A:115C:A1E0:ab12::1", true], ["fd7a:115c:a1e1::1", false], ["10.0.0.1", false],
   ])("knows whether %s is Tailscale's", (address, expected) => {
     expect(isTailscaleAddress(address)).toBe(expected);
@@ -29,7 +29,7 @@ describe("address classes", () => {
   it.each([
     ["127.0.0.1", "loopback"], ["::1", "loopback"], ["::ffff:127.0.0.1", "loopback"],
     ["169.254.1.1", "link-local"], ["fe80::1", "link-local"], ["febf::1", "link-local"],
-    ["100.100.1.1", "tailscale"], ["192.168.0.2", "lan"], ["2a02:810d::1", "lan"], ["fd00::5", "lan"],
+    ["100.100.1.1", "lan"], ["192.168.0.2", "lan"], ["2a02:810d::1", "lan"], ["fd00::5", "lan"],
   ])("puts %s among %s", (address, expected) => {
     expect(classifyAddress(address)).toBe(expected);
   });
@@ -168,5 +168,34 @@ describe("machine names", () => {
     expect(await failing.forInterfaces(interfaces)).toBeUndefined();
     const never = new MagicDnsNames(async () => { throw new Error("must not be asked"); });
     expect(await never.forInterfaces({ en0: interfaces.en0 })).toBeUndefined();
+  });
+});
+
+describe("pairing interface identity", () => {
+  it("refuses bridge and VPN LAN addresses while retaining host bridges and identified Tailscale", () => {
+    const entry = (address: string) => [{ address, family: "IPv4", internal: false }];
+    const fixture = {
+      bridge0: entry("192.168.2.1"), utun2: entry("10.8.0.2"),
+      tun0: entry("10.9.0.2"), wg0: entry("10.10.0.2"),
+      vmnet1: entry("192.168.56.1"), vboxnet0: entry("192.168.57.1"),
+      vpn0: entry("100.85.0.1"), en0: entry("192.168.1.20"),
+      vmbr0: entry("192.168.1.30"), tailscale0: entry("100.74.126.34"),
+      utun4: interfaces.utun4,
+    } as unknown as Interfaces;
+    expect(listenerEndpoints({ scheme: "https", host: "::", port: 1 }, fixture, {}, { loopback: false })
+      .map((endpoint) => endpoint.url)).toEqual([
+      "https://192.168.1.20:1/", "https://192.168.1.30:1/",
+      "https://100.74.126.34:1/", "https://100.96.0.12:1/",
+      "https://[fd7a:115c:a1e0::2301:8dd4]:1/",
+    ]);
+    expect(isTailscaleAddress("100.85.0.1", fixture)).toBe(false);
+    expect(isTailscaleAddress("100.74.126.34", fixture)).toBe(true);
+  });
+
+  it("does not ask MagicDNS about another VPN's CGNAT address", async () => {
+    const asked: string[] = [];
+    const dns = new MagicDnsNames(async (address) => { asked.push(address); return []; });
+    await dns.forInterfaces({ vpn0: [{ address: "100.85.0.1", family: "IPv4", internal: false }] } as unknown as Interfaces);
+    expect(asked).toEqual([]);
   });
 });

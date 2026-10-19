@@ -69,7 +69,7 @@ let localName: string | undefined | null = null;
 /** The machine's names, looked up only when some listener is beyond loopback and would be reached by them. */
 async function machineNames(interfaces: Interfaces): Promise<EndpointNames> {
   if (localName === null) localName = localHostName();
-  const tailscale = Object.values(interfaces).flat().some((entry) => entry && !entry.internal && isTailscaleAddress(entry.address));
+  const tailscale = Object.values(interfaces).flat().some((entry) => entry && !entry.internal && isTailscaleAddress(entry.address, interfaces));
   const name = tailscale ? await magicDns.forInterfaces(interfaces) : undefined;
   return { ...(localName ? { localName } : {}), ...(name ? { magicDns: name } : {}) };
 }

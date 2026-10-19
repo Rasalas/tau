@@ -14,7 +14,7 @@ import type { ServiceAnnouncement } from "./host-discovery.js";
 import { readTauServiceTxt } from "../shared/discovery.js";
 
 const wifi = { en0: [{ address: "192.168.1.20", family: "IPv4", internal: false, netmask: "255.255.255.0", mac: "", cidr: null }] } as unknown as Interfaces;
-const tailnet = { utun4: [{ address: "100.96.0.12", family: "IPv4", internal: false, netmask: "255.255.255.255", mac: "", cidr: null }] } as unknown as Interfaces;
+const tailnet = { tailscale0: [{ address: "100.96.0.12", family: "IPv4", internal: false, netmask: "255.255.255.255", mac: "", cidr: null }] } as unknown as Interfaces;
 
 const directories: string[] = [];
 const accesses: HostNetworkAccess[] = [];
@@ -89,6 +89,13 @@ const servedFingerprint = (port: number) => new Promise<string>((resolve, reject
 });
 
 describe("the listeners network access asks for", () => {
+  it("never bind another VPN's CGNAT address as Tailscale", () => {
+    const vpn = { vpn0: [{ address: "100.85.0.1", family: "IPv4", internal: false }] } as unknown as Interfaces;
+    expect(planNetworkBinds({ ...DEFAULT_NETWORK_SETTINGS, tailscale: true }, vpn)).toEqual([
+      { key: "proxy", host: "127.0.0.1", port: 7789, kind: "proxy" },
+    ]);
+  });
+
   it("are none by default", () => {
     expect(planNetworkBinds(DEFAULT_NETWORK_SETTINGS, { ...wifi, ...tailnet })).toEqual([]);
   });
