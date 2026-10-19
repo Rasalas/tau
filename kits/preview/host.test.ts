@@ -18,6 +18,9 @@ import {
   type PreviewSurfaceOptions,
 } from "./host.js";
 
+// A Mac with Chrome installed would otherwise count as having a headless fallback.
+vi.mock("./headless-surface.js", async (importOriginal) => ({ ...await importOriginal<typeof import("./headless-surface.js")>(), previewBrowserCommand: () => undefined }));
+
 function fakeSurface(overrides: Partial<PreviewSurface> = {}) {
   const placed: Array<{ rect: PreviewRect; visible: boolean }> = [];
   const loaded: string[] = [];
