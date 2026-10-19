@@ -6,6 +6,7 @@ import {
   hostInstaller,
   macBundle,
   macInstaller,
+  nodeInstallerSystem,
   windowsInstaller,
   type CommandResult,
   type InstallerSystem,
@@ -63,6 +64,18 @@ describe("debInstaller", () => {
     await expect(debInstaller(refused.system).install(STAGED)).rejects.toThrow("tau-update-helper: the package does not match the release's checksum");
     const denied = fakeSystem({ files: present, run: (command) => command === "/usr/bin/pkexec" ? { code: 127, stdout: "", stderr: "" } : { code: 0, stdout: "", stderr: "" } });
     await expect(debInstaller(denied.system).install(STAGED)).rejects.toThrow(/polkit/u);
+  });
+
+  it("says a helper that ran past its time may still be installing, not that nothing was", async () => {
+    const slow = fakeSystem({ files: present, run: (command) => command === "/usr/bin/pkexec" ? { code: 124, stdout: "", stderr: "", timedOut: true } : { code: 0, stdout: "", stderr: "" } });
+    const failure = debInstaller(slow.system).install(STAGED);
+    await expect(failure).rejects.toThrow(/may still be installing/u);
+    await expect(failure).rejects.not.toThrow(/nothing was installed/u);
+  });
+
+  it.skipIf(process.platform === "win32")("answers when a command outlives its time, even one that ignores the signal", async () => {
+    const result = await nodeInstallerSystem().run("/bin/sh", ["-c", "trap '' TERM; sleep 2"], { timeoutMs: 200 });
+    expect(result).toMatchObject({ code: 124, timedOut: true });
   });
 
   it("preserves pkexec's cancellation status separately from authorization failure", async () => {
@@ -149,12 +162,12 @@ describe("macInstaller", () => {
 });
 
 describe("windowsInstaller", () => {
-  it("runs the installer silently and detached, then starts the host's task again", async () => {
+  it("runs the installer silently and detached after a console-free wait, removes it, then starts the host's task again", async () => {
     const { system } = fakeSystem({ writable: ["C:\\Users\\u\\AppData\\Local\\Programs\\Tau"] });
     const installer = windowsInstaller(system, "C:\\Users\\u\\AppData\\Local\\Programs\\Tau/Tau.exe", "Tau Host");
     expect(await installer.blocked()).toBeUndefined();
     expect(await installer.install({ ...STAGED, file: "C:\\data\\Tau-Setup-0.7.14.exe" })).toBe("exit");
-    expect(system.spawnDetached).toHaveBeenCalledWith("cmd.exe", ["/d", "/s", "/c", "\"timeout /t 3 /nobreak >nul & \"C:\\data\\Tau-Setup-0.7.14.exe\" /S --updated & schtasks /Run /TN \"Tau Host\"\""], { verbatim: true });
+    expect(system.spawnDetached).toHaveBeenCalledWith("cmd.exe", ["/d", "/s", "/c", "\"ping -n 4 127.0.0.1 >nul & \"C:\\data\\Tau-Setup-0.7.14.exe\" /S --updated & del /f /q \"C:\\data\\Tau-Setup-0.7.14.exe\" & schtasks /Run /TN \"Tau Host\"\""], { verbatim: true });
   });
 
   it("is blocked for an install for all users", async () => {

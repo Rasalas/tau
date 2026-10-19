@@ -52,7 +52,6 @@ import { createWindowAttention, OVERLAY_BADGE_SIZE, overlayBadgeBitmap } from ".
 import { installWorkbenchEditingMenu, showWindowContextMenu } from "./window-context-menu.js";
 import { menuIconImage } from "./menu-icons.js";
 import type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
-import electronUpdater from "electron-updater";
 import { createAppUpdates, installGuardPorts, installStillRunning, linuxInstall, linuxUpdates, nextStaging, readUpdateFeed, type AppUpdates } from "./app-updates.js";
 import { offerPackageInstall } from "./appimage-install.js";
 import { appMenuTemplate, nextZoomLevel } from "./app-menu.js";
@@ -900,37 +899,39 @@ if (primaryInstance) app.whenReady().then(async () => {
     log: (label, detail) => hostLog.warn(label, detail),
   });
   void releaseNotes.start();
-  const linux = process.platform === "linux" && app.isPackaged
-    ? linuxUpdates(electronUpdater, linuxInstall(process.env, process.resourcesPath, process.execPath))
-    : undefined;
-  const unsupported = appIdentity().updates ? linux?.unsupported : builtFromSource(app.name);
-  updates = createAppUpdates({
-    updater: linux?.updater ?? electronUpdater.autoUpdater,
-    enabled: app.isPackaged,
-    ...(unsupported ? { unsupported } : {}),
-    ...(linux?.installOnQuit === false ? { installOnQuit: false } : {}),
-    ...(linux?.installDownloaded ? { installDownloaded: linux.installDownloaded } : {}),
-    log: hostLog,
-    onDownloaded: (version, info) => {
-      publish({ type: "app-update", version });
-      void releaseNotes?.downloaded(version, info.releaseNotes);
-    },
-    onInstallStep: (step) => {
-      publish({ type: "app-update", ...step });
-      // A failed install comes back without a phase.
-      updateQuit = step.phase === "installing";
-      // Outlives the quit: ShipIt replaces the app silently, for minutes on a busy Mac.
-      if (updateQuit && Notification.isSupported()) new Notification({ title: `Installing Tau ${step.version}`, body: "Tau reopens by itself when it is done. This can take a few minutes." }).show();
-    },
-    ...(process.platform === "darwin" ? { whenStaged: () => nextStaging(nativeUpdater) } : {}),
-    currentVersion: app.getVersion(),
-    ...(feed ? { feed } : {}),
-    // This machine's config file: the updater belongs to the machine, not to a remote host.
-    channel: async () => (await (await import("./host-config.js")).defaultHostConfigManager.read()).updates?.channel,
-    preserveNightlyChannel: async () => (await import("./host-config.js")).defaultHostConfigManager.preserveNightlyChannel(),
-    fetch: (url, init) => net.fetch(url, init),
-    interactive: process.env.TAU_NO_NATIVE_DIALOGS !== "1",
-  });
+  const setUpUpdates = (electronUpdater: typeof import("electron-updater")) => {
+    const linux = process.platform === "linux" && app.isPackaged
+      ? linuxUpdates(electronUpdater, linuxInstall(process.env, process.resourcesPath, process.execPath))
+      : undefined;
+    const unsupported = appIdentity().updates ? linux?.unsupported : builtFromSource(app.name);
+    updates = createAppUpdates({
+      updater: linux?.updater ?? electronUpdater.autoUpdater,
+      enabled: app.isPackaged,
+      ...(unsupported ? { unsupported } : {}),
+      ...(linux?.installOnQuit === false ? { installOnQuit: false } : {}),
+      ...(linux?.installDownloaded ? { installDownloaded: linux.installDownloaded } : {}),
+      log: hostLog,
+      onDownloaded: (version, info) => {
+        publish({ type: "app-update", version });
+        void releaseNotes?.downloaded(version, info.releaseNotes);
+      },
+      onInstallStep: (step) => {
+        publish({ type: "app-update", ...step });
+        // A failed install comes back without a phase.
+        updateQuit = step.phase === "installing";
+        // Outlives the quit: ShipIt replaces the app silently, for minutes on a busy Mac.
+        if (updateQuit && Notification.isSupported()) new Notification({ title: `Installing Tau ${step.version}`, body: "Tau reopens by itself when it is done. This can take a few minutes." }).show();
+      },
+      ...(process.platform === "darwin" ? { whenStaged: () => nextStaging(nativeUpdater) } : {}),
+      currentVersion: app.getVersion(),
+      ...(feed ? { feed } : {}),
+      // This machine's config file: the updater belongs to the machine, not to a remote host.
+      channel: async () => (await (await import("./host-config.js")).defaultHostConfigManager.read()).updates?.channel,
+      preserveNightlyChannel: async () => (await import("./host-config.js")).defaultHostConfigManager.preserveNightlyChannel(),
+      fetch: (url, init) => net.fetch(url, init),
+      interactive: process.env.TAU_NO_NATIVE_DIALOGS !== "1",
+    });
+  };
   Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate(process.platform, app.name, {
     checkForUpdates: () => void updates?.checkForUpdates(),
     pageAction: (action) => publishWindowShell({ kind: "menu", action }),
@@ -959,7 +960,10 @@ if (primaryInstance) app.whenReady().then(async () => {
     showWindow: createWindow,
     prepareHost: async () => {
       void readShellConfig();
-      updates?.start();
+      // electron-updater costs first paint; it loads once the window is up.
+      void import("electron-updater")
+        .then(({ default: electronUpdater }) => { setUpUpdates(electronUpdater); updates?.start(); })
+        .catch((error: unknown) => hostLog.error("update.setup.failed", error));
       const [shellEnvironment] = await Promise.all([
         installShellEnvironment({ cachePath: join(app.getPath("userData"), "shell-path.json"), onRefreshError: (error) => hostLog.warn("shell-environment.refresh.failed", error) })
           .catch((error: unknown) => { hostLog.warn("shell-environment.failed", error); return undefined; }),

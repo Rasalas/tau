@@ -173,4 +173,15 @@ describe("runToolCommand", () => {
     const missing = await runToolCommand({ executable: join(directory, "nope"), args: [] }, {});
     expect(missing.exitCode).toBe(-1);
   });
+
+  it("ends a package manager that runs past its time together with what it started", async () => {
+    if (process.platform === "win32") return;
+    const directory = await mkdtemp(join(tmpdir(), "tau-fake-npm-"));
+    directories.push(directory);
+    const npm = join(directory, "npm");
+    // The child sleep holds the output pipes; ending only the script would wait for it.
+    await writeFile(npm, "#!/bin/sh\nsleep 30\necho never\n");
+    await chmod(npm, 0o755);
+    expect(await runToolCommand({ executable: npm, args: [] }, { PATH: "/usr/bin:/bin" }, 200)).toEqual({ exitCode: -1, output: "It did not finish in time and was stopped." });
+  });
 });

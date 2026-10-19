@@ -34,6 +34,8 @@ export interface CommandResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** It ran past `timeoutMs`; it may still run (a root process this user cannot end). */
+  timedOut?: boolean;
 }
 
 /** What the installers do to the machine; tests replace all of it. */
@@ -87,6 +89,8 @@ export function debInstaller(system: InstallerSystem, pid: number = process.pid)
       const args = ["--disable-internal-agent", UPDATE_HELPER, "install", "--version", update.version, "--channel", update.channel];
       const result = await system.run(PKEXEC, args, { stdinFile: update.file, timeoutMs: 15 * 60_000 });
       if (result.code === 0) return "restart";
+      // The helper runs as root; this user cannot end it, so dpkg may still be at work.
+      if (result.timedOut) throw new Error("The update helper did not finish within 15 minutes and may still be installing. Try Update now again once it is done.");
       if (result.code === 126) throw Object.assign(new Error("The password dialog was closed; nothing was installed."), { code: 126 });
       if (result.code === 127) throw new Error("polkit did not allow the update helper; nothing was installed.");
       throw new Error(lastLine(result.stderr) || `The update helper stopped with ${result.code}; nothing was installed.`);
@@ -186,8 +190,8 @@ export function macInstaller(system: InstallerSystem, bundle: string): UpdateIns
 
 /**
  * Windows: electron-builder's NSIS installer, silently, for this user. It
- * closes every Tau.exe (this host too), so it runs detached and starts the
- * host's task again when it is done.
+ * closes every Tau.exe (this host too), so it runs detached, removes its
+ * file and starts the host's task again when it is done.
  */
 export function windowsInstaller(system: InstallerSystem, execPath: string, task: string | undefined): UpdateInstaller {
   const folder = dirname(execPath);
@@ -198,7 +202,8 @@ export function windowsInstaller(system: InstallerSystem, execPath: string, task
     },
     async install(update) {
       const quote = (value: string) => `"${value.replaceAll("\"", "")}"`;
-      const steps = [`timeout /t 3 /nobreak >nul`, `${quote(update.file)} /S --updated`];
+      // `timeout` fails at once without a console; ping waits about 3 s anywhere.
+      const steps = [`ping -n 4 127.0.0.1 >nul`, `${quote(update.file)} /S --updated`, `del /f /q ${quote(update.file)}`];
       if (task) steps.push(`schtasks /Run /TN ${quote(task)}`);
       system.spawnDetached("cmd.exe", ["/d", "/s", "/c", `"${steps.join(" & ")}"`], { verbatim: true });
       return "exit";
@@ -273,8 +278,9 @@ export function nodeInstallerSystem(): InstallerSystem {
       let stderr = "";
       child.stdout!.setEncoding("utf8").on("data", (chunk: string) => { if (stdout.length < 1_000_000) stdout += chunk; });
       child.stderr!.setEncoding("utf8").on("data", (chunk: string) => { if (stderr.length < 1_000_000) stderr += chunk; });
-      const timer = options.timeoutMs ? setTimeout(() => child.kill(), options.timeoutMs) : undefined;
-      child.once("error", (error) => { clearTimeout(timer); resolve({ code: 127, stdout, stderr: stderr || error.message }); });
+      // A process that does not end (root's, which answers kill with EPERM) is reported, not waited for.
+      const timer = options.timeoutMs ? setTimeout(() => { child.kill(); resolve({ code: 124, stdout, stderr, timedOut: true }); }, options.timeoutMs) : undefined;
+      child.on("error", (error) => { clearTimeout(timer); resolve({ code: 127, stdout, stderr: stderr || error.message }); });
       child.once("close", (code) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr }); });
     }),
     spawnDetached: (command, args, options = {}) => {

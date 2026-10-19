@@ -34,6 +34,13 @@ it("requests one pairing link and accepts only localhost forwarding", async () =
   result.close();
   expect(child.kill).toHaveBeenCalled();
 });
+it("survives a pairing pipe the WSL host already closed", async () => {
+  const child = channel();
+  const pairing = wslPairingChannel(child);
+  child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+  child.emit("exit", 1);
+  await expect(pairing).rejects.toThrow(/exited with 1/u);
+});
 it("rejects malformed or missing WSL routes before downloading", async () => {
   const prepare = vi.fn();
   await expect(bootstrapWslHost("Ubuntu", { cacheDir: "/cache", platform: "darwin", prepare })).rejects.toThrow(/Windows/u);

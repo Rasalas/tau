@@ -1,10 +1,10 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { ThreadBackendKind, UiRuntimeTool, UiRuntimeToolLogEntry, UiRuntimeToolsState } from "../shared/contracts.js";
 import { compareVersions } from "../shared/runtime-version.js";
 import { cliCommandText, type CliCommand, type RuntimeToolMaintenance } from "./cli-install.js";
 import type { HostRuntimeBackendProvider } from "./host-extensions.js";
 import { readPersistedJson, writePersistedJson } from "./persisted-json.js";
-import { commandInvocation } from "./platform-process.js";
+import { commandInvocation, killProcessTree } from "./platform-process.js";
 
 const FILE_VERSION = 1;
 const LOG_LIMIT = 40;
@@ -71,21 +71,34 @@ function decodeSaved(value: unknown): Saved | undefined {
 
 const tail = (text: string) => text.length > OUTPUT_LIMIT ? `…${text.slice(-OUTPUT_LIMIT)}` : text;
 
-/** Runs a command without a shell; a failure to start is exit code -1 with the reason as output. */
+/**
+ * Runs a command without a shell; a failure to start is exit code -1 with the reason as output.
+ * A timeout ends the whole tree (`npm.cmd` is cmd.exe, npm runs node), so nothing keeps the pipes open.
+ */
 export function runToolCommand(command: CliCommand, env: NodeJS.ProcessEnv, timeoutMs = RUN_TIMEOUT_MS): Promise<RuntimeToolRun> {
   const invocation = commandInvocation(command.executable, command.args, { env });
   return new Promise((resolve) => {
-    execFile(invocation.command, invocation.args, {
+    const child = spawn(invocation.command, invocation.args, {
       env,
-      timeout: timeoutMs,
-      maxBuffer: 8 * 1024 * 1024,
       windowsHide: true,
+      // Its own group on POSIX, which the timeout signals as a whole.
+      detached: process.platform !== "win32",
       ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-    }, (error, stdout, stderr) => {
-      const output = tail(`${String(stdout)}${String(stderr)}`.trim());
-      if (!error) return resolve({ exitCode: 0, output });
-      const code = (error as { code?: unknown }).code;
-      resolve({ exitCode: typeof code === "number" ? code : -1, output: output || error.message });
+    });
+    let output = "";
+    const collect = (chunk: string) => { output = tail(`${output}${chunk}`); };
+    child.stdout.setEncoding("utf8").on("data", collect);
+    child.stderr.setEncoding("utf8").on("data", collect);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (child.pid) killProcessTree(child.pid, "SIGKILL");
+    }, timeoutMs);
+    child.once("error", (error) => { clearTimeout(timer); resolve({ exitCode: -1, output: output.trim() || error.message }); });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      const reason = code === 0 ? "" : timedOut ? "It did not finish in time and was stopped." : `It stopped with ${code ?? signal}.`;
+      resolve({ exitCode: code ?? -1, output: output.trim() || reason });
     });
   });
 }

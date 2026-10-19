@@ -94,7 +94,7 @@ display's window) cannot install, so the host does.
 | Linux `.deb` | `pkexec /opt/Tau/bin/tau-update-helper install --version <v> --channel <c>` with the downloaded package on standard input (below) | the helper and its polkit grant, from the `.deb` of this version on; a user in `sudo`, `admin`, `wheel` or `tau-update` |
 | Linux AppImage | copies the new AppImage beside the old one, `chmod 755`, renames it over `$APPIMAGE` | write access to that file and its folder |
 | macOS | unpacks the release's zip beside the app with `ditto`, checks bundle id and version, and, when the running app is signed, a valid signature by the same team (`codesign`); swaps the bundles, as Squirrel.Mac would after a quit | the user owns the app and its folder |
-| Windows | runs the NSIS installer detached, `/S --updated`, then `schtasks /Run` for the host's task | a per-user install (writable folder) |
+| Windows | runs the NSIS installer detached, `/S --updated`, which deletes its file after it and then runs `schtasks /Run` for the host's task | a per-user install (writable folder) |
 
 The `.deb` window also passes its verified download to this helper on stdin.
 It never calls electron-updater's `dpkg` installer. The helper independently

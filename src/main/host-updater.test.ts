@@ -160,6 +160,26 @@ describe("HostUpdater", () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it("leaves the download to a detached installer that still runs it, and leaves after the answer", async () => {
+    const feed = fakeFeed("0.7.14");
+    const exit = vi.fn();
+    const { installer, installed } = fakeInstaller({ install: async (update) => { installed.push(update); return "exit"; } });
+    const { instance } = updater({ fetch: feed.fetch, installer, exit });
+    instance.updateSettings({ automatic: false });
+    await instance.check();
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      expect(await instance.install()).toMatchObject({ phase: "installed" });
+      expect(exit).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(exit).toHaveBeenCalledOnce();
+    expect(installed).toHaveLength(1);
+    expect(existsSync(installed[0]!.file)).toBe(true);
+  });
+
   it("waits out the quiet period after a turn before an automatic install", async () => {
     const feed = fakeFeed("0.7.14");
     const { installer, installed } = fakeInstaller();

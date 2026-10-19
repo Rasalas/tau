@@ -13,6 +13,7 @@ import {
   mergePaths,
   parseCapture,
   parseWindowsPathOutput,
+  runWithDeadline,
   windowsPathScript,
 } from "./shell-environment.js";
 
@@ -102,6 +103,12 @@ describe("installShellEnvironment", () => {
     expect(env.PATH).toBe("/usr/bin");
     expect(result).toEqual({ pathSource: "process", installed: [] });
   });
+
+  it.runIf(posix)("gives up on an interactive shell whose rc file blocks, and on what it left running", async () => {
+    // Interactive bash ignores SIGTERM; the background sleep holds the pipes open.
+    await expect(runWithDeadline("/bin/bash", ["-ic", "sleep 30 & read x"], 200, { PATH: "/usr/bin:/bin" })).rejects.toThrow(/did not answer/u);
+    await expect(runWithDeadline("/bin/sh", ["-c", "printf ok"], 5_000, { PATH: "/usr/bin:/bin" })).resolves.toBe("ok");
+  }, 15_000);
 
   it.runIf(posix)("reads a real shell", async () => {
     const captured = await captureLoginShellEnvironment(["PATH", "TAU_PROBE"], { shell: "/bin/sh", env: { PATH: "/usr/bin:/bin", TAU_PROBE: "yes" } });

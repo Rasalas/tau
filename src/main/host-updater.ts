@@ -445,7 +445,9 @@ export class HostUpdater {
     try {
       const after = await this.options.installer!.install(staged);
       this.requested = false;
-      this.drop();
+      // A detached installer (Windows) still needs the file and removes it itself.
+      if (after === "exit") this.staged = undefined;
+      else this.drop();
       if (after === "restart" && this.options.restart) {
         this.set("installed", `Tau ${staged.version} is installed; the host restarts into it.`);
         this.options.log.info("host-update.restart", staged.version);

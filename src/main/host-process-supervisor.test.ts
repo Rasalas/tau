@@ -652,6 +652,36 @@ describe("a host a service runs", () => {
     expect(instance.descriptor!.pid).not.toBe(running.pid);
   }, 30_000);
 
+  it("that is gone keeps being followed when the host of the window's own does not start at first", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0" });
+    let spawns = 0;
+    const instance = supervisor(userData, {
+      service: service.control,
+      spawnProcess: (command, args, env) => { spawns += 1; return spawnStub(command, args, spawns <= 2 ? { ...env, STUB_EXIT_IMMEDIATELY: "1" } : env); },
+    });
+    const running = await instance.start();
+    service.state.installed = false;
+    await service.stop();
+
+    await waitFor(() => instance.descriptor !== undefined && instance.descriptor.service === undefined && processAlive(instance.descriptor.pid), "a host of the window's own");
+    expect(spawns).toBe(3);
+    expect(instance.descriptor!.pid).not.toBe(running.pid);
+  }, 30_000);
+
+  it("that is gone ends in the fatal dialog when no host of the window's own starts", async () => {
+    const userData = workingDirectory();
+    const service = fakeService(userData, { version: "1.0.0" });
+    const onFatal = vi.fn();
+    const instance = supervisor(userData, { service: service.control, onFatal, spawnProcess: (command, args, env) => spawnStub(command, args, { ...env, STUB_EXIT_IMMEDIATELY: "1" }) });
+    await instance.start();
+    service.state.installed = false;
+    await service.stop();
+
+    await waitFor(() => onFatal.mock.calls.length > 0, "the fatal dialog");
+    expect(onFatal).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: expect.stringContaining("before it listened") }));
+  }, 30_000);
+
   it("that starts nothing leaves the window a host of its own", async () => {
     const userData = workingDirectory();
     const control: HostServiceControl = { installed: async () => true, start: async () => undefined, restart: async () => undefined, repair: async () => undefined };
