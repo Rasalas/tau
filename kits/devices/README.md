@@ -29,7 +29,7 @@ Failed commands preserve structured stdout diagnostics: the tool's message, star
 
 ## Remote hosts and access
 
-Add an SSH config alias or `user@host` and an absolute remote tool directory. Save before installing. Key-based, noninteractive login and a previously trusted host key are required. Tau never disables host-key checking. The hub binds loopback on the remote machine and reaches Tau through an SSH local forward. Neither the hub dashboard nor its shell-execution routes are exposed to workbench clients. The kit owns the hub child and closes it on deactivation. Input uses a kit-specific agent-device state directory; the kit stops its own daemon and owned runners when deactivated.
+Add an SSH config alias or `user@host` and an absolute remote tool directory. Save before installing. Key-based, noninteractive login and a previously trusted host key are required. Tau never disables host-key checking. The hub binds loopback on the remote machine and reaches Tau through an SSH local forward. Neither the hub dashboard nor its shell-execution routes are exposed to workbench clients. The kit owns the hub child and closes it on deactivation. The SSH session keeps a piped stdin that a remote watcher reads, so the remote hub also stops when Tau is killed or the connection drops. Saving settings restarts only the hubs whose machine changed. Input uses a kit-specific agent-device state directory; the kit stops its own daemon and owned runners when deactivated.
 
 Configure and Install are host-owner commands. Read-only paired devices can discover and view screens, while control requires Full access. A remote phone can therefore watch and, when paired with Full access, send the same device input. Settings writes remain owner-only.
 
