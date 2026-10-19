@@ -53,6 +53,7 @@ import {
   type ResumeQuestionOffEvent,
 } from "./protocol.js";
 import { mergeWindows, rateLimitEventWindow, usageReadWindows, type LimitAccount, type LimitWindow } from "./limits.js";
+import { projectSkills } from "./project-skills.js";
 import { authBilling, claudeAuthAccount, describeAccount, probeBilling, probeNewThreadCatalog, readClaudeAuth, readClaudeVersion, type ClaudeAuthStatus, type ClaudeProbe } from "./probe.js";
 import { createClaudeCodeRuntimeAdapter, sdkExtraArgs, type ClaudeCodeAgentRuntimeAdapter, type ClaudeCodeRuntimeOptions } from "./runtime-adapter.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
@@ -100,8 +101,9 @@ export function claudeComposerCommands(
   skills: readonly { name: string; description?: string }[],
   adapter: ClaudeCodeAgentRuntimeAdapter,
 ): UiComposerCommand[] {
+  // The first of a name wins: callers list the project's own skills first.
   return skills
-    .filter((skill) => /^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(skill.name))
+    .filter((skill, index) => /^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(skill.name) && skills.findIndex((other) => other.name === skill.name) === index)
     .map((skill) => ({
       name: `skill:${skill.name}`,
       description: skill.description,
@@ -203,11 +205,11 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           ...(usage.length ? { usage } : {}),
         };
       };
-      const commands = (adapter: ClaudeCodeAgentRuntimeAdapter) => (cwd: string) => options.commands
+      const commands = (adapter: ClaudeCodeAgentRuntimeAdapter, instance: string) => (cwd: string) => options.commands
         ? options.commands.map((command) => command.source === "skill"
           ? { ...command, skillCommand: skillInvocationCommand(command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name, adapter) }
           : command)
-        : claudeComposerCommands(services.skills(cwd), adapter);
+        : claudeComposerCommands([...projectSkills(cwd, settings.args(instance)), ...services.skills(cwd)], adapter);
 
       /** How the instance's CLI is installed and what updates it; the maintenance and the version share one read. */
       const maintenanceOf = async (id: string, path: string): Promise<RuntimeToolMaintenance> => {
@@ -288,7 +290,7 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
       };
 
       const providerFor = (id: string, adapter: ClaudeCodeAgentRuntimeAdapter): HostRuntimeBackendProvider => {
-        const offered = commands(adapter);
+        const offered = commands(adapter, id);
         return {
           kind: adapter.id,
           label: settings.label(id),

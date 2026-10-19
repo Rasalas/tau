@@ -87,6 +87,28 @@ describe("Claude Code host half", () => {
     expect(provider?.adapter.capabilities.interactiveApprovals).toBe(true);
   });
 
+  it("offers the skills of the project's own folder and of the launch's --add-dir, the project's first", async () => {
+    const skill = async (root: string, folder: string, text: string) => {
+      await mkdir(join(root, ".claude", "skills", folder), { recursive: true });
+      await writeFile(join(root, ".claude", "skills", folder, "SKILL.md"), text);
+    };
+    const project = await mkdtemp(join(tmpdir(), "tau-claude-project-"));
+    const extra = await mkdtemp(join(tmpdir(), "tau-claude-extra-"));
+    directories.push(project, extra);
+    await skill(project, "deploy", "---\nname: deploy\ndescription: Ship it\n---\nSteps");
+    await skill(project, "tdd", "---\nname: tdd\ndescription: The project's own\n---\n");
+    await skill(extra, "lint", "---\ndescription: Lint everything\n---\n");
+    const { backends } = await harness(() => "/usr/local/bin/claude", offline, () => ({}), async (agentDir) => {
+      await mkdir(join(agentDir, "state", "tau.claude-code"), { recursive: true });
+      await writeFile(join(agentDir, "state", "tau.claude-code", "settings.json"), JSON.stringify({ args: `--add-dir ${extra}` }));
+    });
+    expect(backends[0]?.composerCommands(project)).toEqual([
+      { name: "skill:deploy", description: "Ship it", source: "skill", skillCommand: "/deploy" },
+      { name: "skill:lint", description: "Lint everything", source: "skill", skillCommand: "/lint" },
+      { name: "skill:tdd", description: "The project's own", source: "skill", skillCommand: "/tdd" },
+    ]);
+  });
+
   it("reports where the CLI is, and refuses to open a thread when it is missing", async () => {
     const found = await harness((name) => name === "claude" ? "/usr/local/bin/claude" : undefined);
     await expect(found.registry.invoke("tau.claude-code", "status"))
