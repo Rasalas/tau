@@ -27,7 +27,7 @@ export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, o
     const headline = noticeHeadline(message);
     toasts.show({
       // The same text again restarts its toast rather than stacking a copy.
-      id: `notice:${message}`,
+      id: notice.id ?? `notice:${message}`,
       type: notice.level,
       description: headline,
       ...(openMachines && isMachineUpdateNotice(message) ? { actions: [{ label: "Machines", opens: true, run: openMachines }] } : {}),

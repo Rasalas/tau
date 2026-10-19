@@ -81,6 +81,8 @@ export interface NewThreadDeliveryPort {
     sessionId: string,
     settlement: { accepted: true } | { accepted: false; message: string },
   ): boolean;
+  /** An existing thread's prompt the runtime failed after taking it goes back into that thread's composer. */
+  restoreFailedPrompt(clientMessageId: string, sessionId: string): void;
   detachPendingDelivery(): boolean;
   release(clientMessageId: string): void;
   rehomeDetached(clientMessageId: string, recovery: NewThreadSubmissionRecovery, sessionId: string): void;

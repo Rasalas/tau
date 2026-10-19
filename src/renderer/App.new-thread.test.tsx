@@ -77,7 +77,8 @@ it.each([
   expect(setModel).not.toHaveBeenCalled();
   const header = view.container.querySelector(".thread-header")!;
   expect(within(header as HTMLElement).getByRole("navigation", { name: "Thread breadcrumb" })).toBeTruthy();
-  expect(header.textContent).toContain("Untitled thread");
+  expect(header.textContent).toContain("New thread");
+  expect(header.textContent).not.toContain("Untitled thread");
   expect(header.querySelector(".thread-details")).toBeNull();
   expect(screen.getByRole("button", { name: "Change project, current project project" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Change device" })).toBeTruthy();

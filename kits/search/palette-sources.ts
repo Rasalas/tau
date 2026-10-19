@@ -49,9 +49,11 @@ export function threadTitleItems(query: string, context: PaletteSearchContext): 
   const tokens = paletteTokens(query);
   if (tokens.length === 0 && !context.scope) return [];
   const waiting = new Set(tokens.length ? [] : context.index.waiting);
+  // As in the thread list: a thread nobody wrote in is not one yet, unless it is at work or asking.
+  const listed = (thread: UiSession) => thread.messageCount > 0 || context.index.running?.includes(thread.id) || context.index.waiting?.includes(thread.id);
   const matching = context.index.threads
     // Before anything is typed, agents stay in their panel as they do in the rail.
-    .filter((thread) => (tokens.length || !thread.parentThreadId) && holdsAll(tokens, thread.title, thread.projectName, thread.projectLabel))
+    .filter((thread) => listed(thread) && (tokens.length || !thread.parentThreadId) && holdsAll(tokens, thread.title, thread.projectName, thread.projectLabel))
     // Before anything is typed, threads waiting on the user come first, however old.
     .sort((a, b) => Number(waiting.has(b.id)) - Number(waiting.has(a.id)) || b.modifiedAt - a.modifiedAt);
   const asking = matching.filter((thread) => waiting.has(thread.id)).length;

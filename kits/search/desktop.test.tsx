@@ -60,6 +60,14 @@ describe("Search Kit: palette sources", () => {
     expect(threadTitleItems("newer", context)[0]!.id).toBe("n6");
   });
 
+  it("leaves out a thread nobody wrote in, as the thread list does, unless it is at work", () => {
+    const base = searchContext();
+    const empty = { ...thread("e", "", 9), messageCount: 0 };
+    const context = { ...base, index: { ...base.index, threads: [...base.index.threads, empty] }, scope: "threads" as const };
+    expect(threadTitleItems("", context).map((item) => item.id)).toEqual(["b", "c", "a"]);
+    expect(threadTitleItems("", { ...context, index: { ...context.index, running: ["e"] } }).map((item) => item.label)[0]).toBe("Untitled thread");
+  });
+
   it("finds a thread by its branch label", () => {
     const base = searchContext();
     base.index.threads[2]!.projectLabel = "feat/thread-directory";

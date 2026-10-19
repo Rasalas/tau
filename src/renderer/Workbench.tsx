@@ -735,7 +735,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   const stageFrame = (content: React.ReactNode) => <section className="stage">{content}</section>;
   const startProject = showStartScreen ? projects.find((project) => project.path === startProjectPath) : undefined;
-  const threadTitle = showStartScreen ? <ThreadTitleMenu title="Untitled thread" disabled menu={() => ({ sections: [], run: () => {} })} onRename={async () => false} /> : <>
+  // A draft is a "New thread", as its row and the button that opened it say; "Untitled thread" is a thread without a title yet.
+  const threadTitle = showStartScreen ? <ThreadTitleMenu title={pendingNewThread ? "New thread" : "Untitled thread"} disabled menu={() => ({ sections: [], run: () => {} })} onRename={async () => false} /> : <>
           <Region registry={registry} placement="thread-title" snapshot={snapshot} actions={actions} />
           <ThreadTitleMenu
             sheet={phone}

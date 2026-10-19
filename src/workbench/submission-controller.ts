@@ -28,7 +28,7 @@ import type { HostClient } from "./host-client";
 import type { HostSessionState } from "./host-session-state";
 import type { NewThreadDeliveryPort } from "./new-thread-delivery";
 import type { ThreadStore } from "./thread-store";
-import type { ThreadViewStore } from "./thread-view-store";
+import { SEND_FAILED_NOTICE, type ThreadViewStore } from "./thread-view-store";
 import type { DraftThreads } from "./draft-threads";
 import {
   buildOptimisticMessage,
@@ -108,7 +108,7 @@ export interface SubmissionControllerPorts {
   scopes: ComposerScopeStore;
   environment: SubmissionEnvironment;
   storage: ClientStorage;
-  notify(message?: string, level?: "info" | "warning" | "error"): void;
+  notify(message?: string, level?: "info" | "warning" | "error", id?: string): void;
   hostSession: HostSessionState;
   delivery: NewThreadDeliveryPort;
   newThread: NewThreadPort;
@@ -274,7 +274,7 @@ export class SubmissionController {
         // ComposerScopeStore keeps the captured draft when a submission is
         // rejected, including edits made while preflight was in flight.
         // Re-seeding here would overwrite those newer edits.
-        this.ports.notify(errorMessage(error), "error");
+        this.ports.notify(errorMessage(error), "error", SEND_FAILED_NOTICE);
         return { accepted: false, message: errorMessage(error) };
       }
     }
@@ -345,13 +345,13 @@ export class SubmissionController {
       const currentSubmission = isCurrentSubmission();
       cancelTranscriptTurn();
       removeOptimisticMessage(view, optimistic.id);
-      if (currentSubmission) this.ports.notify(errorMessage(error), "error");
+      if (currentSubmission) this.ports.notify(errorMessage(error), "error", SEND_FAILED_NOTICE);
       return { accepted: false, message: errorMessage(error) };
     };
     const submittedDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
     const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
-      addOptimisticMessage(view, optimisticScope, optimistic);
+      addOptimisticMessage(view, optimisticScope, optimistic, { text, attachments });
       startTranscriptTurn(snapshot?.sessionId);
       try {
         if (!client) throw new Error("Steering requires a connected machine.");
@@ -553,7 +553,7 @@ export class SubmissionController {
       environment.unsettle(snapshot.sessionId);
     }
     startTranscriptTurn(snapshot?.sessionId);
-    addOptimisticMessage(view, optimisticScope, optimistic);
+    addOptimisticMessage(view, optimisticScope, optimistic, { text, attachments });
     if (!client) return this.deliverInPreview();
     try {
       await client.sendPrompt(text, attachments, this.ports.hostSession.sessionIdFor(snapshot?.sessionId), clientTurn, prepared);

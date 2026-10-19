@@ -33,6 +33,11 @@ function fail(channel: string, field: string, reason: string): never {
   throw new Error(`${channel}: ${field} ${reason}`);
 }
 
+/** JSON carries an undefined array slot as null, so a positional argument left out arrives as either. */
+function absent(value: unknown): value is undefined | null {
+  return value === undefined || value === null;
+}
+
 function record(channel: string, field: string, value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(channel, field, "must be an object");
   return value as Record<string, unknown>;
@@ -60,12 +65,12 @@ export function decodeText(channel: string, field: string, value: unknown): stri
 }
 
 export function decodeOptionalText(channel: string, field: string, value: unknown): string | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   return decodeText(channel, field, value);
 }
 
 export function decodeOptionalString(channel: string, field: string, value: unknown): string | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   return decodeString(channel, field, value);
 }
 
@@ -75,7 +80,7 @@ export function decodeBoolean(channel: string, field: string, value: unknown): b
 }
 
 export function decodeOptionalBoolean(channel: string, field: string, value: unknown): boolean | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   return decodeBoolean(channel, field, value);
 }
 
@@ -111,13 +116,13 @@ function decodeArray(channel: string, field: string, value: unknown): unknown[] 
 }
 
 export function decodeUiPromptAttachments(channel: string, field: string, value: unknown): UiPromptAttachment[] | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   if (!Array.isArray(value)) fail(channel, field, "must be an array");
   return value.map((item, index) => decodeUiPromptAttachment(channel, `${field}[${index}]`, item));
 }
 
 export function decodeNewThreadConfiguration(channel: string, field: string, value: unknown): NewThreadConfiguration | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   const item = record(channel, field, value);
   const mode = item.mode === undefined ? undefined : decodeString(channel, `${field}.mode`, item.mode);
   const thinkingLevel = item.thinkingLevel === undefined ? undefined : decodeString(channel, `${field}.thinkingLevel`, item.thinkingLevel);
@@ -167,7 +172,7 @@ export function decodeClientTurnIdentity(channel: string, field: string, value: 
 }
 
 export function decodeStringOrClientTurnIdentity(channel: string, field: string, value: unknown): string | ClientTurnIdentity | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   if (typeof value === "string") return value;
   return decodeClientTurnIdentity(channel, field, value);
 }
@@ -192,7 +197,7 @@ function decodeUiSkillInvocation(channel: string, field: string, value: unknown)
 }
 
 export function decodePreparedPrompt(channel: string, field: string, value: unknown): PreparedPrompt | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   const item = record(channel, field, value);
   return {
     ...(item.tauThreadId !== undefined ? { tauThreadId: decodeString(channel, `${field}.tauThreadId`, item.tauThreadId) } : {}),
@@ -209,7 +214,7 @@ export function decodePreparedPrompt(channel: string, field: string, value: unkn
 }
 
 export function decodeUiSkillDraft(channel: string, field: string, value: unknown): UiSkillDraft | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   const item = record(channel, field, value);
   if (item.source !== "skill") fail(channel, `${field}.source`, 'must be "skill"');
   return {
@@ -231,13 +236,13 @@ export function decodeUiSkillDraft(channel: string, field: string, value: unknow
 
 /** The cursor is opaque to core; only its runtime representation (a non-empty string) is checked. */
 export function decodeHostTranscriptCursor(channel: string, field: string, value: unknown): HostTranscriptCursor | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   if (!isHostTranscriptCursor(value)) fail(channel, field, "must be a non-empty string cursor");
   return value;
 }
 
 export function decodeNavigateOptions(channel: string, field: string, value: unknown): { summarize?: boolean } | undefined {
-  if (value === undefined) return undefined;
+  if (absent(value)) return undefined;
   const item = record(channel, field, value);
   return item.summarize !== undefined ? { summarize: decodeBoolean(channel, `${field}.summarize`, item.summarize) } : {};
 }

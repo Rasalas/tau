@@ -550,6 +550,10 @@ describe("notices as toasts", () => {
     // The same text again is the same toast, not a second one.
     view.setNotice("Saved.", "info");
     expect(toasts.getToasts()).toHaveLength(2);
+    // A notice with an id is that toast, whatever it says.
+    view.setNotice("First failure", "error", "notice:send-failed");
+    view.setNotice("Second failure", "error", "notice:send-failed");
+    expect(toasts.getToasts().filter((toast) => toast.id === "notice:send-failed")).toMatchObject([{ description: "Second failure" }]);
     stop();
   });
 });

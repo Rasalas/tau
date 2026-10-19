@@ -33,7 +33,12 @@ export type NoticeLevel = "info" | "warning" | "error";
 export interface ThreadViewNotice {
   message: string;
   level: NoticeLevel;
+  /** The toast it shows as; without one, a notice is the toast of its text. */
+  id?: string;
 }
+
+/** A send that did not go through; the next one that does closes it. */
+export const SEND_FAILED_NOTICE = "notice:send-failed";
 
 /** A live assistant row waiting for the extension row that asks for its entry. */
 export interface AssistantAnchorRecord {
@@ -157,9 +162,9 @@ function withEvent(state: ThreadViewState, label: string, detail?: string, times
   return { ...state, events: [...state.events.slice(-99), entry], eventSequence: state.eventSequence + 1 };
 }
 
-function withNotice(state: ThreadViewState, message?: string, level: NoticeLevel = "info"): ThreadViewState {
+function withNotice(state: ThreadViewState, message?: string, level: NoticeLevel = "info", id?: string): ThreadViewState {
   if (message === undefined) return state.notice === undefined ? state : { ...state, notice: undefined };
-  return { ...state, notice: { message, level } };
+  return { ...state, notice: { message, level, ...(id ? { id } : {}) } };
 }
 
 function withoutOptimistic(state: ThreadViewState, clientMessageId: string): ThreadViewState {
@@ -545,8 +550,8 @@ export class ThreadViewStore {
     this.commit({ ...this.state, uiPrompts });
   }
 
-  setNotice = (message?: string, level: NoticeLevel = "info"): void => {
-    this.commit(withNotice(this.state, message, level));
+  setNotice = (message?: string, level: NoticeLevel = "info", id?: string): void => {
+    this.commit(withNotice(this.state, message, level, id));
   };
 
   addEvent = (label: string, detail?: string, timestamp = Date.now()): void => {
