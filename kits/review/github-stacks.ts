@@ -158,8 +158,10 @@ export function createGitHubStacks(tools: ProviderTools) {
     // An up-to-date layer reports it cannot be updated, so write access is asked on its own.
     const blocked = open.find((layer) => {
       const pr = record(access[`r${layer.number}`]);
-      const permission = text(record(pr.headRepository).viewerPermission) ?? "";
-      return !pr.headRepository || (pr.maintainerCanModify !== true && !["ADMIN", "MAINTAIN", "WRITE"].includes(permission));
+      const permission = record(pr.headRepository).viewerPermission;
+      // GitHub answers null only to a GitHub App installation; let GitHub refuse what it was not given.
+      const writes = permission === null || ["ADMIN", "MAINTAIN", "WRITE"].includes(text(permission) ?? "");
+      return !pr.headRepository || (pr.maintainerCanModify !== true && !writes);
     });
     if (blocked) throw new HostCommandError(`You cannot update the branch of PR #${blocked.number}. Check write access and whether maintainers may edit it.`);
     const done: Array<{ id: string; number: number; sha: string }> = [];

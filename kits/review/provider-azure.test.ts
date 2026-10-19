@@ -28,6 +28,7 @@ async function answer(args: string[]): Promise<string> {
   if (verb === "repos pr show") return fixture("azure-pr.json");
   if (verb === "repos pr policy") return fixture("azure-policies.json");
   if (args[0] === "devops" && args.includes("pullRequestThreads") && args.includes("GET")) return fixture("azure-threads.json");
+  if (args[0] === "devops" && args.includes("pullRequestIterations")) return fixture("azure-iterations.json");
   if (args[0] === "devops" && args.includes("pullRequestCommits")) return fixture("azure-commits.json");
   if (args[0] === "devops" && args.includes("items")) {
     const path = args[args.indexOf("--query-parameters") + 1]!.replace("path=", "");
@@ -125,7 +126,7 @@ describe("the Azure DevOps provider through az", () => {
   it("reads a request, its reviewers, policies, comments and conversations", async () => {
     const { invoke } = await harness();
     const detail = await invoke<PullRequestDetail>("pr-view", { url: URL_46 });
-    expect(detail).toMatchObject({ state: "merged", baseRef: "master", headRef: "invBootstrap", headSha: "c6269c2837279c5d33654905e51969011e18e0a0", viewer: "mona@example.com" });
+    expect(detail).toMatchObject({ state: "merged", baseRef: "master", headRef: "invBootstrap", headSha: "9d2b7a41c5e8f03a6b1d4c7e2f90a8b3d5c61e07", viewer: "mona@example.com" });
     expect(detail.checks.map((check) => [check.name, check.status])).toEqual([["CI", "passed"], ["Tests", "pending"], ["Minimum number of reviewers", "failed"], ["Comment requirements", "skipped"]]);
     // System threads stay out; a general thread's comments are the request's own.
     expect(detail.comments.map((comment) => comment.body)).toEqual(["Why a new cache?", "The old one leaked."]);
@@ -138,13 +139,18 @@ describe("the Azure DevOps provider through az", () => {
     await expect(invoke("pr-files", { url: URL_46 })).rejects.toThrow(/Azure DevOps does not let Tau read a request's diff/u);
   });
 
+  it("falls back to the merge head when the iterations cannot be read", async () => {
+    const { invoke } = await harness({ fail: (args) => args.includes("pullRequestIterations") ? "boom" : undefined });
+    expect(await invoke<PullRequestDetail>("pr-view", { url: URL_46 })).toMatchObject({ headSha: "c6269c2837279c5d33654905e51969011e18e0a0" });
+  });
+
   it("reads a file at the head commit through the git items API, and says when it is missing, binary or too large", async () => {
     const { invoke, calls } = await harness();
     const file = await invoke<PullRequestFileText>("pr-file", { url: URL_46, path: "src/app.ts" });
-    expect(file).toEqual({ path: "src/app.ts", sha: "c6269c2837279c5d33654905e51969011e18e0a0", text: "export const a = 1;\n" });
+    expect(file).toEqual({ path: "src/app.ts", sha: "9d2b7a41c5e8f03a6b1d4c7e2f90a8b3d5c61e07", text: "export const a = 1;\n" });
     expect(calls.find((call) => call.args.includes("items"))!.args).toEqual([
       "devops", "invoke", "--area", "git", "--resource", "items", "--route-parameters", "project=PowerShell", "repositoryId=PowerShell",
-      "--query-parameters", "path=/src/app.ts", "versionDescriptor.version=c6269c2837279c5d33654905e51969011e18e0a0", "versionDescriptor.versionType=commit", "includeContent=true", "$format=json",
+      "--query-parameters", "path=/src/app.ts", "versionDescriptor.version=9d2b7a41c5e8f03a6b1d4c7e2f90a8b3d5c61e07", "versionDescriptor.versionType=commit", "includeContent=true", "$format=json",
       "--http-method", "GET", "--api-version", "7.1", ...ORG,
     ]);
     await expect(invoke("pr-file", { url: URL_46, path: "logo.png" })).rejects.toThrow("logo.png is a binary file.");

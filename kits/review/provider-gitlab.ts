@@ -88,7 +88,17 @@ export function createGitLabProvider(tools: ProviderTools): SourceControlProvide
       return parseGitLabChecks(raw.head_pipeline ?? raw.pipeline);
     },
     threads: async (ref, fresh) => parseGitLabThreads(await discussions(ref, fresh)),
-    changes: async (ref) => parseGitLabDiffs(await readPages((page) => cli(ref, pullRequestCalls.diff(ref, page), `Reading the diff of ${noun(ref)}`))),
+    changes: async (ref) => {
+      const action = `Reading the diff of ${noun(ref)}`;
+      let page = 0;
+      try {
+        return parseGitLabDiffs(await readPages((next) => { page = next; return cli(ref, pullRequestCalls.diff(ref, next), action); }));
+      } catch (error) {
+        // Before GitLab 15.7 the first page is a 404; /changes holds the whole list.
+        if (page !== 1 || !/\b404\b|not found/iu.test(error instanceof Error ? error.message : String(error))) throw error;
+        return parseGitLabDiffs(JSON.stringify(record(JSON.parse(await cli(ref, pullRequestCalls.legacyDiff(ref), action))).changes ?? []));
+      }
+    },
     // GitLab keeps a request's head in the target project, so a fork's commit reads from `ref.repo`.
     fileContents: (ref, { path, sha }) => readFileText(path, () => tools.cli(
       kind,

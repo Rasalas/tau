@@ -6,7 +6,7 @@ import type { HostExtensionContext } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createReviewHostExtension } from "./host.js";
 import { REVIEW_HOST_EXTENSION_ID, type PullRequestDetail, type PullRequestFileText, type PullRequestFiles, type PullRequestList, type PullRequestThread, type ReviewRequestContext, type ReviewRequestStatus } from "./protocol.js";
-import { forgejoRepository, loginFor, parseTeaLogins } from "./provider-forgejo.js";
+import { forgejoRepository, loginFor, parseForgejoChecks, parseTeaLogins } from "./provider-forgejo.js";
 import type { CliRunOptions } from "./request-cli.js";
 import { LINK_SEAMS } from "./test-seams.js";
 
@@ -133,8 +133,11 @@ describe("the Forgejo provider through tea", () => {
   });
 
   it("reads a request with its reviews, comments, commits and statuses", async () => {
-    const { invoke } = await harness();
+    const { invoke, calls } = await harness();
     const detail = await invoke<PullRequestDetail>("pr-view", { url: URL_14486 });
+    // A path in a status becomes a link on the instance, and the commit list leaves out each commit's files.
+    expect(detail.checks.map((check) => check.url)).toEqual(["200808/jobs/0", "200810/jobs/12", "200811/jobs/0", "200812/jobs/0"].map((run) => `https://codeberg.org/forgejo/forgejo/actions/runs/${run}`));
+    expect(calls.map((call) => call.args.at(-1))).toContain(`${API}/pulls/14486/commits?limit=50&files=false&verification=false`);
     expect(detail).toMatchObject({ state: "merged", draft: false, baseRef: "forgejo", changedFiles: 2, additions: 5, deletions: 1, viewer: "Gusted" });
     expect(detail.reviewers).toEqual([{ login: "famfo-cb", verdict: "approved" }, { login: "Gusted", verdict: "approved" }]);
     expect(detail.labels.map((label) => label.name)).toEqual(["enhancement/feature", "test/present"]);
@@ -142,6 +145,15 @@ describe("the Forgejo provider through tea", () => {
     expect(detail.comments.filter((comment) => comment.kind === "comment")).toHaveLength(4);
     expect(detail.comments.filter((comment) => comment.kind === "review").map((comment) => [comment.author.login, comment.verdict])).toEqual([["famfo-cb", "approved"], ["Gusted", "approved"]]);
     expect(detail.commits).toHaveLength(1);
+  });
+
+  it("keeps an absolute check link and drops one that is not a web address", () => {
+    const statuses = JSON.stringify({ statuses: [
+      { status: "success", context: "a", target_url: "https://ci.example.com/run/1" },
+      { status: "success", context: "b", target_url: "javascript:alert(1)" },
+      { status: "success", context: "c", target_url: "http://[bad" },
+    ] });
+    expect(parseForgejoChecks(statuses, URL_14486).map((check) => check.url)).toEqual(["https://ci.example.com/run/1", undefined, undefined]);
   });
 
   it("folds review comments on one line into a conversation and diffs through the API", async () => {

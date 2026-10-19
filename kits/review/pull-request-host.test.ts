@@ -477,6 +477,25 @@ describe("pull request commands", () => {
     await expect(invoke("pr-viewed", { url: GITLAB.url, path: "nope.ts", viewed: true })).rejects.toThrow(/not part of MR !12/u);
   });
 
+  it("reads a GitLab diff from /changes when /diffs is missing, and only then", async () => {
+    const changes = JSON.stringify({ changes: JSON.parse(await fixture("glab-diffs.json")) });
+    const old = await harness({ answer: async (call) => {
+      const path = call.args.at(-1) ?? "";
+      if (path.includes("/diffs?")) throw new Error("glab: 404 Not Found (HTTP 404)");
+      return path.includes("/changes?") ? changes : defaultAnswer(call);
+    } });
+    const files = await old.invoke<PullRequestFiles>("pr-files", { url: GITLAB.url });
+    expect(files.files.map((file) => file.path)).toEqual(["kits/terminal/output.ts"]);
+    expect(old.calls.at(-1)!.args.at(-1)).toMatch(/merge_requests\/12\/changes\?access_raw_diffs=true$/u);
+
+    const broken = await harness({ answer: async (call) => {
+      if ((call.args.at(-1) ?? "").includes("/diffs?")) throw new Error("glab: 500 Server Error");
+      return defaultAnswer(call);
+    } });
+    await expect(broken.invoke("pr-files", { url: GITLAB.url })).rejects.toThrow(/500/u);
+    expect(broken.calls.some((call) => call.args.at(-1)?.includes("/changes?"))).toBe(false);
+  });
+
   it("writes to GitLab through its API with JSON on stdin", async () => {
     const { invoke, calls } = await harness();
     await invoke("pr-comment", { url: GITLAB.url, threadId: "d3", body: "Done." });

@@ -189,7 +189,7 @@ describe("GitHub stacks", () => {
   });
 
   /** A stack of two open layers as the user saw it, and `gh` answering around it. */
-  function stackHost(options: { merge?: string[]; permission?: string; behind?: number[]; moved?: boolean } = {}) {
+  function stackHost(options: { merge?: string[]; permission?: string | null; behind?: number[]; moved?: boolean } = {}) {
     const seen: PullRequestStack = {
       number: 50, base: "main",
       layers: [
@@ -207,7 +207,7 @@ describe("GitHub stacks", () => {
       if (path.includes("merge-async")) return merges.shift() ?? '{"status":"merged","details":{}}';
       const body = call.input ? JSON.parse(call.input) as { query: string; variables: Record<string, unknown> } : undefined;
       if (body?.query.includes("{ title }")) return JSON.stringify({ data: { repository: { r48: { title: "One" }, r49: { title: "Two" } } } });
-      if (body?.query.includes("viewerPermission")) return JSON.stringify({ data: { repository: { r48: { headRepository: { viewerPermission: options.permission ?? "WRITE" }, maintainerCanModify: false }, r49: { headRepository: { viewerPermission: "WRITE" }, maintainerCanModify: false } } } });
+      if (body?.query.includes("viewerPermission")) return JSON.stringify({ data: { repository: { r48: { headRepository: { viewerPermission: options.permission === undefined ? "WRITE" : options.permission }, maintainerCanModify: false }, r49: { headRepository: { viewerPermission: "WRITE" }, maintainerCanModify: false } } } });
       if (body?.query.includes("compare(headRef")) {
         const number = body.variables.number as number;
         const done = (body.variables.done as string[]).map((id) => ({ headRefOid: heads[id] }));
@@ -255,6 +255,13 @@ describe("GitHub stacks", () => {
     const readOnly = stackHost({ permission: "READ" });
     await expect(createGitHubProvider(readOnly.tools).stackAction!(bottom, { action: "rebase", seen: readOnly.seen })).rejects.toThrow("You cannot update the branch of PR #48.");
     expect(readOnly.rebased()).toBe(0);
+  });
+
+  it("rebases for a GitHub App installation, which reports no viewer permission", async () => {
+    const app = stackHost({ permission: null, behind: [0, 2] });
+    const bottom = { ...ref, number: 48, url: "https://github.com/react/react/pull/48" };
+    await createGitHubProvider(app.tools).stackAction!(bottom, { action: "rebase", seen: app.seen });
+    expect(app.rebased()).toBe(1);
   });
 });
 

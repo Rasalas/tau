@@ -1,0 +1,17 @@
+{
+ "count": 2,
+ "value": [
+  {
+   "id": 1,
+   "createdDate": "2026-09-21T10:00:00Z",
+   "sourceRefCommit": { "commitId": "c6269c2837279c5d33654905e51969011e18e0a0" },
+   "targetRefCommit": { "commitId": "31015a23728793afbf1ef9789019ff64defa7cc2" }
+  },
+  {
+   "id": 2,
+   "createdDate": "2026-09-21T11:00:00Z",
+   "sourceRefCommit": { "commitId": "9d2b7a41c5e8f03a6b1d4c7e2f90a8b3d5c61e07" },
+   "targetRefCommit": { "commitId": "31015a23728793afbf1ef9789019ff64defa7cc2" }
+  }
+ ]
+}
