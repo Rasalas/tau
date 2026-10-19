@@ -31,4 +31,14 @@ describe("work inherited by a rail row", () => {
     expect(new Set(result.runningThreadIds)).toEqual(new Set(["parent", "child"]));
     expect(railActivity(idle, [], { parents: {}, workingChildren: {} }).runningThreadIds).toEqual([]);
   });
+
+  it("marks every ancestor waiting from the first question below, by lineage a kit knows", () => {
+    const source = { ...idle, waitingThreadIds: ["child"], waitingSince: { child: 300 } };
+    const result = railActivity(source, [], { parents: { child: "parent", parent: "root" }, workingChildren: {} });
+    expect(new Set(result.waitingThreadIds)).toEqual(new Set(["child", "parent", "root"]));
+    expect(result.waitingSince).toEqual({ child: 300, parent: 300, root: 300 });
+    expect(threadRowStatus("root", result)).toMatchObject({ activity: "waiting" });
+    expect(railActivity(source, [], { parents: { child: "parent", parent: "child" }, workingChildren: {} }).waitingThreadIds).toHaveLength(2);
+    expect(source.waitingThreadIds).toEqual(["child"]);
+  });
 });

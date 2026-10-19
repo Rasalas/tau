@@ -58,12 +58,13 @@ export class AttentionBook {
   /**
    * A thread finished, failed or asked something. A focused client showing it
    * has seen it, so the list stays as it is; that client still hears of it,
-   * marked `seen`, in case its user asked to be told anyway.
+   * marked `seen`, in case its user asked to be told anyway. `shownOn` are
+   * threads below it that draw the same news, a sub-agent's question.
    */
-  raise(news: Omit<AttentionItem, "at">): AttentionChange {
+  raise(news: Omit<AttentionItem, "at">, shownOn: readonly string[] = []): AttentionChange {
     const now = this.options.now();
     const item: AttentionItem = { ...news, at: now };
-    const viewer = this.viewer(item.threadId);
+    const viewer = [item.threadId, ...shownOn].map((id) => this.viewer(id)).find((key) => key !== undefined);
     if (!viewer) this.items.set(item.threadId, item);
     const last = this.notifiedAt.get(item.threadId);
     if (last !== undefined && now - last < this.options.debounceMs) return { changed: !viewer };

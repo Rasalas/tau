@@ -36,6 +36,7 @@ it("settles a CLI-merged linked PR after turn-end with real Review and Thread Ra
     registerTurnObserver: (observer) => { observers.push(observer); return () => undefined; },
     registerThreadLifecycle: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
+    decorateUiPrompt: () => () => undefined,
     mcp: { registerTools: () => () => undefined, registerInstructions: () => () => undefined } as never,
   });
   dispose = () => registry.dispose();

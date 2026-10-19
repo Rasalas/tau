@@ -77,6 +77,28 @@ describe("the notifications host half", () => {
     expect(named(ATTENTION_EVENT)).toEqual([]);
   });
 
+  it("tells of a sub-agent's question once, on the thread the user started, and clears it when answered", async () => {
+    const { decorators, presence, named, tick } = await harness();
+    await presence({ clientKey: "window", focused: false, threadId: "t2" });
+    const first = decorators[0]!({ id: "q1", sessionId: "child", kind: "input", title: "Which file?" });
+    tick(1_000);
+    const second = decorators[0]!({ id: "q2", sessionId: "child", kind: "confirm", title: "Run rm?" });
+    expect(named(NOTIFY_EVENT)).toEqual([{ clientKey: "window", items: [expect.objectContaining({ threadId: "t1", reason: "question", title: "Fix the build" })] }]);
+    expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t1" }] });
+    (first as () => void)();
+    expect(named(ATTENTION_EVENT).at(-1)).toMatchObject({ items: [{ threadId: "t1" }] });
+    (second as () => void)();
+    expect(named(ATTENTION_EVENT).at(-1)).toEqual({ items: [] });
+  });
+
+  it("counts nothing for a sub-agent's question while a focused client shows that sub-agent", async () => {
+    const { decorators, presence, named } = await harness();
+    await presence({ clientKey: "window", focused: true, threadId: "child" });
+    decorators[0]!({ id: "q1", sessionId: "child", kind: "input", title: "Which file?" });
+    expect(named(ATTENTION_EVENT)).toEqual([]);
+    expect(named(NOTIFY_EVENT)).toEqual([{ clientKey: "window", items: [expect.objectContaining({ threadId: "t1" })], seen: true }]);
+  });
+
   it("answers presence with the list and clears the thread the client now shows", async () => {
     const { observers, presence, named } = await harness();
     await presence({ clientKey: "window", focused: false, threadId: "t1" });

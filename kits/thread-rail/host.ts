@@ -111,6 +111,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
 
       let sessions = new Map<string, HostSessionSummary>();
       let localTrashIds = new Set<string>();
+      const parentOf = (id: string) => services.thread(id)?.parentThreadId ?? sessions.get(id)?.parentThreadId;
       const owner = (id: string) => !sessions.has(id) && localTrashIds.has(id) ? undefined : machineThreadOwner(id, sessions, services.machines?.list() ?? []);
       const callMachine = (machine: string, command: string, input: unknown) => {
         if (!services.machines) throw new HostCommandError("Machines are unavailable on this machine.");
@@ -464,6 +465,20 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
         defer: (id: string, request: DeferredChange) => { deferred.set(id, request); },
         forgetDeferred: (id: string) => { deferred.delete(id); },
       };
+      // A sub-agent's question is the user's to answer: its ancestors leave the shelf and any snooze.
+      const wakeAncestors = (sessionId: string) => {
+        const now = clock();
+        const above = new Set([sessionId]);
+        const patches: Record<string, ThreadMetaPatch> = {};
+        for (let id = parentOf(sessionId); id && !above.has(id); id = parentOf(id)) {
+          above.add(id);
+          const meta = state.threads[id];
+          if (owner(id) || meta?.archivedAt !== undefined) continue;
+          const patch = { ...(meta?.settledAt !== undefined ? unsettlePatch(now) : {}), ...(isSnoozed(meta, now) ? WAKE_PATCH : {}) };
+          if (Object.keys(patch).length > 0) patches[id] = patch;
+        }
+        change(patches);
+      };
       const endRun = (sessionId: string, outcome: "completed" | "failed") => {
         const asked = deferred.get(sessionId);
         deferred.delete(sessionId);
@@ -511,6 +526,7 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
           reset: async (sessionId) => { running.delete(sessionId); deferred.delete(sessionId); queueRecheck(sessionId, true); },
           closed: async (sessionId) => { running.delete(sessionId); deferred.delete(sessionId); queueRecheck(sessionId, true); },
         }),
+        services.decorateUiPrompt((prompt) => { wakeAncestors(prompt.sessionId); }),
         services.registerThreadLifecycle({
           sweep: async (snapshot) => {
             sessions = new Map(snapshot.sessions.map((session) => [session.sessionId, session]));
