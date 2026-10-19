@@ -3,7 +3,7 @@ import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import type { Element, ElementContent, Parents as HastParents, Properties, Root as HastRoot } from "hast";
 import type {} from "mdast-util-to-hast";
 import type { Definition, FootnoteDefinition, ListItem, Nodes, Parents, Root, Table, TableRow } from "mdast";
-import { fromMarkdown } from "mdast-util-from-markdown";
+import { fromMarkdown, type CompileContext, type Extension } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { newlineToBreak } from "mdast-util-newline-to-break";
 import { gfm } from "micromark-extension-gfm";
@@ -26,17 +26,45 @@ export type MarkdownComponents = {
   [Tag in keyof JSX.IntrinsicElements]?: ComponentType<JSX.IntrinsicElements[Tag] & { node?: Element }>;
 };
 
+const DRIVE_PATH = /^[A-Za-z]:[\\/]/u;
+// A drive path that has not reached whitespace yet: `C:`, `C:\Users\me`, `C:/work`.
+const UNFINISHED_DRIVE_PATH = /(?:^|\W)[A-Za-z]:(?:[\\/]\S*)?$/u;
+
+/** Every backslash in a drive path is a separator, so `C:\me\.t3` must not read `\.` as an escape. */
+const keepWindowsPaths: Extension = {
+  exit: {
+    // Prose paths end at whitespace: past that `C:\x and \*this\*` must still read `*this*`.
+    characterEscape(this: CompileContext) {
+      const parent = this.stack[this.stack.length - 1] as { children?: Array<{ type: string; value?: string }> } | undefined;
+      const tail = parent?.children?.[parent.children.length - 1];
+      if (tail?.type !== "text" || tail.value === undefined) return;
+      const before = tail.value.slice(0, -1);
+      if (UNFINISHED_DRIVE_PATH.test(before)) tail.value = `${before}\\${tail.value.slice(-1)}`;
+    },
+    resourceDestinationString: keepWindowsDestination,
+    definitionDestinationString: keepWindowsDestination,
+  },
+};
+
+function keepWindowsDestination(this: CompileContext, token: Parameters<CompileContext["sliceSerialize"]>[0]): void {
+  const decoded = this.resume();
+  const authored = this.sliceSerialize(token);
+  // A character reference still needs decoding, so that destination keeps the parsed URL.
+  (this.stack[this.stack.length - 1] as { url?: string }).url = DRIVE_PATH.test(authored) && !authored.includes("&") ? authored : decoded;
+}
+
 /** GFM Markdown to mdast, without the line-break transform: the block splitter's grammar. */
 export function parseMarkdown(source: string): Root {
-  return fromMarkdown(source, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+  return fromMarkdown(source, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown(), keepWindowsPaths] });
 }
 
 const SAFE_PROTOCOL = /^(https?|ircs?|mailto|xmpp)$/iu;
 
-/** Keeps relative URLs, safe protocols and links to a thread; anything else (`javascript:`) becomes empty. */
+/** Keeps relative URLs, Windows drive paths, safe protocols and links to a thread; anything else (`javascript:`) becomes empty. */
 export function safeUrl(value: string): string {
   if (parsePromptLink(value) || parseThreadLink(value)) return value;
   if (/^[\w@.-]+\.[A-Za-z0-9]{1,8}:[1-9]\d*$/u.test(value)) return `./${value}`;
+  if (/^[A-Za-z]:(?:\/|%5C)/iu.test(value)) return value;
   const colon = value.indexOf(":");
   if (colon === -1) return value;
   for (const mark of ["/", "?", "#"]) {
