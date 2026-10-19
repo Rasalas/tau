@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AccountInfo, ModelInfo, Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { commandInvocation, type HostCatalogModel, type HostRuntimeNewThreadCatalog, type SignInAccount, type UiModel, type UiModelBilling } from "tau/host-extension";
+import { hasManagedMcpConfig } from "./managed-mcp.js";
 import type { ClaudeQuery } from "./runtime-adapter.js";
 
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -30,6 +31,8 @@ export interface ProbeInput {
   timeoutMs?: number;
   /** Also read the plan's usage windows; nothing on the account changes. */
   usage?: boolean;
+  /** A managed-mcp.json is installed, so the CLI would refuse strict MCP mode; read from the machine when absent. */
+  managedMcp?: boolean;
   now?(): number;
 }
 
@@ -116,7 +119,7 @@ export async function probeClaude(input: ProbeInput): Promise<ClaudeProbe> {
     settings: { disableAllHooks: true },
     allowedTools: [],
     mcpServers: {},
-    strictMcpConfig: true,
+    ...((input.managedMcp ?? hasManagedMcpConfig()) ? {} : { strictMcpConfig: true }),
     abortController: controller,
     stderr: () => undefined,
   };

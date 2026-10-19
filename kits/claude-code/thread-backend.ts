@@ -85,6 +85,7 @@ export function promptContent(text: string, attachments: readonly UiPromptAttach
   ];
 }
 
+const SESSION_IN_USE = /(?:session|conversation)[^\n]*(?:already exists|already in use|conflict)/iu;
 const MISSING_SESSION = /(?:session|conversation)[^\n]*(?:not found|does not exist|unknown|missing|invalid)|(?:no|cannot|could not)\s+(?:find\s+)?(?:the\s+)?(?:session|conversation)/iu;
 /** The thinking picker's first entry: the CLI's own effort. */
 const DEFAULT_EFFORT = "default";
@@ -510,6 +511,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
       return {};
     }
     let echoed = false;
+    let replaced = false;
     for (let attempt = 0; ; attempt += 1) {
       const live = await this.ensureSession(permissionLevel, mode, attempt > 0, network);
       const running = this.turns.length > 0;
@@ -523,14 +525,25 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
         input.onAdmitted?.(true);
       }
       const priority: SendPriority = running || input.queued ? "later" : "next";
+      let ended: unknown;
       try {
         await live.session.send(content, priority);
       } catch (error) {
         // The session ended: onExit already settled every turn it held.
         if (error instanceof Error && error.name === "AbortError") return {};
-        throw error;
+        ended = error;
       }
       const outcome = turn.translator.outcome;
+      const failure = outcome?.error ?? (ended instanceof Error ? `${ended.message}\n${live.stderr}` : undefined);
+      const unconfirmed = !this.record?.started;
+      if (!replaced && unconfirmed && failure && ((!live.resumed && SESSION_IN_USE.test(failure)) || (live.resumed && this.record?.createFallbackUsed && MISSING_SESSION.test(failure)))) {
+        // The CLI never saved a prompt under this id, so it can neither resume nor create it: start under a new id.
+        replaced = true;
+        this.record = await this.store.replaceUnstartedSession(this.threadId, this.cwd);
+        await live.session.close();
+        continue;
+      }
+      if (ended) throw ended;
       if (attempt === 0 && outcome?.error && MISSING_SESSION.test(outcome.error) && live.resumed && !this.record?.createFallbackUsed) {
         // The id Claude was asked to resume is gone: one fresh start under the same id.
         await this.store.markAttemptOutcome(this.threadId, this.cwd, "missing");

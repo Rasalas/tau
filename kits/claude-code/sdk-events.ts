@@ -171,6 +171,20 @@ function compactedContextUsage(message: ResultMessage, postTokens: number | unde
   return { tokens: postTokens, contextWindow, percent: Math.min(100, Math.round((postTokens / contextWindow) * 1000) / 10) };
 }
 
+/**
+ * Models from 5.1 on write the update before a tool call as a second thinking
+ * block instead of a text block, and the summarized display cannot tell it
+ * from reasoning.
+ */
+function writesUpdatesAsThinking(model: string | undefined): boolean {
+  const match = /claude-[a-z]+-(\d+)(?:-(\d{1,2}))?(?!\d)/u.exec(model ?? "");
+  if (!match) return false;
+  const major = Number(match[1]);
+  return major > 5 || (major === 5 && Number(match[2] ?? 0) >= 1);
+}
+
+const CONTEXT_FULL_HINT = "\nThe context window is full. Compact the conversation or start a new thread.";
+
 function resultErrorText(message: ResultMessage): string {
   const candidate = message as { subtype: string; result?: unknown; errors?: unknown };
   const parts = [
@@ -216,6 +230,8 @@ export class SdkTurnTranslator {
   private lastCallTokens?: number;
   /** The cache lifetime the main loop's latest writing call reported. */
   private cacheTtl?: number;
+  /** The latest snapshot of a message, when it ended in a thought; a tool call may turn that into text. */
+  private lastThought?: { messageId: string; ui: UiMessage; last: string; rest: string; follows: boolean };
 
   constructor(
     private readonly now: () => number = Date.now,
@@ -278,17 +294,50 @@ export class SdkTurnTranslator {
     const tokens = callTokens((message.message as { usage?: CallUsage }).usage);
     if (tokens > 0) this.lastCallTokens = tokens;
     this.cacheTtl = cacheTtlMs((message.message as { usage?: CallUsage }).usage) ?? this.cacheTtl;
-    const text = content.filter((block) => block.type === "text").map((block) => (block as { text: string }).text).join("\n\n").trim();
-    const thinking = content.filter((block) => block.type === "thinking").map((block) => (block as { thinking: string }).thinking).join("\n\n").trim();
+    const blocks = content as Array<{ type: string; text?: string; thinking?: string }>;
+    const messageId = (message.message as { id?: string }).id;
+    const updates = writesUpdatesAsThinking((message.message as { model?: string }).model);
+    // A tool call right after two thinking blocks: the second is the update the model wrote for the user.
+    const carried = updates && messageId && this.lastThought?.messageId === messageId ? this.lastThought : undefined;
+    let run = carried ? (carried.follows ? 2 : 1) : 0;
+    let promoted: number | undefined;
+    let promoteCarried = false;
+    for (const [index, block] of blocks.entries()) {
+      if (block.type === "thinking") {
+        run = block.thinking?.trim() ? run + 1 : 0;
+        continue;
+      }
+      if (block.type === "tool_use" && updates && run >= 2) {
+        if (blocks[index - 1]?.type === "thinking") promoted = index - 1;
+        else promoteCarried = true;
+      }
+      run = 0;
+    }
+    const texts = blocks.filter((block) => block.type === "text").map((block) => block.text ?? "");
+    if (promoted !== undefined) texts.push(blocks[promoted]!.thinking!);
+    const text = texts.join("\n\n").trim();
+    const thoughts = blocks.flatMap((block, index) => block.type === "thinking" && index !== promoted ? [block.thinking ?? ""] : []);
+    const thinking = thoughts.join("\n\n").trim();
     const id = this.assistantId ?? this.nextId();
     const startedAt = this.assistantStartedAt;
     this.assistantId = undefined;
     this.assistantStartedAt = undefined;
+    this.lastThought = undefined;
     if (text || thinking) {
       this.texts.push(text);
       const ui: UiMessage = { id, role: "assistant", text, timestamp: startedAt ?? this.now(), ...(thinking ? { thinking } : {}) };
       // Tool cards belong after the text that announced them; the host appends in order.
       events.unshift({ type: "assistant-end", message: ui });
+      const last = blocks.at(-1);
+      if (messageId && last?.type === "thinking" && last.thinking?.trim()) {
+        this.lastThought = { messageId, ui, last: last.thinking, rest: thoughts.slice(0, -1).join("\n\n").trim(), follows: run >= 2 };
+      }
+    }
+    if (promoteCarried && carried) {
+      // Same id: the row that showed the update as a Thought now shows it as text.
+      const { ui } = carried;
+      this.texts.push(carried.last);
+      events.unshift({ type: "assistant-end", message: { id: ui.id, role: "assistant", text: [ui.text, carried.last].filter(Boolean).join("\n\n"), timestamp: ui.timestamp, ...(carried.rest ? { thinking: carried.rest } : {}) } });
     }
     return events;
   }
@@ -320,12 +369,14 @@ export class SdkTurnTranslator {
 
   private result(message: ResultMessage): ThreadRuntimeEvent[] {
     if (message.subtype !== "success" || message.is_error || (this.compacting && this.compactionError)) {
-      const blocked = (message as { terminal_reason?: string }).terminal_reason === "blocking_limit" ? {} : undefined;
-      const limit = this.rejected ?? blocked;
+      // `blocking_limit` also ends a turn whose context window is full; only a rejected window is a usage limit.
+      const reason = (message as { terminal_reason?: string }).terminal_reason;
+      const limit = this.rejected;
+      const full = !limit && (reason === "blocking_limit" || reason === "prompt_too_long");
       const tallies = resultTallies(message, this.facts.model);
       this.outcome = interruptedResult(message)
         ? { texts: this.texts, usage: resultUsage(message), tallies, interrupted: true }
-        : { texts: this.texts, usage: resultUsage(message), tallies, error: authenticationFailure(message)?.message ?? this.compactionError ?? resultErrorText(message), ...(limit ? { limit } : {}) };
+        : { texts: this.texts, usage: resultUsage(message), tallies, error: authenticationFailure(message)?.message ?? this.compactionError ?? `${resultErrorText(message)}${full ? CONTEXT_FULL_HINT : ""}`, ...(limit ? { limit } : {}) };
       return [];
     }
     // A resumed session answers with an empty result before the turn. A compaction's result has no reply

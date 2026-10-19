@@ -31,7 +31,7 @@ function probeQuery(options: { hang?: boolean } = {}) {
 describe("probeClaude", () => {
   it("reads account, models and the init frame from a session that never sends a prompt, then aborts it", async () => {
     const { query, received, pulled } = probeQuery();
-    const probe = await probeClaude({ query, executable: "/opt/claude", cwd: "/home", env: { PATH: "/bin" }, now: () => 7 });
+    const probe = await probeClaude({ query, executable: "/opt/claude", cwd: "/home", env: { PATH: "/bin" }, managedMcp: false, now: () => 7 });
     expect(probe).toEqual({
       models: [{ provider: "anthropic", id: "opus", name: "Opus" }, { provider: "anthropic", id: "sonnet", name: "Sonnet" }],
       modelInfos: expect.any(Array),
@@ -45,6 +45,13 @@ describe("probeClaude", () => {
     expect(received()?.options).toMatchObject({ pathToClaudeCodeExecutable: "/opt/claude", cwd: "/home", persistSession: false, settings: { disableAllHooks: true }, allowedTools: [], mcpServers: {}, strictMcpConfig: true, permissionMode: "plan" });
     expect(received()?.options?.abortController?.signal.aborted).toBe(true);
     expect(pulled()).toBe(0);
+  });
+
+  it("drops strict MCP mode, and only that, next to an administrator's managed-mcp.json", async () => {
+    const { query, received } = probeQuery();
+    await probeClaude({ query, executable: "/opt/claude", cwd: "/home", env: {}, managedMcp: true });
+    expect(received()?.options).toMatchObject({ mcpServers: {}, allowedTools: [], persistSession: false });
+    expect(received()?.options).not.toHaveProperty("strictMcpConfig");
   });
 
   it("gives up after the timeout and still aborts the session", async () => {
