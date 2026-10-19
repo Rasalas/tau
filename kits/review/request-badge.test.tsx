@@ -162,8 +162,8 @@ describe("a thread's requests on its rail row", () => {
 });
 
 describe("a thread's requests on its hover card", () => {
-  function Row({ icon, children, label, onClick }: { icon: ReactNode; children: ReactNode; label?: string; onClick?(event: import("react").MouseEvent<HTMLButtonElement>): void }) {
-    return <button type="button" aria-label={label} onClick={onClick}>{icon}{children}</button>;
+  function Row({ icon, children, label, onClick, onAuxClick }: { icon: ReactNode; children: ReactNode; label?: string; onClick?(event: import("react").MouseEvent<HTMLButtonElement>): void; onAuxClick?(event: import("react").MouseEvent<HTMLButtonElement>): void }) {
+    return <button type="button" aria-label={label} onClick={onClick} onAuxClick={onAuxClick}>{icon}{children}</button>;
   }
 
   function drawCard(session: UiSession, threads: UiSession[], links: Record<string, ThreadPullRequestLink[]>, external = false) {
@@ -199,6 +199,14 @@ describe("a thread's requests on its hover card", () => {
     const newest = thread("newest", 30);
     const { openStageTab, openExternal } = drawCard(newest, [newest], {});
     fireEvent.click(screen.getByRole("button", { name: "PR #35, open: Rail badges" }), { [modifier]: true });
+    expect(openExternal).toHaveBeenCalledWith(REQUEST.url);
+    expect(openStageTab).not.toHaveBeenCalled();
+  });
+
+  it("opens the hover card request in the browser on a middle click", () => {
+    const newest = thread("newest", 30);
+    const { openStageTab, openExternal } = drawCard(newest, [newest], {});
+    fireEvent(screen.getByRole("button", { name: "PR #35, open: Rail badges" }), new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }));
     expect(openExternal).toHaveBeenCalledWith(REQUEST.url);
     expect(openStageTab).not.toHaveBeenCalled();
   });

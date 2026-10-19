@@ -708,6 +708,8 @@ export interface ThreadCardRowProps {
   tone?: "warning" | "danger" | "working";
   /** Makes the row a button; the card closes before it runs. */
   onClick?(event: import("react").MouseEvent<HTMLButtonElement>): void;
+  /** A middle click on the row; the card stays open. */
+  onAuxClick?(event: import("react").MouseEvent<HTMLButtonElement>): void;
   /** The whole row's accessible name, where its text alone does not say it. */
   label?: string;
 }

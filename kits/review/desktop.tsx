@@ -11,6 +11,7 @@ import { ReviewCommentStore } from "./comments.js";
 import { GUIDE_OPTIONS } from "./guide-settings.js";
 import { createReviewOverlay } from "./overlay.js";
 import { trackDiffSettings } from "./diff-settings.js";
+import { trackPullRequestTarget } from "./pull-request-target.js";
 import { createReviewSettingsSections, REVIEW_SETTINGS_ROWS } from "./settings-page.js";
 import {
   COMPOSER_CONTEXT_CHIPS_SERVICE,
@@ -107,6 +108,7 @@ export const reviewExtension: DesktopExtension = {
       Component: createReviewSettingsSections(plugin.host),
     });
     const untrackDiffSettings = trackDiffSettings(plugin.preferences);
+    const untrackPullRequestTarget = trackPullRequestTarget(plugin.preferences);
     plugin.useService<ComposerContextChips>(COMPOSER_CONTEXT_CHIPS_SERVICE, (service) => {
       chips = service;
       return () => { if (chips === service) chips = undefined; };
@@ -209,7 +211,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); endings.dispose(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); };
+    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseStore(); releaseWatchMarks(); releaseStrip(); endings.dispose(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); untrackPullRequestTarget(); };
   },
 };
 

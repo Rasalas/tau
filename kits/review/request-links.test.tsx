@@ -31,6 +31,23 @@ it.each(["metaKey", "ctrlKey"])("opens the browser with %s", (modifier) => {
   expect(openExternal).toHaveBeenCalledWith(url);
   expect(openStageTab).not.toHaveBeenCalled();
 });
+it("opens the browser on a middle click, whatever the setting", () => {
+  const { openStageTab, openExternal, selectThread } = draw();
+  const middle = new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 });
+  fireEvent(screen.getByText("#42"), middle);
+  expect(middle.defaultPrevented).toBe(true);
+  expect(openExternal).toHaveBeenCalledWith(url);
+  expect(openStageTab).not.toHaveBeenCalled();
+  expect(selectThread).not.toHaveBeenCalled();
+});
+it("ignores a middle click on a badge that stands for a thread's overview", () => {
+  const openStageTab = vi.fn();
+  const openExternal = vi.fn();
+  render(<><RequestLinks actions={{ openStageTab, openExternal } as unknown as RegionProps["actions"]} /><span role="button" className="request-badge" data-request-thread="other" data-request-branch={url}><span>+3</span></span></>);
+  fireEvent(screen.getByText("+3"), new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }));
+  expect(openStageTab).not.toHaveBeenCalled();
+  expect(openExternal).not.toHaveBeenCalled();
+});
 it("leaves unrelated links alone", () => {
   const { openStageTab, openExternal, selectThread } = draw(false, "https://github.com/acme/tau/issues/42");
   fireEvent.click(screen.getByText("#42"));

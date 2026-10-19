@@ -281,12 +281,12 @@ function PlacedCard({ anchor, controller, children }: { anchor: HTMLElement; con
 const CloseCard = createContext<() => void>(() => undefined);
 
 /** A line of the card: its icon, then text cut short on one line. */
-export function ThreadCardRow({ icon, children, tone, onClick, label }: ThreadCardRowProps) {
+export function ThreadCardRow({ icon, children, tone, onClick, onAuxClick, label }: ThreadCardRowProps) {
   const close = useContext(CloseCard);
   const className = `thread-card-row${tone ? ` tone-${tone}` : ""}`;
   const body = <><span className="thread-card-icon" aria-hidden="true">{icon}</span><span className="thread-card-text">{children}</span></>;
   return onClick
-    ? <button type="button" className={className} aria-label={label} onClick={(event) => { close(); onClick(event); }}>{body}</button>
+    ? <button type="button" className={className} aria-label={label} onClick={(event) => { close(); onClick(event); }} {...(onAuxClick ? { onAuxClick } : {})}>{body}</button>
     : <div className={className} {...(label ? { role: "group", "aria-label": label } : {})}>{body}</div>;
 }
 

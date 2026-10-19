@@ -36,9 +36,8 @@ it("loads the workbench after its initial bootstrap was lost with the connection
   await waitFor(() => expect(view.storage.keys().some((key) => key.includes("bootstrap"))).toBe(true));
   act(() => { state = "reconnecting"; for (const listener of listeners) listener(state); });
   expect(view.container.querySelector("[data-content-freshness]")?.getAttribute("data-content-freshness")).toBe("offline");
-  const warning = screen.getByRole("status", { name: "Conversation not up to date" });
-  expect(warning.textContent).toContain("Reconnecting…");
-  expect(warning.textContent).toContain("Messages and agent status may be out of date.");
+  // A reconnect inside the grace period moves nothing; host-connection-status.test.tsx covers the notice itself.
+  expect(screen.queryByRole("status", { name: "Conversation not up to date" })).toBeNull();
   currentText = "Updated while disconnected";
   act(() => { state = "connected"; for (const listener of listeners) listener(state); });
   await waitFor(() => expect(bootstrap).toHaveBeenCalledTimes(3));

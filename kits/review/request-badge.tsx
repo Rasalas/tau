@@ -3,7 +3,7 @@ import { GitMerge, GitPullRequestArrow, GitPullRequestClosed, GitPullRequestDraf
 import { tooltipProps, useThreadStore, type UiSession } from "tau";
 import { checksLabel, requestShort, requestStateLabel, type RowRequests } from "./requests.js";
 import { providerInfo, requestNumber, type RequestService, type ThreadCardSectionProps } from "./protocol.js";
-import { openPullRequest } from "./pull-request-open.js";
+import { openPullRequest, requestClicks } from "./pull-request-open.js";
 import type { ThreadLinkRows } from "./thread-links-store.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 import { threadRequestTree, type ThreadRequestNode } from "./thread-request-tree.js";
@@ -156,7 +156,7 @@ function RequestCardList({ session, actions, Row, rows, links }: Pick<ThreadCard
         const Icon = ICON[entry.state];
         return (
           <div key={entry.url} role="listitem" className={`request-card-line state-${entry.state}`}>
-            <Row icon={<Icon size={12} />} label={`${entry.label}, ${entry.state}${entry.title ? `: ${entry.title}` : ""}`} onClick={(event) => { if (event?.metaKey || event?.ctrlKey) actions.openExternal(entry.url); else open(entry); }}>
+            <Row icon={<Icon size={12} />} label={`${entry.label}, ${entry.state}${entry.title ? `: ${entry.title}` : ""}`} {...requestClicks((click) => openPullRequest(actions, { url: entry.url, number: entry.number, provider: entry.service }, session.projectPath, undefined, undefined, click), () => open(entry))}>
               <b>{requestNumber(entry.service, entry.number)}</b> {entry.title ?? entry.url}
             </Row>
             {children.length ? draw(children) : null}
