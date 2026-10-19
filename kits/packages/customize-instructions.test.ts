@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CUSTOMIZE_INSTRUCTIONS, customizeInstructionsFor, isTauSourceCheckout } from "./customize-instructions.js";
+import { CUSTOMIZE_INSTRUCTIONS, CUSTOMIZE_PROJECT_INSTRUCTIONS, customizeInstructionsFor, isCustomizationProject, isTauSourceCheckout } from "./customize-instructions.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map((cleanup) => cleanup())); });
@@ -61,5 +61,25 @@ describe("customize instructions", () => {
     const inner = join(outer, "nested-project");
     await mkdir(join(inner, ".git"), { recursive: true });
     expect(isTauSourceCheckout(inner)).toBe(false);
+  });
+
+  it("say that every request in the customization project is a package there", async () => {
+    expect(CUSTOMIZE_PROJECT_INSTRUCTIONS.split("\n").length).toBeLessThanOrEqual(12);
+    expect(CUSTOMIZE_PROJECT_INSTRUCTIONS).toContain("Every request here");
+    for (const tool of ["tau_new_package", "tau_install_package", "tau_window_screenshot"]) expect(CUSTOMIZE_PROJECT_INSTRUCTIONS).toContain(tool);
+  });
+
+  it("take the strong form in the extension folder, below it and through a link, and the plain one elsewhere", async () => {
+    const folder = await temp();
+    await mkdir(join(folder, "copy-branch"));
+    const link = join(await temp(), "linked");
+    await symlink(folder, link);
+    expect(customizeInstructionsFor(folder, folder)).toBe(CUSTOMIZE_PROJECT_INSTRUCTIONS);
+    expect(customizeInstructionsFor(join(folder, "copy-branch"), folder)).toBe(CUSTOMIZE_PROJECT_INSTRUCTIONS);
+    expect(customizeInstructionsFor(link, folder)).toBe(CUSTOMIZE_PROJECT_INSTRUCTIONS);
+    const other = await temp();
+    expect(isCustomizationProject(other, folder)).toBe(false);
+    expect(customizeInstructionsFor(other, folder)).toBe(CUSTOMIZE_INSTRUCTIONS);
+    expect(customizeInstructionsFor(folder)).toBe(CUSTOMIZE_INSTRUCTIONS);
   });
 });

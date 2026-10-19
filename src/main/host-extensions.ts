@@ -1174,6 +1174,8 @@ export interface HostExtensionServices {
    * installed or approved. New in API 1.75.0; in-process only.
    */
   newPackage(spec: HostNewPackageSpec): Promise<HostNewPackage>;
+  /** The folder `newPackage` writes to and a global install scans: `~/.tau/extensions`, or below `TAU_PACKAGES_HOME`. New in API 1.75.0; in-process only. */
+  globalExtensionsDirectory(): string;
   removePackage(source: string, scope: PackageScope): Promise<PackageRemoval>;
   /** Re-fetches one source, or every source both files list. */
   updatePackages(source?: string, progress?: (message: string) => void): Promise<InstalledPackage[]>;

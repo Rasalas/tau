@@ -823,6 +823,8 @@ export interface WorkspaceStoreApi {
   /** Where a new thread of the followed project runs, and the choice for the pending draft. */
   workspaceMode(): WorkspaceMode;
   setWorkspaceMode(mode: WorkspaceMode): void;
+  /** Threads of the projects `match` names always run in the project's folder, whatever Settings or the draft says (API 1.75.0). */
+  registerInPlaceProjects(match: (cwd: string) => boolean): () => void;
   subscribe(listener: () => void): () => void;
   activeEditor(): UiEditor | undefined;
   openReview(path?: string, pushPrimary?: boolean): void;

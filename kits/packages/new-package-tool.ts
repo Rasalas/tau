@@ -49,12 +49,12 @@ export function registerNewPackage(context: HostExtensionContext): () => void {
     services.registerRuntimeExtension("tau-new-package", (pi, session) => {
       for (const tool of tools) pi.registerTool(tool);
       pi.on("before_agent_start", (event) => {
-        const instructions = customizeInstructionsFor(session.cwd);
+        const instructions = customizeInstructionsFor(session.cwd, services.globalExtensionsDirectory());
         return instructions ? { systemPrompt: `${event.systemPrompt}\n\n${instructions}` } : undefined;
       });
     }),
     services.mcp.registerTools(() => tools),
-    services.mcp.registerInstructions?.((thread) => customizeInstructionsFor(thread.cwd)) ?? (() => undefined),
+    services.mcp.registerInstructions?.((thread) => customizeInstructionsFor(thread.cwd, services.globalExtensionsDirectory())) ?? (() => undefined),
   ];
   return () => { for (const dispose of disposers.reverse()) dispose(); };
 }

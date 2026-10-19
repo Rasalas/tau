@@ -143,14 +143,14 @@ describe("Packages kit", () => {
     registry.activate(packagesExtension);
     const install = registry.findSlashCommand("/install");
     expect(await install?.command.run(install.args, actions())).toMatch(/Name a source/u);
-    expect(invoke).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalledWith(PACKAGES_EXTENSION_ID, "install", expect.anything());
   });
 
   it("attaches its sections to Extensions, which its command opens, and takes them back", () => {
     const { registry } = createKitHarness(vi.fn(async () => ({})));
     registry.activate(packagesExtension);
     expect(registry.getSettingsPages()).toEqual([]);
-    expect(registry.getSettingsSections("extensions").map((section) => [section.id, Boolean(section.advanced)])).toEqual([["packages.install", false], ["packages.sources", true]]);
+    expect(registry.getSettingsSections("extensions").map((section) => [section.id, Boolean(section.advanced)])).toEqual([["packages.customize", false], ["packages.install", false], ["packages.sources", true]]);
     // The page it had before still opens: its links land on Extensions.
     expect(registry.settingsPageReplacedBy(PACKAGES_RETIRED_PAGE)).toBe("extensions");
     const open = registry.getCommands().find((command) => command.id === "packages.install");
@@ -231,7 +231,7 @@ describe("Packages kit", () => {
     const sections = registry.getSettingsSections("extensions");
     render(<>{sections.map(({ id, Component }) => <Component key={id} cwd="/project" onNotify={vi.fn()} onChanged={vi.fn()} />)}</>);
     const rows = sections.flatMap((section) => section.rows ?? []);
-    expect(rows.length).toBe(4);
+    expect(rows.length).toBe(5);
     for (const row of rows) expect(document.getElementById(row.id), row.id).toBeTruthy();
   });
 

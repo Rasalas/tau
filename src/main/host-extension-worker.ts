@@ -208,6 +208,7 @@ const UNAVAILABLE = new Set([
   "listPackages",
   "installPackage",
   "newPackage",
+  "globalExtensionsDirectory",
   "removePackage",
   "updatePackages",
   "projectTrust",

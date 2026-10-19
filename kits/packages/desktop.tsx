@@ -20,6 +20,7 @@ import {
   type SettingsSectionProps,
   type WorkbenchActions,
 } from "tau";
+import { registerCustomizeEntry } from "./customize-entry.js";
 import { DevelopSection } from "./develop.js";
 import { PACKAGES_EXTENSION_ID, PACKAGES_RETIRED_PAGE, parseInstallArguments, type PackageRow } from "./protocol.js";
 
@@ -439,6 +440,7 @@ export const packagesExtension: DesktopExtension = {
       },
     });
 
+    registerCustomizeEntry(plugin);
     plugin.registerSettingsSection({ id: "packages.extension", page: "extension", profiles: ["desktop", "web"], Component: createExtensionSection(plugin.host) });
 
     plugin.registerCommand({

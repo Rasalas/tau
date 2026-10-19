@@ -41,6 +41,8 @@ export function activateHostKit(
     registerThreadLifecycle: () => () => undefined,
     registerTurnObserver: () => () => undefined,
     registerRuntimeExtension: () => () => undefined,
+    globalExtensionsDirectory: () => "/home/.tau/extensions",
+    rememberProjectName: () => undefined,
     // No MCP endpoint in a kit's own test; a kit that offers tools passes its own fake.
     mcp: { registerTools: () => () => undefined, gate: () => () => undefined, registerInstructions: () => () => undefined, connect: async () => undefined },
     ...services,
