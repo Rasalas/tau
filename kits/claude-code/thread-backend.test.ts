@@ -768,6 +768,34 @@ describe("thread runtime backends", () => {
     expect(adapter.openSession).toHaveBeenCalledWith(expect.objectContaining({ started: true }));
   });
 
+  it("stops only the running turn and leaves the CLI to the queued follow-up behind it", async () => {
+    const { filePath, store } = await scratchStore();
+    let stopFirst!: () => void, releaseSecond!: () => void;
+    const firstGate = new Promise<void>((resolve) => { stopFirst = resolve; });
+    const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    const { adapter, sessions } = scriptedAdapter(filePath, async (content) => {
+      if (String(content) === "first") { await firstGate; return turn("stopped"); }
+      await secondGate;
+      return turn("two");
+    });
+    const backend = new ClaudeThreadRuntimeBackend("tau-thread", WORKSPACE, { adapter, store, commands, projectName: "repo", interruptGraceMs: 50, now: () => Date.now(), onEvent: () => undefined });
+    try {
+      await backend.start("create");
+      const first = backend.prompt({ text: "first", delivery: "prompt" });
+      await until(() => backend.state().streaming);
+      const followUp = backend.prompt({ text: "second", delivery: "followUp" });
+      await until(() => (sessions[0]?.send.mock.calls.length ?? 0) >= 2);
+      sessions[0]!.interrupt.mockImplementation(async () => { stopFirst(); });
+      await backend.abort();
+      await first;
+      expect(sessions[0]!.close).not.toHaveBeenCalled();
+      expect(backend.state().streaming).toBe(true);
+      releaseSecond();
+      await expect(followUp).resolves.toEqual({ assistantText: "two" });
+      expect(sessions[0]!.close).not.toHaveBeenCalled();
+    } finally { await backend.dispose(); }
+  });
+
   it("settles a turn the CLI reports as aborted as interrupted, without a notice or a failed attempt", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter } = scriptedAdapter(filePath, () => [

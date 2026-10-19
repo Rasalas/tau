@@ -250,8 +250,10 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const signingOut = new Set<string>();
       const transitioning = new Set<string>();
       const openingThreads = new Map<string, number>();
-      const threadAccounts = new Map<string, { backend: CodexThreadRuntimeBackend; account: string; change(account: string): void }>();
-      const mcpApps = startMcpApps(context, (threadId) => threadAccounts.get(threadId)?.backend.appThread());
+      /** A closed thread keeps only the account it last used; its backend and transcript go. */
+      type OpenThread = { backend: CodexThreadRuntimeBackend; account: string; change(account: string): void };
+      const threadAccounts = new Map<string, OpenThread | { backend?: undefined; account: string }>();
+      const mcpApps = startMcpApps(context, (threadId) => threadAccounts.get(threadId)?.backend?.appThread());
       const sessions = new Map<string, Set<CodexSessionLike>>();
       const sessionTokens = new WeakMap<CodexSessionLike, string>();
       const stopSessions = async (id: string) => {
@@ -646,6 +648,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
               if (!managedPath && await usesManaged(id)) await fetchManaged();
               await assertSupported(id);
               let account = (await store.get(threadId))?.accountInstance ?? id;
+              let held: OpenThread | undefined;
               requireInstance(account);
               const accountHome = async () => await plan.read(account) ? managedSharedHome(account) : codexHome(instanceEnv(account));
               const backend = new CodexThreadRuntimeBackend(threadId, cwd, {
@@ -678,9 +681,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
                   void services.sessions.send?.(threadId, endedCommandText(command), { delivery: "queue", wake: { source: "background", label: `Background command ended · ${command.label}` } })
                     .catch((error: unknown) => services.log("codex.background-wake.failed", error instanceof Error ? error.message : String(error)));
                 },
+                onDisposed: () => { if (held && threadAccounts.get(threadId) === held) threadAccounts.set(threadId, { account }); },
               });
               await backend.start(resume ? "resume" : "create");
-              threadAccounts.set(threadId, { backend, get account() { return account; }, change: (next) => { account = next; } });
+              held = { backend, get account() { return account; }, change: (next) => { account = next; } };
+              threadAccounts.set(threadId, held);
               return backend;
             } finally { openingThreads.set(id, (openingThreads.get(id) ?? 1) - 1); }
           },
@@ -791,7 +796,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const heldThread = (input: unknown) => {
         const threadId = (input as { threadId?: unknown } | undefined)?.threadId;
         const held = typeof threadId === "string" ? threadAccounts.get(threadId) : undefined;
-        if (!held) throw new HostCommandError("Open a Codex thread first.");
+        if (!held?.backend) throw new HostCommandError("Open a Codex thread first.");
         return held;
       };
       const accountChoices = async (held: ReturnType<typeof heldThread>) => {

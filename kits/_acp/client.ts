@@ -1,5 +1,6 @@
 import type { Readable, Writable } from "node:stream";
 import { AGENT_OOM_MESSAGE, commandInvocation, spawnOwnedProcess, wrapAgentCommand } from "tau/host-extension";
+import { lineSplitter } from "../_shared/line-splitter.js";
 
 /**
  * The Agent Client Protocol wire: newline-delimited JSON-RPC 2.0 on the
@@ -92,30 +93,6 @@ interface Pending {
   method: string;
   resolve(value: unknown): void;
   reject(error: Error): void;
-}
-
-/** Splits a byte stream into lines, holding at most `max` bytes of an unfinished one. */
-export function lineSplitter(max: number, onLine: (line: string) => void, onOverflow: () => void): (chunk: Buffer) => void {
-  let rest = Buffer.alloc(0);
-  let overflowed = false;
-  return (chunk: Buffer) => {
-    let buffer = rest.length ? Buffer.concat([rest, chunk]) : chunk;
-    for (;;) {
-      const newline = buffer.indexOf(10);
-      if (newline < 0) break;
-      const line = buffer.subarray(0, newline);
-      buffer = buffer.subarray(newline + 1);
-      if (overflowed) { overflowed = false; continue; }
-      onLine(line.toString("utf8").replace(/\r$/u, ""));
-    }
-    if (buffer.length > max) {
-      overflowed = true;
-      onOverflow();
-      rest = Buffer.alloc(0);
-    } else {
-      rest = Buffer.from(buffer);
-    }
-  };
 }
 
 export class AcpClient {

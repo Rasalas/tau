@@ -221,6 +221,39 @@ it("rejects stale same-thread append revisions rather than losing the other writ
   old.messages!.push("stale");
   await expect(stale.write({ sessions: [{ id: "shared", record: old, appendOnly: true }] })).rejects.toThrow("another writer");
   expect((await makeStore(filePath).load())?.sessions[0]?.messages).toEqual(["first", "accepted"]);
+  // The losing host reads the thread back instead of refusing it until a restart.
+  await new Promise((done) => setImmediate(done));
+  expect(stale.isUnloaded("shared")).toBe(true);
+  const reread = (await stale.loadSession("shared"))!;
+  expect(reread.messages).toEqual(["first", "accepted"]);
+  reread.messages!.push("after");
+  await stale.write({ sessions: [{ id: "shared", record: reread, appendOnly: true }] });
+  expect((await makeStore(filePath).load())?.sessions[0]?.messages).toEqual(["first", "accepted", "after"]);
+});
+
+it("holds a failed write against its own thread only and writes the whole record once the database takes it", async () => {
+  const { filePath } = await fixture();
+  const seed = makeStore(filePath);
+  await seed.write({ sessions: [{ id: "cold", record: { tauThreadId: "cold", messages: ["kept"] } }] });
+  await seed.dispose();
+  const store = makeStore(filePath); await store.loadMetadata();
+  const failing = { tauThreadId: "failing", messages: ["one"] }, other = { tauThreadId: "other", messages: ["a"] };
+  await store.write({ sessions: [{ id: "failing", record: failing, appendOnly: true }, { id: "other", record: other, appendOnly: true }] });
+  query(filePath, (db) => db.exec("UPDATE sessions SET record_version=99 WHERE thread_id='failing'"));
+  failing.messages.push("two");
+  await expect(store.write({ sessions: [{ id: "failing", record: failing, appendOnly: true }] })).rejects.toThrow("version 99");
+  other.messages.push("b");
+  await store.write({ sessions: [{ id: "other", record: other, appendOnly: true }] });
+  expect(store.isUnloaded("cold")).toBe(true);
+  await expect(store.loadSession("cold")).resolves.toMatchObject({ messages: ["kept"] });
+  query(filePath, (db) => db.exec("UPDATE sessions SET record_version=1 WHERE thread_id='failing'"));
+  failing.messages.push("three");
+  await store.write({ sessions: [{ id: "failing", record: failing, appendOnly: true }] });
+  failing.messages.push("four");
+  await store.write({ sessions: [{ id: "failing", record: failing, appendOnly: true }] });
+  const saved = new Map((await makeStore(filePath).load())!.sessions.map((record) => [record.tauThreadId, record.messages]));
+  expect(saved.get("failing")).toEqual(["one", "two", "three", "four"]);
+  expect(saved.get("other")).toEqual(["a", "b"]);
 });
 
 it.each(["missing", "corrupt"])("never imports stale backups when a published database is %s", async (damage) => {

@@ -818,6 +818,25 @@ describe("OpenCodeClient.follow", () => {
     expect(error?.message).toBe("OpenCode closed its event stream.");
   });
 
+  it("reads a multi-megabyte event from many small reads, with a blank line split between two", async () => {
+    const source = pipe();
+    const client = new OpenCodeClient({ url: "http://127.0.0.1:9", fetch: source.fetch });
+    const events: OpenCodeEvent[] = [];
+    let finish!: (error?: Error) => void;
+    const done = new Promise<Error | undefined>((resolve) => { finish = resolve; });
+    await client.follow("/api/event", {}, parseEvent2Block, (event) => events.push(event), finish);
+    const image = "x".repeat(6 * 1024 * 1024);
+    const stream = `data: {"type":"big","data":{"image":"${image}"}}\r\n\r\ndata: {"type":"after"}\n\n`;
+    const split = stream.length - 26;
+    for (let at = 0; at < split; at += 16 * 1024) source.write(stream.slice(at, Math.min(at + 16 * 1024, split)));
+    source.write(stream.slice(split, split + 1));
+    source.write(stream.slice(split + 1));
+    source.end();
+    await done;
+    expect(events.map((event) => event.type)).toEqual(["big", "after"]);
+    expect((events[0]!.properties as { image: string }).image).toBe(image);
+  });
+
   it("throws the HTTP error of a refused stream", async () => {
     const client = new OpenCodeClient({ url: "http://127.0.0.1:9", fetch: async () => new Response("no", { status: 503 }) });
     await expect(client.follow("/api/event", {}, parseEvent2Block, () => undefined, () => undefined)).rejects.toMatchObject({ status: 503, path: "/api/event", body: "no" });

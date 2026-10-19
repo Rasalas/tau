@@ -278,21 +278,28 @@ export class OpenCodeClient {
     const reader = response.body.getReader();
     void (async () => {
       const decoder = new TextDecoder();
-      let buffer = "";
+      // An unfinished event's reads are joined once its blank line arrives. Only the new
+      // text is searched, after the held text's last three characters a blank line may start in.
+      let parts: string[] = [];
+      let held = 0;
+      let carry = "";
       try {
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
           touch();
-          buffer += decoder.decode(value, { stream: true });
-          if (buffer.length > MAX_EVENT_BYTES) throw new Error("OpenCode sent an event larger than 16 MiB.");
-          let end: number;
-          while ((end = buffer.search(/\r?\n\r?\n/u)) >= 0) {
-            const block = buffer.slice(0, end);
-            buffer = buffer.slice(end).replace(/^\r?\n\r?\n/u, "");
+          let text = decoder.decode(value, { stream: true });
+          if (held + text.length > MAX_EVENT_BYTES) throw new Error("OpenCode sent an event larger than 16 MiB.");
+          let match: RegExpExecArray | null;
+          while ((match = /\r?\n\r?\n/u.exec(carry + text))) {
+            const end = match.index - carry.length;
+            const block = (parts.join("") + text).slice(0, held + end);
+            text = text.slice(end + match[0].length);
+            parts = []; held = 0; carry = "";
             const event = parse(block);
             if (event !== undefined && !ended) onEvent(event);
           }
+          if (text) { parts.push(text); held += text.length; carry = (carry + text).slice(-3); }
         }
         finish(new Error("OpenCode closed its event stream."));
       } catch (error) {

@@ -310,6 +310,30 @@ describe("Claude Code host half", () => {
     await expect(backends[0]!.open("t", "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full" } as never)).rejects.toThrow("It drops tool results. Install 2.2.1.");
   });
 
+  it("asks the CLI its version once per program, not on every thread open", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-claude-version-cache-"));
+    directories.push(root);
+    const program = join(root, "claude");
+    await writeFile(program, "#!/bin/sh\n");
+    const backends: HostRuntimeBackendProvider[] = [];
+    const readVersion = vi.fn(async () => "2.1.280");
+    await activateHostKit(createClaudeCodeHostExtension({ fetch: offline, env: {}, readVersion }), {
+      stateDir: join(root, "state"),
+      sessionsDir: join(root, "sessions"),
+      findCommand: () => program,
+      noteSubprocess: () => undefined,
+      skills: () => [],
+      registerRuntimeBackend: (provider) => { backends.push(provider); return () => undefined; },
+    });
+    const open = async (threadId: string) => (await backends[0]!.open(threadId, "/repo", { resume: false }, { projectName: "repo", permissionLevel: () => "full" } as never)).dispose();
+    await open("first");
+    await open("second");
+    expect(readVersion).toHaveBeenCalledTimes(1);
+    await writeFile(program, "#!/bin/sh\n# updated\n");
+    await open("third");
+    expect(readVersion).toHaveBeenCalledTimes(2);
+  });
+
   it("offers no update for a limited-support warning an update cannot clear", async () => {
     const policy = { "claude-code": { ranges: [{ range: "<3.0.0", status: "unsafe", message: "Known problems." }] } };
     const versionAt = async (installed: string) => {

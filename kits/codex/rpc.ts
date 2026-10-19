@@ -1,5 +1,6 @@
 import type { Readable, Writable } from "node:stream";
 import { AGENT_OOM_MESSAGE, commandInvocation, spawnOwnedProcess, wrapAgentCommand } from "tau/host-extension";
+import { lineSplitter } from "../_shared/line-splitter.js";
 
 /**
  * The app-server wire: one JSON-RPC message per line on the CLI's stdin and
@@ -86,22 +87,6 @@ const MAX_LINE_BYTES = 32 * 1024 * 1024;
 const STDERR_TAIL = 8 * 1024;
 export const RPC_INTERNAL_ERROR = -32603;
 export const RPC_METHOD_NOT_FOUND = -32601;
-
-/** Splits a byte stream into lines, dropping one that grows past `max`. */
-export function lineSplitter(max: number, onLine: (line: string) => void): (chunk: Buffer) => void {
-  let rest = Buffer.alloc(0);
-  let skipping = false;
-  return (chunk) => {
-    let buffer = rest.length ? Buffer.concat([rest, chunk]) : chunk;
-    for (let newline = buffer.indexOf(10); newline >= 0; newline = buffer.indexOf(10)) {
-      const line = buffer.subarray(0, newline);
-      buffer = buffer.subarray(newline + 1);
-      if (skipping) { skipping = false; continue; }
-      onLine(line.toString("utf8").replace(/\r$/u, ""));
-    }
-    if (buffer.length > max) { skipping = true; rest = Buffer.alloc(0); } else rest = Buffer.from(buffer);
-  };
-}
 
 interface Pending { method: string; resolve(value: unknown): void; reject(error: Error): void }
 

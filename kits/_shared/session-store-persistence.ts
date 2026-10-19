@@ -61,8 +61,12 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
   private cacheTimer?: ReturnType<typeof setImmediate>;
   private readonly hydrating = new Map<string, Promise<T | undefined>>();
   private readonly unloaded = new Set<string>();
-  private readonly committed = new Set<string>();
-  private readonly invalid = new Set<string>();
+  /** The revision of each thread this host last read or wrote. */
+  private readonly committed = new Map<string, string>();
+  /** Threads whose snapshot a failed write left unknown, with the revision to rewrite them over. */
+  private readonly invalid = new Map<string, string | undefined>();
+  /** Threads another writer changed under a failed write; their next read starts from the database. */
+  private readonly stale = new Set<string>();
   private readonly summaries = new Map<string, { firstUser?: unknown; tallies?: unknown[] }>();
   private writing: Promise<void> = Promise.resolve();
   private readonly snapshots = new Map<string, Snapshot>();
@@ -355,7 +359,6 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
   /** One read transaction returns current metadata and exactly this history. */
   loadSession(id: string): Promise<T | undefined> {
     if (this.closing || this.disposed) return Promise.reject(new Error("Session store is disposed"));
-    if (this.invalid.has(id)) return Promise.reject(new Error("Earlier session write failed; reload the store before appending"));
     let pending = this.hydrating.get(id);
     if (!pending) {
       pending = this.readSession(id).finally(() => this.hydrating.delete(id));
@@ -372,6 +375,8 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     this.failedHistories.delete(id);
     this.summaries.delete(id);
     this.committed.delete(id);
+    this.invalid.delete(id);
+    this.stale.delete(id);
   }
 
   private async readSession(id: string): Promise<T | undefined> {
@@ -409,6 +414,7 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
       this.historyWeights.set(id, { messages: this.payloadWeight(history.messages), usage: this.payloadWeight(history.usageTurns) });
       this.options.publishHydrated?.(id, record);
       this.unloaded.delete(id);
+      this.invalid.delete(id); this.stale.delete(id);
       this.scheduleEviction();
     } else {
       this.options.publishHydrated?.(id, undefined);
@@ -424,7 +430,7 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
   }
 
   private scheduleEviction(): void {
-    if (!this.options.publishEvicted || this.cacheTimer) return;
+    if ((!this.options.publishEvicted && !this.stale.size) || this.cacheTimer) return;
     // Await continuations may still be mutating the live adapter record. Only a
     // later event-loop turn may replace it; frozen writes remain pinned below.
     this.cacheTimer = setImmediate(() => { this.cacheTimer = undefined; this.evictHistories(); });
@@ -432,24 +438,35 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
   }
 
   private evictHistories(all = false): void {
+    for (const id of this.stale) {
+      if (this.pendingWrites.has(id) || this.bulkReaders.has(id) || this.hydrating.has(id)) continue;
+      // Unloaded with no snapshot: the next read takes the other writer's record.
+      const record = this.histories.get(id);
+      if (record) this.unload(id, record); else this.unloaded.add(id);
+      this.snapshots.delete(id); this.committed.delete(id); this.stale.delete(id); this.failedHistories.delete(id);
+    }
     if (!this.options.publishEvicted) return;
     let weight = [...this.historyWeights.values()].reduce((total, item) => total + item.messages + item.usage, 0);
     for (const [id, record] of this.histories) {
       if (!all && this.histories.size <= HISTORY_CACHE_ENTRIES && weight <= HISTORY_CACHE_CHARS) break;
       if (this.pendingWrites.has(id) || this.bulkReaders.has(id) || this.hydrating.has(id) || this.invalid.has(id) || this.failedHistories.has(id)) continue;
-      const history = record as T & { messages?: Array<{ role?: string }>; usageTurns?: unknown[] };
-      const { messages, usageTurns: _usageTurns, ...metadata } = history;
-      const firstUser = messages?.find(message => message.role === "user");
-      const catalog = { ...metadata, ...(messages ? { messages: firstUser ? [firstUser] : [] } : {}) } as T;
-      this.options.publishEvicted(id, catalog);
-      this.unloaded.add(id);
-      this.histories.delete(id);
-      const snapshot = this.snapshots.get(id);
-      if (snapshot) { snapshot.messages = undefined; snapshot.usage = []; }
       const size = this.historyWeights.get(id);
       weight -= (size?.messages ?? 0) + (size?.usage ?? 0);
-      this.historyWeights.delete(id);
+      this.unload(id, record);
     }
+  }
+
+  private unload(id: string, record: T): void {
+    const history = record as T & { messages?: Array<{ role?: string }>; usageTurns?: unknown[] };
+    const { messages, usageTurns: _usageTurns, ...metadata } = history;
+    const firstUser = messages?.find(message => message.role === "user");
+    const catalog = { ...metadata, ...(messages ? { messages: firstUser ? [firstUser] : [] } : {}) } as T;
+    this.options.publishEvicted?.(id, catalog);
+    this.unloaded.add(id);
+    this.histories.delete(id);
+    const snapshot = this.snapshots.get(id);
+    if (snapshot) { snapshot.messages = undefined; snapshot.usage = []; }
+    this.historyWeights.delete(id);
   }
 
   private decodeRow(row: SqliteStoreRead["sessions"][number]): T {
@@ -481,7 +498,7 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     this.snapshots.set(row.id, { revision: row.revision, messages: row.hydrated ? history.messages : undefined,
       summary: row.summary ? JSON.stringify(row.summary) : undefined, count: row.messageCount, usage: row.hydrated ? usage.slice() : [], start: row.usageStart, next: row.usageNext });
     this.summaries.set(row.id, row.summary ?? this.summary(record));
-    this.committed.add(row.id);
+    this.committed.set(row.id, row.revision);
   }
 
   private loadData(): Promise<SessionStoreData<T, M> | undefined> {
@@ -529,8 +546,11 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
   private encode(data: SessionStoreData<T, M>): string { return JSON.stringify(this.options.encode?.(data) ?? data); }
   private freeze(id: string, record: T | undefined, appendOnly = false, version = this.options.version): SqliteSessionChange {
     if (record && this.unloaded.has(id)) throw new Error(`Session '${id}' history is not loaded; read it before writing`);
-    if (appendOnly && this.invalid.has(id)) throw new Error("Earlier session write failed; reload the store before appending");
-    const prior = appendOnly ? this.snapshots.get(id) : undefined;
+    // After a failed write the whole record is written again, over the revision last known on disk.
+    const recovering = appendOnly && this.invalid.has(id);
+    const base = this.invalid.get(id);
+    if (recovering) this.invalid.delete(id);
+    const prior = appendOnly && !recovering ? this.snapshots.get(id) : undefined;
     const history = record as (T & { messages?: unknown[]; usageTurns?: unknown[] }) | undefined;
     const messages = history?.messages;
     const reuse = !!prior && prior.messages === messages && prior.count <= (messages?.length ?? 0);
@@ -557,7 +577,8 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
       || !(messages ?? []).slice(prior!.count).some(message => (message as { role?: string })?.role === "user"));
     const summary = record ? sameFirstUser && unchangedUsage && prior?.summary !== undefined ? prior.summary
       : JSON.stringify(sameFirstUser ? { ...priorSummary, tallies: this.options.summarizeUsage?.(record) } : this.summary(record)) : undefined;
-    const result: SqliteSessionChange = { id, version, revision, expectedRevision: prior?.revision, expectedAbsent: appendOnly && record !== undefined && prior === undefined,
+    const result: SqliteSessionChange = { id, version, revision, expectedRevision: recovering ? base : prior?.revision,
+      expectedAbsent: appendOnly && record !== undefined && (recovering ? base === undefined : prior === undefined),
       summary: summary !== prior?.summary ? summary : undefined,
       metadata: record ? this.encode({ sessions: [{ ...record, ...(messages ? { messages: [] } : {}), ...(history?.usageTurns ? { usageTurns: [] } : {}) }] }) : undefined,
       hasMessages: Array.isArray(messages), messageCount: messages?.length ?? 0,
@@ -584,8 +605,22 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
       if (generation !== this.generation) throw new Error("Earlier session write failed; retry the update");
       await this.loadData();
       await this.locked(async () => { await this.checkMarker(); await this.request("write", { changes: frozen }); });
-      for (const change of frozen.sessions) { if (change.metadata) this.committed.add(change.id); else this.committed.delete(change.id); this.failedHistories.delete(change.id); }
-    }).catch((error) => { if (generation === this.generation) { this.generation++; for (const id of this.committed) this.invalid.add(id); this.snapshots.clear(); } for (const change of frozen.sessions) this.failedHistories.add(change.id); throw error; }).finally(() => {
+      for (const change of frozen.sessions) { if (change.metadata) this.committed.set(change.id, change.revision); else this.committed.delete(change.id); this.failedHistories.delete(change.id); }
+    }).catch((error) => {
+      if (generation === this.generation) {
+        // Only the threads with a write in flight hold a snapshot the database does not have.
+        // Another writer's change is read back; otherwise the next write replaces the record.
+        this.generation++;
+        const conflict = /another writer/u.test(error instanceof Error ? error.message : "");
+        for (const id of this.pendingWrites.keys()) {
+          this.snapshots.delete(id);
+          if (conflict && frozen.sessions.some(change => change.id === id)) { this.stale.add(id); this.invalid.delete(id); }
+          else this.invalid.set(id, this.committed.get(id));
+        }
+      }
+      for (const change of frozen.sessions) this.failedHistories.add(change.id);
+      throw error;
+    }).finally(() => {
       for (const change of frozen.sessions) {
         const count = this.pendingWrites.get(change.id)! - 1;
         if (count) this.pendingWrites.set(change.id, count); else this.pendingWrites.delete(change.id);

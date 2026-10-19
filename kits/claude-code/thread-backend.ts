@@ -804,7 +804,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   private async clearGoal(): Promise<void> {
     if (this.restarting) throw new Error("The Claude session is restarting.");
     this.clearingGoal = true;
-    if (this.turns.length > 0) await this.abort();
+    if (this.turns.length > 0) await this.interrupt(true);
     if (this.turns.length > 0) throw new Error("Claude Code is still working on this thread. End the goal once the turn stops.");
     if (!this.record?.started) { this.setGoal(undefined); return; }
     this.admittingPrompts += 1;
@@ -996,18 +996,22 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
   /**
    * Interrupt first; when the turn does not settle in time the session is
    * closed instead (background tasks keep the CLI alive), and the next prompt
-   * resumes the same Claude session in a fresh process.
+   * resumes the same Claude session in a fresh process. Only the turn running
+   * at the press counts: a queued follow-up starts after it and keeps the CLI.
    */
-  async abort(): Promise<void> {
+  async abort(): Promise<void> { await this.interrupt(false); }
+
+  private async interrupt(all: boolean): Promise<void> {
     const live = this.live;
-    if (!live || live.session.closed) return;
-    if (this.turns.length === 0) return;
+    const running = this.turns[0];
+    if (!live || live.session.closed || !running) return;
+    const settled = () => all ? this.turns.length === 0 : !this.turns.includes(running);
     void live.session.interrupt().catch(() => undefined);
     const deadline = this.now() + (this.options.interruptGraceMs ?? INTERRUPT_GRACE_MS);
-    while (this.turns.length > 0 && this.now() < deadline) {
+    while (!settled() && this.now() < deadline) {
       await new Promise<void>((resolve) => setTimeout(resolve, 25).unref?.());
     }
-    if (this.turns.length === 0) return;
+    if (settled()) return;
     await live.session.close();
   }
 
