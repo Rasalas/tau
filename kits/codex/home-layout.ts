@@ -6,7 +6,8 @@ import { codexHome } from "./config.js";
 /** An optional auth overlay shares sessions while keeping CLI credentials private. */
 export const AUTH_HOME_VARIABLE = "TAU_CODEX_AUTH_HOME";
 const SHARED_DIRECTORIES = ["sessions", "archived_sessions", "sqlite", "shell_snapshots", "worktrees", "skills", "plugins", "cache", "logs", "mcp-oauth-locks"];
-const PRIVATE = new Set(["auth.json", "models_cache.json", "log", "memories", "tmp"]);
+// Finder keeps its own .DS_Store in every directory, so it is never linked or a conflict.
+const PRIVATE = new Set(["auth.json", "models_cache.json", "log", "memories", "tmp", ".DS_Store"]);
 
 export function codexHomeLayout(env: NodeJS.ProcessEnv) {
   const shared = resolve(codexHome(env));

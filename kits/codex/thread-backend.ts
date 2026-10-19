@@ -42,7 +42,7 @@ import {
 } from "tau/host-extension";
 import { RPC_METHOD_NOT_FOUND, RpcError } from "./rpc.js";
 import { MISSING_THREAD, type CodexMcpResourceRead, type CodexMcpTool, type CodexMcpToolResult, type CodexAccount, type CodexGoal, type CodexGoalStatus, type CodexCollaborationMode, type CodexLoginRequest, type CodexLoginStart, type CodexModel, type CodexPolicy, type CodexThreadInfo, type CodexUserInput } from "./app-server.js";
-import { approvalDialog, elicitationForm, elicitationResult, pageElicitation, policyForLevel, refusal } from "./approvals.js";
+import { ALLOW_SESSION, SessionAllowance, allowedForSession, approvalDialog, elicitationForm, elicitationResult, pageElicitation, policyForLevel, refusal } from "./approvals.js";
 import { CodexTurnTranslator, codexLimitReset, contextUsage, emptyUsage, threadUsage, type CodexTokenUsage, type McpAppCapture } from "./events.js";
 import type { McpAppReader, McpAppThread } from "./mcp-apps.js";
 import type { CodexRuntimeAdapter } from "./runtime-adapter.js";
@@ -288,6 +288,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   private mode = DEFAULT_MODE;
   /** The project limits its commands' network; read before each turn. */
   private networkLimited = false;
+  private readonly allowance = new SessionAllowance();
   private observedModel?: string;
   /** The effort Codex applies when Tau names none: the thread's own, or the user's config. */
   private observedEffort?: string;
@@ -659,6 +660,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         return {};
       }
       const level = this.permissionLevel();
+      this.allowance.sync(level);
       const mode = this.collaborationMode();
       this.turnBaseline = { ...this.usage };
       const id = await live.startTurn({
@@ -766,6 +768,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       const current = !this.options.sessionCurrent || await this.options.sessionCurrent(previous);
       if (current && this.live === previous && !previous.closed) return previous;
       if (this.live === previous) this.live = undefined;
+      this.allowance.clear();
       await previous.close();
     }
     this.opening ??= this.openSession().finally(() => { this.opening = undefined; });
@@ -917,6 +920,9 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     }
     // A limited project's network is not opened one command at a time.
     if (this.networkLimited && params.networkApprovalContext) return dialog.resultFor([]);
+    // Codex applies its own allowance to the exact command only, so Tau keeps the wider one.
+    if (dialog.allowance && this.allowance.has(dialog.allowance)) return dialog.resultFor([{ value: ALLOW_SESSION }]);
+    const epoch = this.allowance.current();
     const ask = this.options.ask;
     const answers: ExtensionUiAnswer[] = [];
     if (ask) {
@@ -926,12 +932,14 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         if ("cancelled" in answer) break;
       }
     }
+    if (dialog.allowance && allowedForSession(answers)) this.allowance.add(dialog.allowance, epoch);
     return dialog.resultFor(answers);
   }
 
   /** Only the live session's exit settles a turn; one that dies while opening fails the open instead. */
   private onExit(session: CodexSessionLike | undefined, error: Error | undefined): void {
     if (!session || this.live !== session) return;
+    this.allowance.clear();
     this.options.cancelPrompts?.();
     this.live = undefined;
     for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
@@ -1165,6 +1173,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     for (const event of turn.translator.abandon("interrupted")) this.handleEvent(event);
     turn.complete();
     if (this.live === live) this.live = undefined;
+    this.allowance.clear();
     await live?.close().catch(() => undefined);
   }
 
@@ -1227,6 +1236,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   async dispose(): Promise<void> {
     const live = this.live;
     this.live = undefined;
+    this.allowance.clear();
     if (live && !live.closed) await live.close();
     for (const event of this.nativeAgents.tracker.interrupt()) this.handleEvent(event);
     if (this.background.clear()) this.report({ type: "background" });
