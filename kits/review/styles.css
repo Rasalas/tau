@@ -1565,3 +1565,6 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .thread-sheet-link-head { display: flex; align-items: center; gap: 4px; }
 .thread-sheet-link-head > input { flex: 1; min-width: 0; min-height: var(--touch-target); padding: 0 12px; border: 1px solid var(--line-control); border-radius: 12px; background: var(--well); color: var(--ink); font: var(--text-md) var(--sans); }
 .thread-sheet-note { margin: 0; padding: 8px 4px; color: var(--muted); font-size: var(--text-sm); }
+.pr-unavailable-details { color: var(--muted); font-size: var(--text-xs); }
+.pr-unavailable-details summary { cursor: pointer; width: fit-content; }
+.pr-unavailable-details pre { margin: 6px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--text-xs) var(--mono); }

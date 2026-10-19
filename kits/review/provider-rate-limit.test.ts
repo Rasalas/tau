@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRateLimited, RateLimitGate, retryAtFrom } from "./provider-rate-limit.js";
+import { isRateLimited, RateLimitGate, resetNote, retryAtFrom } from "./provider-rate-limit.js";
 
 const headers = (values: Record<string, string>) => ({ get: (name: string) => values[name.toLowerCase()] ?? null });
 
@@ -39,4 +39,13 @@ it("does not shorten a known reset when another already-started request fails wi
   const gate = new RateLimitGate(() => 0);
   gate.record("github", "github.com", 3_600_000, "account");
   expect(gate.record("github", "github.com", undefined, "account")).toBe(3_600_000);
+});
+
+describe("the reset note", () => {
+  it("says when the provider named a reset in the future, and nothing otherwise", () => {
+    expect(resetNote(1_000 + 300_000, 1_000)).toBe(" The limit resets in about 5 minutes.");
+    expect(resetNote(1_000 + 30_000, 1_000)).toBe(" The limit resets in about 30 seconds.");
+    expect(resetNote(undefined, 1_000)).toBe("");
+    expect(resetNote(500, 1_000)).toBe("");
+  });
 });

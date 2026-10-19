@@ -1,5 +1,6 @@
 import { HostCommandError, type HostExtensionContext } from "tau/host-extension";
 import { WORKSPACE_HOST_EXTENSION_ID, type PublishInfo, type PublishResult, type RequestService, type ReviewRequestContext } from "./protocol.js";
+import { pushAdvice } from "./publish-advice.js";
 import {
   accountArgs,
   authArgs,
@@ -96,20 +97,34 @@ export function registerPublishCommands(context: HostExtensionContext, options: 
 
     const remote = protocol === "ssh" ? created.ssh : created.https;
     let pushed = false;
-    let step = "adding it as origin";
+    let pushProblem: string | undefined;
     try {
       const added = await workspace<{ hasCommits: boolean }>("add-remote", { name: "origin", url: remote });
       // A repository without a commit has nothing to push yet; the remote is enough.
       if (added.hasCommits) {
-        step = "pushing to it";
-        await workspace("push");
-        pushed = true;
+        try {
+          await workspace("push");
+          pushed = true;
+        } catch (error) {
+          pushProblem = pushAdvice(message(error), { name: "origin", url: remote });
+        }
       }
     } catch (error) {
-      throw new HostCommandError(`${created.web} was created, but ${step} failed: ${message(error).split("\n")[0]}`);
+      throw new HostCommandError(`${created.web} was created, but adding it as origin failed: ${message(error).split("\n")[0]}`);
     }
     services.log(pushed ? "repository.pushed" : "repository.remote-added", remote);
-    return { repository: created.nameWithOwner, url: created.web, remote, pushed, branch: git.branch };
+    return { repository: created.nameWithOwner, url: created.web, remote, pushed, branch: git.branch, ...(pushProblem ? { pushProblem } : {}) };
+  }, { long: true });
+
+  // The repository and its remote exist after a failed first push; this tries the push again.
+  context.registerCommand("publish-push", async (): Promise<{ detail: string }> => {
+    const git = await workspace<ReviewRequestContext>("review-request-context");
+    if (!git.remote) throw new HostCommandError("This repository has no remote to push to.");
+    try {
+      return await workspace<{ detail: string }>("push");
+    } catch (error) {
+      throw new HostCommandError(`The push failed. ${pushAdvice(message(error), git.remote)}`);
+    }
   }, { long: true });
 }
 

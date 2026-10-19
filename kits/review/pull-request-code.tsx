@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Info, MessageSquare, PanelRightClose, PanelRightOpen, WrapText } from "lucide-react";
 import { DiffFindBar, DiffView, READ_ONLY_REASON, useDiffFind, errorMessage, getClientStorage, tooltipProps, type WorkbenchActions } from "tau";
+import { DiffUnavailable } from "./diff-unavailable.js";
 import { currentDiffWordWrap } from "./diff-settings.js";
 import { providerInfo, type PendingReviewComment, PullRequestComment, PullRequestDetail, PullRequestFile, PullRequestFiles, PullRequestThread, ReviewCommentChip } from "./protocol.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
@@ -109,13 +110,7 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
   const setTree = (open: boolean) => { setTreeOpen(open); getClientStorage()?.set(TREE_KEY, String(open)); };
 
   if (filesError && !files) {
-    return (
-      <div className="pr-unavailable" role="alert">
-        <strong>Could not load the diff</strong>
-        <p>{filesError}</p>
-        <button className="mini-button" onClick={() => void load(true)}>Retry</button>
-      </div>
-    );
+    return <DiffUnavailable error={filesError} provider={providerInfo(detail.ref.service).name} onRetry={() => void load(true)} onOpen={() => actions.openExternal(detail.ref.url)} />;
   }
   if (!files) return <p className="pr-empty pr-pad" role="status">Loading the diff…</p>;
   if (ordered.length === 0) return <p className="pr-empty pr-pad">This {providerInfo(detail.ref.service).noun} has no file changes.</p>;

@@ -475,9 +475,22 @@ export function parseHunks(patch: string): UiDiffHunk[] {
   return hunks;
 }
 
+const C_ESCAPES: Record<string, number> = { a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11, "\\": 92, "\"": 34 };
+
+/** Git quotes a name with non-ASCII bytes, quotes or control characters in C style; octal escapes are UTF-8 bytes. */
+export function unquoteGitPath(path: string): string {
+  if (path.length < 2 || !path.startsWith("\"") || !path.endsWith("\"")) return path;
+  const bytes: number[] = [];
+  for (const [, octal, escaped, plain] of path.slice(1, -1).matchAll(/\\([0-7]{1,3})|\\([^0-7])|([^\\]+|\\)/gsu)) {
+    if (octal) bytes.push(parseInt(octal, 8) & 0xff);
+    else if (escaped) bytes.push(...(C_ESCAPES[escaped] !== undefined ? [C_ESCAPES[escaped]!] : Buffer.from(`\\${escaped}`)));
+    else bytes.push(...Buffer.from(plain!));
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+
 function stripPrefix(path: string): string {
-  const unquoted = path.startsWith("\"") && path.endsWith("\"") ? path.slice(1, -1) : path;
-  return unquoted.replace(/^[ab]\//u, "");
+  return unquoteGitPath(path).replace(/^[ab]\//u, "");
 }
 
 function fileDiff(path: string, hunks: UiDiffHunk[], note?: string): UiFileDiff {
@@ -495,7 +508,7 @@ export function parseUnifiedDiff(patch: string): Array<{ file: Omit<PullRequestF
   const sections = patch.split(/^(?=diff --git )/mu).filter((section) => section.startsWith("diff --git "));
   return sections.map((section) => {
     const lines = section.split("\n");
-    const header = /^diff --git (\S+|"[^"]+") (\S+|"[^"]+")$/u.exec(lines[0] ?? "");
+    const header = /^diff --git (\S+|"(?:[^"\\]|\\.)+") (\S+|"(?:[^"\\]|\\.)+")$/u.exec(lines[0] ?? "");
     let oldPath = header ? stripPrefix(header[1]!) : "";
     let newPath = header ? stripPrefix(header[2]!) : "";
     let status: PullRequestFile["status"] = "modified";
@@ -504,8 +517,8 @@ export function parseUnifiedDiff(patch: string): Array<{ file: Omit<PullRequestF
       if (line.startsWith("@@")) break;
       if (line.startsWith("new file mode")) status = "added";
       else if (line.startsWith("deleted file mode")) status = "deleted";
-      else if (line.startsWith("rename from ")) { oldPath = line.slice("rename from ".length); status = "renamed"; }
-      else if (line.startsWith("rename to ")) newPath = line.slice("rename to ".length);
+      else if (line.startsWith("rename from ")) { oldPath = unquoteGitPath(line.slice("rename from ".length)); status = "renamed"; }
+      else if (line.startsWith("rename to ")) newPath = unquoteGitPath(line.slice("rename to ".length));
       else if (line.startsWith("--- ") && line !== "--- /dev/null") oldPath = stripPrefix(line.slice(4).trim());
       else if (line.startsWith("+++ ") && line !== "+++ /dev/null") newPath = stripPrefix(line.slice(4).trim());
       else if (/^Binary files .* differ$/u.test(line)) binary = true;

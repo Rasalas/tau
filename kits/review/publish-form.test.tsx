@@ -53,4 +53,24 @@ describe("the publish form", () => {
     expect((await screen.findByRole("note")).textContent).toContain("gh) is not signed in");
     expect(screen.getByRole("button", { name: "Continue…" })).toHaveProperty("disabled", true);
   });
+
+  it("keeps the form open with the advice when only the push failed, and pushes again", async () => {
+    const created = { repository: "octo/app", url: "https://github.com/octo/app", remote: "git@github.com:octo/app.git", pushed: false, branch: "main", pushProblem: "SSH authentication was rejected. Add an SSH key to your account, or switch the remote to HTTPS, then push again." };
+    const invoke = vi.fn(async (command: string) => {
+      if (command === "publish-info") return INFO;
+      if (command === "publish-repository") return created;
+      if (command === "publish-push") return { detail: "Pushed" };
+      throw new Error(command);
+    });
+    const published = vi.fn();
+    render(<PublishForm host={{ invoke, onEvent: () => () => undefined } as unknown as HostExtensionClient} workspace="ws1_shown" onPublished={published} onCancel={() => undefined} />);
+    await screen.findByLabelText("Repository");
+    fireEvent.click(screen.getByRole("button", { name: "Continue…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish to GitHub" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("octo/app was created and added as origin, but the push failed. SSH authentication was rejected");
+    expect(published).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Push again" }));
+    await waitFor(() => expect(published).toHaveBeenCalledWith({ repository: "octo/app", url: "https://github.com/octo/app", remote: "git@github.com:octo/app.git", pushed: true, branch: "main" }));
+    expect(invoke).toHaveBeenCalledWith("publish-push", { workspace: "ws1_shown" });
+  });
 });

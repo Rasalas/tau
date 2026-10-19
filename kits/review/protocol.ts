@@ -314,6 +314,8 @@ export interface PublishResult {
   /** False for a repository without commits: the remote is set, nothing was pushed. */
   pushed: boolean;
   branch: string;
+  /** Set when the repository exists and has its remote but the first push failed: what to do next. */
+  pushProblem?: string;
 }
 
 /**

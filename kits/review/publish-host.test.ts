@@ -113,20 +113,47 @@ describe("publishing a repository", () => {
     expect(signedOut.calls.some((call) => call.args[1] === "create")).toBe(false);
   });
 
-  it("says the repository exists when the push fails afterwards", async () => {
-    const failingPush = await activateHostKit({
+  /** A Workspace Kit whose push fails with `stderr` until `fixed` is set. */
+  async function failingPush(stderr: string, remote?: { name: string; url: string }) {
+    const state = { fixed: false };
+    const registry = await activateHostKit({
       id: "tau.workspace",
       name: "Workspace Kit",
       activate(context: HostExtensionContext) {
         const callers = { callers: [REVIEW_HOST_EXTENSION_ID] };
-        context.registerCommand("review-request-context", () => UNPUBLISHED, callers);
+        context.registerCommand("review-request-context", () => ({ ...UNPUBLISHED, ...(remote ? { remote } : {}) }), callers);
         context.registerCommand("add-remote", () => ({ hasCommits: true }), callers);
-        context.registerCommand("push", () => { throw new Error("Permission denied (publickey)."); }, callers);
+        context.registerCommand("push", () => { if (!state.fixed) throw new Error(`Command failed: git push\n${stderr}`); return { detail: "Pushed" }; }, callers);
       },
     }, { ...LINK_SEAMS, findCommand: () => "/stub/gh", noteSubprocess: () => undefined, runtimeOwner: () => "tau" });
-    await failingPush.activate(createReviewHostExtension({ run: async (_command, args) => (args[1] === "create" ? "https://github.com/octo/app\n" : "") }));
-    await expect(failingPush.invoke(REVIEW_HOST_EXTENSION_ID, "publish-repository", { service: "github", repository: "octo/app", confirm: true }))
-      .rejects.toThrow("https://github.com/octo/app was created, but pushing to it failed: Permission denied (publickey).");
+    await registry.activate(createReviewHostExtension({ run: async (_command, args) => (args[1] === "create" ? "https://github.com/octo/app\n" : "") }));
+    return { state, invoke: (command: string, input?: unknown) => registry.invoke(REVIEW_HOST_EXTENSION_ID, command, input) };
+  }
+
+  it("keeps the repository and says how to fix a rejected SSH key when the first push fails", async () => {
+    const { invoke } = await failingPush("octo@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.");
+    const result = await invoke("publish-repository", { service: "github", repository: "octo/app", protocol: "ssh", confirm: true });
+    expect(result).toMatchObject({ repository: "octo/app", pushed: false, remote: "git@github.com:octo/app.git" });
+    expect((result as { pushProblem: string }).pushProblem).toBe(
+      "SSH authentication was rejected. Add an SSH key to your account, or switch the remote to HTTPS with \"git remote set-url origin https://github.com/octo/app.git\", then push again.",
+    );
+  });
+
+  it("offers the other protocol over HTTPS and never repeats credentials from git's text", async () => {
+    const https = await failingPush("fatal: Authentication failed for 'https://octo:secret@github.com/octo/app.git/'");
+    const result = await https.invoke("publish-repository", { service: "github", repository: "octo/app", protocol: "https", confirm: true });
+    expect((result as { pushProblem: string }).pushProblem).toContain("git remote set-url origin git@github.com:octo/app.git");
+    const other = await failingPush("fatal: unable to access 'https://octo:secret@github.com/octo/app.git/': Could not resolve host");
+    const unknown = await other.invoke("publish-repository", { service: "github", repository: "octo/app", protocol: "https", confirm: true });
+    expect((unknown as { pushProblem: string }).pushProblem).toBe("fatal: unable to access 'https://github.com/octo/app.git/': Could not resolve host. Fix the problem, then push again.");
+  });
+
+  it("pushes again on request, and explains a second failure", async () => {
+    const remote = { name: "origin", url: "git@github.com:octo/app.git" };
+    const { invoke, state } = await failingPush("Host key verification failed.", remote);
+    await expect(invoke("publish-push")).rejects.toThrow(/The push failed\. The host's SSH key is not trusted yet.*git remote set-url origin https:\/\/github.com\/octo\/app.git/u);
+    state.fixed = true;
+    await expect(invoke("publish-push")).resolves.toEqual({ detail: "Pushed" });
   });
 });
 
