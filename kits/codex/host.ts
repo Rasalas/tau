@@ -337,11 +337,11 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         const real = path ? await realpath(path).catch(() => path) : undefined;
         return runtimeUpdateCommand(CODEX_BACKEND_KIND, (real && packageUpdateCommand(real, CODEX_NPM_PACKAGE)) ?? "codex update", env);
       };
-      const compatibility = async (path: string, version: string | undefined): Promise<RuntimeCompatibility | undefined> => {
+      const compatibility = async (path: string, version: string | undefined, pnpmAllowBuild = false): Promise<RuntimeCompatibility | undefined> => {
         const verdict = versionCompatibility(policy, version);
         if (!verdict?.recommendedVersion) return verdict;
         // A package manager that cannot pin a release (Homebrew) leaves the update command.
-        const install = packageInstallCommand(await realpath(path).catch(() => path), CODEX_NPM_PACKAGE, verdict.recommendedVersion);
+        const install = packageInstallCommand(await realpath(path).catch(() => path), CODEX_NPM_PACKAGE, verdict.recommendedVersion, pnpmAllowBuild);
         return install ? { ...verdict, installCommand: install } : verdict;
       };
       /** The instance's CLI and its version; read again once the file changed (an update). */
@@ -600,7 +600,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
         const { path, version } = await cli(id);
         if (path === managedPath) return { tool: "codex", installed: version, compatibility: await compatibility(path, version) };
         const maintenance = await maintenanceOf(id);
-        const verdict = await compatibility(path, version);
+        const verdict = await compatibility(path, version, maintenance.update?.args.includes(`--allow-build=${CODEX_NPM_PACKAGE}`));
         return {
           tool: "codex",
           ...(version ? { installed: version } : {}),

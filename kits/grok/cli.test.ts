@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { grokAgentArgs, grokAuthMethod, grokEnvironment, parseGrokModels, parseGrokVersion } from "./cli.js";
+import { grokAgentArgs, grokAuthMethod, grokEnvironment, grokProbeEnvironment, parseGrokModels, parseGrokVersion } from "./cli.js";
 
 describe("Grok CLI facts", () => {
   it("reads the version and the login and models `grok models` names", () => {
@@ -26,4 +26,10 @@ describe("Grok CLI facts", () => {
     expect(grokAgentArgs("ask", false)).toEqual(["--permission-mode", "default", "agent", "stdio"]);
     expect(grokAgentArgs("read-only", true)).toEqual(["--permission-mode", "default", "agent", "stdio"]);
   });
+});
+
+it("suppresses the updater only on a copy used by probes", () => {
+  const env = { PATH: "/bin", GROK_DISABLE_AUTOUPDATER: "0" };
+  expect(grokProbeEnvironment(env)).toEqual({ ...env, GROK_DISABLE_AUTOUPDATER: "1" });
+  expect(env.GROK_DISABLE_AUTOUPDATER).toBe("0");
 });

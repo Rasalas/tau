@@ -13,6 +13,7 @@ import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
 const env = process.env;
+if (env.FAKE_GROK_ENV_LOG) appendFileSync(env.FAKE_GROK_ENV_LOG, `${JSON.stringify({ args, updater: env.GROK_DISABLE_AUTOUPDATER })}\n`);
 const signedOut = Boolean(env.FAKE_GROK_SIGNED_OUT);
 if (args.includes("--version")) {
   process.stdout.write(`grok ${env.FAKE_GROK_VERSION ?? "0.9.12"}\n`);

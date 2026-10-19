@@ -126,10 +126,10 @@ export function packageUpdateCommand(realPath: string, npmPackage: string): stri
  * package manager that owns the executable's resolved path: npm, pnpm or
  * bun. `undefined` for Homebrew and anything else, which cannot pin a release.
  */
-export function packageInstallCommand(realPath: string, npmPackage: string, version: string): string | undefined {
+export function packageInstallCommand(realPath: string, npmPackage: string, version: string, pnpmAllowBuild = false): string | undefined {
   const path = realPath.replaceAll("\\", "/").toLowerCase();
   if (path.includes("/.bun/")) return `bun add -g ${npmPackage}@${version}`;
-  if (path.includes("/pnpm/")) return `pnpm add -g ${npmPackage}@${version}`;
+  if (path.includes("/pnpm/")) return `pnpm add -g ${pnpmAllowBuild ? `--allow-build=${npmPackage} ` : ""}${npmPackage}@${version}`;
   if (path.includes(`/node_modules/${npmPackage.toLowerCase()}/`)) return `npm install -g ${npmPackage}@${version}`;
   return undefined;
 }

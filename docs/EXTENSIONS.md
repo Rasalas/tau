@@ -3009,7 +3009,7 @@ both; Antigravity reports the release it pins.
 
 `maintenance()` on the provider answers how the program is installed and what
 keeps it current (`RuntimeToolMaintenance`): `install` (`method` —
-`homebrew-formula`, `homebrew-cask`, `npm`, `pnpm`, `bun`, `native` or
+`homebrew-formula`, `homebrew-cask`, `npm`, `pnpm`, `bun`, `native`, `winget` or
 `unknown` —, a `label` for people, the path and its resolved target),
 `installed`, `latest` as the install's own source has it, `update` (a
 `CliCommand`: `executable` and `args`, never a shell line), `env` for the
@@ -3027,6 +3027,14 @@ keeps agent tools up to date (`src/main/runtime-tool-updates.ts`), and
 (`automatic`, or `ask` before the user answered once) and offer no update
 toast for an `automatic` one. Codex, the Agent SDK runtime, Cursor, OpenCode
 and Grok answer it.
+
+API 1.75.0 adds `winget` to `CliInstallMethod`. A resolved WinGet package
+path supplies its exact package ID; an unresolved link offers no update.
+pnpm 10.4+ commands approve only the declared package build, and maintenance
+pins the advertised stable release to avoid release-age filtering.
+`packageInstallCommand` accepts an optional fourth `pnpmAllowBuild` boolean
+in API 1.75.0, so a pinned compatibility install reuses the approval from
+the detected update command.
 
 `programKey()` changes whenever the program does; `executableFingerprint(path)`
 (resolved path, size, modification time) is the usual answer. The host keeps

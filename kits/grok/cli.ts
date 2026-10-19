@@ -74,7 +74,12 @@ export function parseGrokModels(output: string): GrokModelsListing {
   return { ...(signedIn !== undefined ? { signedIn } : {}), ...(login?.[1] ? { account: login[1] } : {}), models };
 }
 
+export function grokProbeEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, GROK_DISABLE_AUTOUPDATER: "1" };
+}
+
 async function run(path: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
+  env = grokProbeEnvironment(env);
   const invocation = commandInvocation(path, args, { env: env as Record<string, string> });
   const { stdout, stderr } = await promisify(execFile)(invocation.command, invocation.args, { env, timeout: timeoutMs, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments });
   return { stdout: String(stdout), stderr: String(stderr) };

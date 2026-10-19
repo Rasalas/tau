@@ -26,7 +26,7 @@ import type { AcpProcess, AcpSpawnInput } from "../_acp/client.js";
 import { withTauServer } from "../_acp/mcp.js";
 import type { AcpStoredModel } from "../_acp/session-store.js";
 import { grokNewThreadCatalog, initializeModelState, modelName, storedModels } from "./catalog.js";
-import { grokAgentArgs, grokEnvironment, readGrokModels, readGrokVersion, usesApiKey, type GrokModelsListing } from "./cli.js";
+import { grokAgentArgs, grokEnvironment, grokProbeEnvironment, readGrokModels, readGrokVersion, usesApiKey, type GrokModelsListing } from "./cli.js";
 import { readGrokLimits, type GrokLimits } from "./limits.js";
 import {
   GROK_BACKEND_KIND,
@@ -135,7 +135,7 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
         const key = await executableFingerprint(path);
         if (entry.installed?.path !== path || entry.installed.key !== key) {
           if (entry.installed) entry.probe = undefined;
-          entry.installed = { path, ...(key ? { key } : {}), ...(await readVersion(path, instanceEnv(id)).then((version) => version ? { version } : {})) };
+          entry.installed = { path, ...(key ? { key } : {}), ...(await readVersion(path, grokProbeEnvironment(instanceEnv(id))).then((version) => version ? { version } : {})) };
         }
         return entry.installed;
       };
@@ -175,11 +175,11 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
         if (!fresh && entry.probe) return entry.probe.then((cached) => Date.now() - cached.at < PROBE_TTL_MS ? cached : runProbe(id, true));
         const next = (async (): Promise<Probe> => {
           const { path } = await cli(id);
-          const listing = await readModels(path, instanceEnv(id));
+          const listing = await readModels(path, grokProbeEnvironment(instanceEnv(id)));
           if (listing.signedIn === false && !usesApiKey(instanceEnv(id))) return { listing, models: [], at: Date.now() };
           await mkdir(services.stateDir, { recursive: true });
           if (!options.spawn) services.noteSubprocess();
-          const initialized = await probeGrok({ command: path, args: [...settings.args(id), ...grokAgentArgs("ask", true)], cwd: services.stateDir, env: instanceEnv(id), clientVersion: options.clientVersion ?? "0.0.0", ...(options.spawn ? { spawn: options.spawn } : {}) }).catch(() => undefined);
+          const initialized = await probeGrok({ command: path, args: [...settings.args(id), ...grokAgentArgs("ask", true)], cwd: services.stateDir, env: grokProbeEnvironment(instanceEnv(id)), clientVersion: options.clientVersion ?? "0.0.0", ...(options.spawn ? { spawn: options.spawn } : {}) }).catch(() => undefined);
           const modelState = initializeModelState(initialized);
           const models = modelState ? storedModels(modelState) : listing.models.map((model) => ({ id: model.id, name: modelName(model.id), efforts: [] }));
           const start = modelState?.currentModelId ?? listing.models.find((model) => model.isDefault)?.id;
@@ -273,11 +273,10 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
           },
           composerCommands: () => [],
           version: () => versionOf(id),
-          // Grok Build names no package or updater Tau knows; the Runtimes page says how it is installed.
           maintenance: async (): Promise<RuntimeToolMaintenance | undefined> => {
             if (!locate(id)) return undefined;
             const { path, version } = await cli(id);
-            return cliMaintenance({ tool: "grok", path, ...(version ? { installed: version } : {}), spec: {}, findCommand: (name) => services.findCommand(name), cacheFile: join(services.stateDir, "package-versions.json"), env, home: homedir() });
+            return cliMaintenance({ tool: "grok", path, ...(version ? { installed: version } : {}), spec: { homebrew: { casks: ["grok-build"] } }, findCommand: (name) => services.findCommand(name), cacheFile: join(services.stateDir, "package-versions.json"), env, ...(options.fetch ? { fetch: options.fetch } : {}), home: homedir() });
           },
           programKey: () => executableFingerprint(locate(id)),
           newThreadCatalog: () => newThreadCatalog(id),

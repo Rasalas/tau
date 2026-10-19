@@ -3,7 +3,7 @@ import { AcpRequestError, spawnAcpProcess, type AcpExitedError, type AcpProcess,
 import type { AcpPromptResponse, AcpSessionUpdate } from "../_acp/events.js";
 import type { AcpMcpServer } from "../_acp/mcp.js";
 import { AcpAgentSession, type AcpAgentSessionOptions, type AcpContentBlock, type AcpElicitationAnswer, type AcpElicitationRequest, type AcpInitializeResult, type AcpPermissionRequest, type AcpPermissionResponse } from "../_acp/session.js";
-import { grokAuthMethod } from "./cli.js";
+import { grokAuthMethod, grokProbeEnvironment } from "./cli.js";
 
 /**
  * The Grok CLI's ACP server (`grok agent stdio`): the shared session plus
@@ -157,7 +157,7 @@ export async function openGrokSession(options: GrokSessionOptions): Promise<Grok
  * so a probe needs no sign-in and starts no session (and no MCP server).
  */
 export async function probeGrok(options: Omit<GrokSessionOptions, "onUpdate" | "onPermission">): Promise<AcpInitializeResult> {
-  const session = createSession({ ...options, onUpdate: () => undefined, onPermission: async () => ({ outcome: { outcome: "cancelled" } }) });
+  const session = createSession({ ...options, env: grokProbeEnvironment(options.env), onUpdate: () => undefined, onPermission: async () => ({ outcome: { outcome: "cancelled" } }) });
   try {
     return await session.initialize();
   } finally {

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // A stand-in `opencode` for the spawn path: `--version`, and `serve` with the
 // ready line, Basic auth from OPENCODE_SERVER_PASSWORD and the config it got.
+import { readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 const args = process.argv.slice(2);
@@ -8,8 +9,18 @@ if (args.includes("--version")) {
   process.stdout.write(`${process.env.FAKE_OPENCODE_VERSION ?? "1.18.32"}\n`);
   process.exit(0);
 }
+if (process.env.FAKE_SERVE_ATTEMPTS) {
+  const file = process.env.FAKE_SERVE_ATTEMPTS;
+  let attempts = 0;
+  try { attempts = Number(readFileSync(file, "utf8")); } catch {}
+  writeFileSync(file, String(attempts + 1));
+  if (attempts < Number(process.env.FAKE_SERVE_LOCKS ?? 0)) {
+    process.stderr.write("SQLITE_BUSY: database is locked\n");
+    process.exit(3);
+  }
+}
 if (process.env.FAKE_SERVE_FAIL) {
-  process.stderr.write("Error: database is locked\n");
+  process.stderr.write(process.env.FAKE_SERVE_FAIL === "other" ? "Invalid configuration\n" : "Error: database is locked\n");
   process.exit(3);
 }
 const expected = `Basic ${Buffer.from(`opencode:${process.env.OPENCODE_SERVER_PASSWORD ?? ""}`).toString("base64")}`;
