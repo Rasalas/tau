@@ -100,6 +100,8 @@ export function composerTrigger(
   // Match /command or $skill at start of prompt
   const match = /^\s*([/$])([^\s]*)$/u.exec(before);
   if (!match) return undefined;
+  // A second slash in the word, even past the caret, makes it a path such as /tmp/build.sh.
+  if (match[1] === "/" && `${match[2]}${/^[^\s]*/u.exec(text.slice(caret))![0]}`.includes("/")) return undefined;
   const start = before.lastIndexOf(match[1]!);
   return { kind: match[1] as "/" | "$", query: match[2] ?? "", start, end: caret };
 }
