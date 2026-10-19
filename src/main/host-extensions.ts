@@ -1014,6 +1014,26 @@ export interface HostPackageBuilds {
   observe(listener: (build: PackageBuild) => void): () => void;
 }
 
+/** What `services.newPackage` is asked for. API 1.75.0. */
+export interface HostNewPackageSpec {
+  /** The folder name and the end of the id `local.<slug>`: lowercase words joined by dashes. */
+  slug: string;
+  displayName?: string;
+  description?: string;
+  /** Adds a host half; false by default. */
+  host?: boolean;
+}
+
+/** The package `services.newPackage` wrote. */
+export interface HostNewPackage {
+  directory: string;
+  id: string;
+  name: string;
+  apiVersion: string;
+  /** Relative to `directory`; a folder ends in a slash. */
+  files: string[];
+}
+
 /** Pi's project trust, as `services.projectTrust` offers it. */
 export interface HostProjectTrust {
   /** Whether Pi trusts the folder (the open workspace by default), or the nearest parent it has an answer for. */
@@ -1146,6 +1166,14 @@ export interface HostExtensionServices {
    * line per step of a fetch that may run for minutes.
    */
   installPackage(source: string, scope: PackageScope, progress?: (message: string) => void): Promise<InstalledPackage>;
+  /**
+   * Writes a package to start from (both `tau kit new` files, the extension
+   * API's types and an AGENTS.md recipe) as `<slug>` in the global extension
+   * folder, `~/.tau/extensions` or below `TAU_PACKAGES_HOME`, and nowhere else.
+   * It throws when the slug is not a name or the folder exists. Nothing is
+   * installed or approved. New in API 1.75.0; in-process only.
+   */
+  newPackage(spec: HostNewPackageSpec): Promise<HostNewPackage>;
   removePackage(source: string, scope: PackageScope): Promise<PackageRemoval>;
   /** Re-fetches one source, or every source both files list. */
   updatePackages(source?: string, progress?: (message: string) => void): Promise<InstalledPackage[]>;

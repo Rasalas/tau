@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { agentsGuide } from "./tau-kit-guide.mjs";
 
 export const KIT_USAGE = `Usage: tau kit new <name or path> [--id <id>] [--name <name>] [--no-host] [--install [--local]]
        tau kit types [folder]
@@ -28,7 +29,7 @@ that uses them if the folder has none. Run from a Tau checkout, both commands
 build the types from its source first.`;
 
 /** A manifest id: lowercase words, dots between vendor and name. */
-const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
+export const EXTENSION_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/u;
 export const TYPES_FOLDER = ".tau-types";
 
 export function parseKitArgs(rest) {
@@ -115,13 +116,13 @@ export function kitTsconfig() {
   }, null, 2)}\n`;
 }
 
-/** Every file of a new kit, by name. Pure, so the scaffold is tested without a disk. */
-export function kitFiles({ id, name, apiVersion, host = true }) {
+/** Every file of a new kit, by name. Pure, so the scaffold is tested without a disk. `agents` adds the recipe an agent reads. */
+export function kitFiles({ id, name, apiVersion, host = true, description, agents = false }) {
   const css = id.split(".").pop();
   const manifest = {
     id,
     name,
-    description: `What ${name} does, in one sentence.`,
+    description: description?.trim() || `What ${name} does, in one sentence.`,
     version: "0.1.0",
     engines: { api: `^${apiVersion}` },
     permissions: [],
@@ -153,6 +154,7 @@ export function kitFiles({ id, name, apiVersion, host = true }) {
     "README.md": readme({ id, name, host }),
   };
   if (host) files["host.ts"] = hostHalf(id, name);
+  if (agents) files["AGENTS.md"] = agentsGuide({ id, name, apiVersion, host });
   return files;
 }
 
@@ -315,7 +317,7 @@ export function extensionApiTypes({ env = process.env, self = fileURLToPath(impo
 }
 
 /** Builds a checkout's types; the reason it failed, or nothing. */
-function buildCheckoutTypes(root) {
+export function buildCheckoutTypes(root) {
   const result = spawnSync(process.execPath, [join(root, "scripts", "build-types.mjs")], { cwd: root, stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" });
   if (result.error) return result.error.message;
   return result.status === 0 ? undefined : (result.stderr.trim().split("\n").at(-1) || `exit code ${result.status}`);
@@ -333,6 +335,16 @@ export function copyTypes(types, folder) {
   rmSync(target, { recursive: true, force: true });
   cpSync(types, target, { recursive: true });
   return JSON.parse(readFileSync(join(types, "package.json"), "utf8")).version;
+}
+
+/** Writes a new kit's files and the types into an empty `folder`; answers the files it wrote and the API version. */
+export function writeKit({ folder, id, name, description, host = true, agents = false, types }) {
+  const apiVersion = JSON.parse(readFileSync(join(types, "package.json"), "utf8")).version;
+  mkdirSync(folder, { recursive: true });
+  const files = kitFiles({ id, name, apiVersion, host, description, agents });
+  for (const [file, text] of Object.entries(files)) writeFileSync(join(folder, file), text);
+  copyTypes(types, folder);
+  return { files: [...Object.keys(files), `${TYPES_FOLDER}/`], apiVersion };
 }
 
 export async function runKit(options, io = {}) {
@@ -355,12 +367,8 @@ export async function runKit(options, io = {}) {
   const slug = kitSlug(basename(folder));
   const id = options.id ?? `local.${slug}`;
   if (!EXTENSION_ID.test(id)) throw new Error(`"${id}" is not a package id: lowercase letters, digits and dashes, words joined by dots.`);
-  const apiVersion = JSON.parse(readFileSync(join(types, "package.json"), "utf8")).version;
   const name = kitName(basename(folder), slug, options.name);
-  mkdirSync(folder, { recursive: true });
-  const files = kitFiles({ id, name, apiVersion, host: options.host });
-  for (const [file, text] of Object.entries(files)) writeFileSync(join(folder, file), text);
-  copyTypes(types, folder);
+  const { apiVersion } = writeKit({ folder, id, name, host: options.host, types });
   out(`Created ${folder}: ${name} (${id}), for the extension API ${apiVersion}.`);
   if (options.install) {
     const answer = await io.install?.(folder, options.local ? "project" : "global");

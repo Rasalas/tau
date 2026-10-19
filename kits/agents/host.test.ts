@@ -132,6 +132,7 @@ function harness() {
     listPackages: async () => [],
     installPackage: async () => { throw new Error("no installer in this test"); },
     removePackage: async () => { throw new Error("no installer in this test"); },
+    newPackage: async () => { throw new Error("no installer in this test"); },
     updatePackages: async () => [],
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
     knownWorkspacePath: async (path) => path,

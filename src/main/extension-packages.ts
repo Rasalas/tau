@@ -79,9 +79,14 @@ export interface ExtensionPackage {
   grantIdentity?: PackageGrantIdentity;
 }
 
+/** The folder a global package lives in: `~/.tau/extensions`, or below `TAU_PACKAGES_HOME`. */
+export function globalExtensionsDirectory(home = packagesHome()): string {
+  return join(tauHomeDir(home), "extensions");
+}
+
 export function extensionPackageDirectories(cwd: string, home = packagesHome()): Array<{ scope: "global" | "project"; directory: string }> {
   return [
-    { scope: "global", directory: join(tauHomeDir(home), "extensions") },
+    { scope: "global", directory: globalExtensionsDirectory(home) },
     { scope: "project", directory: join(cwd, ".tau", "extensions") },
   ];
 }

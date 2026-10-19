@@ -33,6 +33,7 @@ import {
   type InstallerOptions,
 } from "./extension-installer.js";
 import { packagesHome } from "./extension-sources.js";
+import { createNewPackage } from "./new-package.js";
 import { packageBuilds } from "./package-builds.js";
 import { McpEndpoint } from "./mcp-endpoint.js";
 import { TurnAttachmentRegistry } from "./turn-attachments.js";
@@ -366,6 +367,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     refreshExtensionPackages: () => port.refreshExtensionPackages(),
     listPackages: () => listExtensionSources(installer()),
     installPackage: (source, scope, progress) => { port.noteSubprocess(); return installExtensionSource(source, scope, installer(progress)); },
+    newPackage: (spec) => createNewPackage(spec),
     removePackage: (source, scope) => removeExtensionSource(source, scope, installer()),
     updatePackages: (source, progress) => { port.noteSubprocess(); return updateExtensionSources(source, installer(progress)); },
     packageBuilds: {

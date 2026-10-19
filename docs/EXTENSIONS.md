@@ -4705,7 +4705,7 @@ A package's `permissions` array draws from a fixed list
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics, send them files; and take files their agents sent here (`services.blobs`). |
 | `native` | (API 1.17.0) load compiled code: a `.node` addon (by `require`, `import` or `process.dlopen`), a SQLite extension (`DatabaseSync#loadExtension`), the raw handles of `process.binding` and `process._linkedBinding`, and V8 flags (`v8.setFlagsFromString`). In a worker all of these are refused without it; see §6. Compiled code runs outside the worker's guards and caps and a crash in it stops the host, so grant it like `in-process`. An `in-process` package loads addons through `services.loadDependency` and needs no grant for it. |
-| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), and read the last build of each package half (`packageBuilds`, K112). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
+| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `newPackage`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), and read the last build of each package half (`packageBuilds`, K112). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 **Permissions gate the host half.** A desktop half runs in the window with
 what the user can do there: every `WorkbenchActions` member is ungated,
@@ -4938,6 +4938,31 @@ registers a Pi tool; `typebox` in the example) come from the package's own
 `package.json` and `npm install`, for the types and for Tau's bundler alike.
 With `skipLibCheck`, a declaration of the API that refers to a package you did
 not install reads as `any` instead of failing.
+
+### A package started by an agent: `tau_new_package` and `services.newPackage` (API 1.75.0)
+
+A thread asked to change Tau starts a package instead of editing Tau's source.
+Every thread's system prompt (Pi's `before_agent_start`, every other runtime's
+MCP `instructions`; left out in Tau's own source checkout, where
+`kits/package.json` names `@tau/kits`) says so and names the two tools of
+Packages Kit. `tau_new_package` takes `name` (the folder: lowercase letters,
+digits and single dashes, at most 40 characters), and optionally
+`displayName`, `description` and `host` (a host half too; false by default).
+It writes `<global extension folder>/<name>` and answers
+`{ directory, id, name, apiVersion, files, next }`. It never writes anywhere
+else and never into an existing entry; the folder is `~/.tau/extensions`, or
+below `TAU_PACKAGES_HOME`, the one a global install scans.
+
+The package is what `tau kit new` writes (id `local.<name>`, `engines.api` the
+running version, `.tau-types/`) plus an `AGENTS.md`: a recipe of at most 80
+lines with the manifest fields, the region placements, commands, actions,
+`THREAD_BRANCH_SERVICE` and Tau's tokens and classes. It is not installed or
+approved; the agent installs it with `tau_install_package` and the user allows it.
+
+`services.newPackage({ slug, displayName?, description?, host? })` (`packages`
+permission, in-process only) is the host's half of that: it validates the slug,
+refuses an existing path, scaffolds with `bin/tau-kit.mjs` (the same code as
+the command line) and answers the same `{ directory, id, name, apiVersion, files }`.
 
 ## 3. The workflow
 
@@ -5275,7 +5300,7 @@ the port — nothing that hands out a live object. From
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex`, `executionPolicy` (a provider is a live object) |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
 | `clients.observe`, `clients.count` | |
-| `refreshExtensionPackages` | `listPackages`, `installPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback), `projectTrust`, `packageBuilds` |
+| `refreshExtensionPackages` | `listPackages`, `installPackage`, `newPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback), `projectTrust`, `packageBuilds` |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.import`, `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
 | `sessions.remove`, `sessions.restore`, `sessions.trash`, `sessions.purge` | |

@@ -39,6 +39,7 @@ function services(): HostExtensionServices & { logs: string[] } {
     listPackages: async () => [],
     installPackage: async () => { throw new Error("no installer in this test"); },
     removePackage: async () => { throw new Error("no installer in this test"); },
+    newPackage: async () => { throw new Error("no installer in this test"); },
     updatePackages: async () => [],
     sessions: {
       list: async () => [],

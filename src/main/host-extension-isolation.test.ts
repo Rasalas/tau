@@ -304,6 +304,7 @@ function services(): { services: HostExtensionServices; recorder: Recorder } {
     listPackages: async () => [],
     installPackage: async () => { throw new Error("no installer in this test"); },
     removePackage: async () => { throw new Error("no installer in this test"); },
+    newPackage: async () => { throw new Error("no installer in this test"); },
     updatePackages: async () => [],
     sessions: {
       list: async () => [{ sessionId: "session-1", path: "/sessions/one.jsonl", cwd: "/project" }],
