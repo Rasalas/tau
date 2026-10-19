@@ -40,7 +40,7 @@ function setup(initial: InstallRequest[], canManage = true, answer: (command: st
 }
 
 describe("Allow-package card above the composer", () => {
-  it("asks one concrete question per capability the package requests, and how it is isolated", async () => {
+  it("asks one concrete question per capability the package requests, and nothing that contradicts them", async () => {
     const { draw } = setup([request({ permissions: ["sessions", "native", "process", "network"] })]);
     draw();
     expect(await screen.findByRole("region", { name: "Allow Hello" })).toBeTruthy();
@@ -52,7 +52,7 @@ describe("Allow-package card above the composer", () => {
       "May Hello reach the internet?",
       "May Hello load compiled code into Tau's own process? A crash there stops Tau.",
     ]);
-    expect(screen.getByText(/runs in a process of its own/u)).toBeTruthy();
+    expect(screen.queryByText(/cannot reach the network/u)).toBeNull();
   });
 
   it("asks about Tau's window for a window half, and nothing else when it requests nothing", async () => {

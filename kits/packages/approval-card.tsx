@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { AlertTriangle, Package } from "lucide-react";
 import {
-  IN_PROCESS_WARNING, capabilityQuestions, errorMessage, workerDescription,
+  IN_PROCESS_WARNING, capabilityQuestions, errorMessage,
   type HostExtensionClient, type RegionProps, type WorkbenchActions,
 } from "tau";
 import { INSTALL_REQUESTS_EVENT, readInstallRequests, type InstallRequest, type InstallRequestList } from "./install-protocol.js";
@@ -71,9 +71,7 @@ function InstallCard({ request, feed, actions, canManage }: { request: InstallRe
           {questions.map((question) => <li key={question}>{question}</li>)}
         </ul>
       ) : <p className="install-quiet">It asks for nothing beyond its own folder.</p>}
-      {request.isolation === "in-process"
-        ? <p className="install-warning" role="note"><AlertTriangle size={12} aria-hidden="true" />{IN_PROCESS_WARNING}</p>
-        : <p className="install-quiet">{workerDescription(request.permissions)}</p>}
+      {request.isolation === "in-process" ? <p className="install-warning" role="note"><AlertTriangle size={12} aria-hidden="true" />{IN_PROCESS_WARNING}</p> : null}
       {!canManage ? <p className="install-quiet">Allow it in this machine's own Tau window.</p> : null}
       {busy === "allow" ? <p className="install-quiet" role="status">Waiting for the confirmation dialog. Nothing is allowed until you confirm there.</p> : null}
       {error ? <p className="install-error" role="alert">{error}</p> : null}
