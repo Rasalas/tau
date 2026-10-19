@@ -26,6 +26,9 @@ export function PublishForm({ host, workspace, onPublished, onCancel }: {
   const [visibility, setVisibility] = useState<Visibility>("private");
   const [protocol, setProtocol] = useState<Protocol>("https");
   const [step, setStep] = useState<"form" | "confirm" | "publishing">("form");
+  // The repository exists and has its remote, but the first push failed.
+  const [unpushed, setUnpushed] = useState<PublishResult>();
+  const [pushing, setPushing] = useState(false);
 
   useEffect(() => {
     let current = true;
@@ -53,10 +56,25 @@ export function PublishForm({ host, workspace, onPublished, onCancel }: {
     setStep("publishing");
     setError(undefined);
     try {
-      onPublished(await host.invoke("publish-repository", { service, repository: path, visibility, protocol, confirm: true, ...(workspace ? { workspace } : {}) }) as PublishResult);
+      const result = await host.invoke("publish-repository", { service, repository: path, visibility, protocol, confirm: true, ...(workspace ? { workspace } : {}) }) as PublishResult;
+      if (result.pushProblem) setUnpushed(result);
+      else onPublished(result);
     } catch (reason) {
       setError(errorMessage(reason));
       setStep("confirm");
+    }
+  };
+  const pushAgain = async () => {
+    if (!unpushed) return;
+    setPushing(true);
+    setError(undefined);
+    try {
+      await host.invoke("publish-push", workspace ? { workspace } : undefined);
+      const { pushProblem: _solved, ...result } = unpushed;
+      onPublished({ ...result, pushed: true });
+    } catch (reason) {
+      setError(errorMessage(reason));
+      setPushing(false);
     }
   };
 
@@ -67,6 +85,16 @@ export function PublishForm({ host, workspace, onPublished, onCancel }: {
     </div>;
   }
   const ready = info.services.some((entry) => entry.ready);
+
+  if (unpushed) {
+    return <div className="request-form publish-form" role="group" aria-label="Publish repository">
+      <p className="request-error" role="alert">{error ?? `${unpushed.repository} was created and added as origin, but the push failed. ${unpushed.pushProblem}`}</p>
+      <div className="commit-actions">
+        <button className="primary" disabled={pushing} onClick={() => void pushAgain()}>{pushing ? "Pushing…" : "Push again"}</button>
+        <button disabled={pushing} onClick={() => onPublished(unpushed)}>Close</button>
+      </div>
+    </div>;
+  }
 
   if (step !== "form" && service) {
     return <div className="request-form publish-form" role="group" aria-label="Publish repository">

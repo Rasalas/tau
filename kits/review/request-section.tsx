@@ -200,7 +200,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
             onCancel={() => setMode("idle")}
             onPublished={(result) => {
               setMode("idle");
-              actions.notify(result.pushed ? `Published ${result.repository} and pushed ${result.branch}.` : `Created ${result.repository} and added it as origin.`);
+              actions.notify(result.pushed ? `Published ${result.repository} and pushed ${result.branch}.` : `Created ${result.repository} and added it as origin${result.pushProblem ? "; the push failed." : "."}`);
               void store.refresh();
               void refresh(true);
             }}
