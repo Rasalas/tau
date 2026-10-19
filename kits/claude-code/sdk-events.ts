@@ -205,6 +205,8 @@ export class SdkTurnTranslator {
   private texts: string[] = [];
   private sawAssistant = false;
   private readonly noticed = new Set<string>();
+  /** Texts shown as informational rows; the CLI repeats the one that ends a prompt as the result's text. */
+  private readonly informed = new Set<string>();
   /** A limit the CLI rejected this turn with; the error result that follows is that limit. */
   private rejected?: { resetsAt?: number };
   /** The tokens a compaction left, from its boundary; cleared once a reply measures the context again. */
@@ -328,11 +330,12 @@ export class SdkTurnTranslator {
     }
     // A resumed session answers with an empty result before the turn. A compaction's result has no reply
     // either: it ends the turn after the boundary, or with the CLI's reason when there was nothing to compact.
-    if (message.num_turns === 0 && !this.sawAssistant && !(this.compacting && (this.compaction || message.result))) return [];
+    const dropped = typeof message.result === "string" && this.informed.has(message.result);
+    if (message.num_turns === 0 && !this.sawAssistant && !dropped && !(this.compacting && (this.compaction || message.result))) return [];
     const compaction = this.compaction;
     // The result of a compaction still counts the tokens it summarised.
     const contextUsage = compaction ? compactedContextUsage(message, compaction.postTokens) : resultContextUsage(message, this.lastCallTokens);
-    const texts = this.compacting && compaction ? [] : this.texts.length > 0 ? this.texts : message.result ? [message.result] : [];
+    const texts = this.compacting && compaction ? [] : this.texts.length > 0 ? this.texts : message.result && !dropped ? [message.result] : [];
     this.outcome = {
       texts,
       usage: resultUsage(message),
@@ -379,6 +382,16 @@ export class SdkTurnTranslator {
       if (status.compact_result === "failed") this.compactionError = `Compaction failed${status.compact_error ? `: ${status.compact_error}` : "."}`;
       return status.status === "compacting" || status.status === null
         ? [{ type: "context-compaction", running: status.status === "compacting" }] : [];
+    }
+    if (subtype === "informational") {
+      // Hook feedback and command output; "info" lines are for the CLI's transcript mode only.
+      const notice = message as { content?: string; level?: string; uuid?: string };
+      const text = notice.content?.trim();
+      // A /compact turn reports its own reason as the result's text.
+      if (!text || notice.level === "info" || this.compacting) return [];
+      this.informed.add(notice.content!);
+      const timestamp = this.now();
+      return [{ type: "assistant-end", message: { id: `claude-informational-${notice.uuid ?? timestamp}`, role: "notice", text, timestamp } }];
     }
     if (subtype === "permission_denied") {
       const denied = message as { tool_name?: string; reason?: string };

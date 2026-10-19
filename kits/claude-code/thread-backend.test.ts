@@ -136,6 +136,39 @@ describe("thread runtime backends", () => {
       expect(resumed.catalogView().usage).toMatchObject({ costUsd: expect.closeTo(0.3, 10), inputTokens: 300, cacheReadTokens: 3_000, turns: 3 });
     } finally { await resumed.dispose(); }
   });
+  it("streams a foreground command's output as tool updates and shows a hook's reason in the transcript", async () => {
+    const { filePath, store } = await scratchStore();
+    const root = await mkdtemp(join(tmpdir(), "tau-task-root-"));
+    directories.push(root);
+    const outputs = join(root, "project", SESSION, "tasks");
+    await mkdir(outputs, { recursive: true });
+    const events: ThreadRuntimeEvent[] = [];
+    const reason = "Prompt dropped by a hook: frozen until Monday.";
+    const { adapter } = scriptedAdapter(filePath, async (content, _priority, input) => {
+      if (content === "blocked") return [
+        frame({ type: "system", subtype: "informational", content: reason, level: "warning", uuid: "hook-1" }),
+        result(reason, { num_turns: 0 }),
+      ];
+      input.onMessage(frame({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", content: [{ type: "tool_use", id: "bash-1", name: "Bash", input: { command: "make" } }] } }));
+      input.onMessage(frame({ type: "system", subtype: "task_started", task_id: "task-1", tool_use_id: "bash-1", task_type: "local_bash", is_backgrounded: false, description: "make" }));
+      await writeFile(join(outputs, "task-1.output"), "compiling\n");
+      await until(() => events.some((event) => event.type === "tool-update"));
+      return [
+        frame({ type: "user", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "bash-1", content: "compiling\nok" }] } }),
+        result("built"),
+      ];
+    });
+    const backend = new ClaudeThreadRuntimeBackend("live-output", WORKSPACE, { adapter, store, commands, projectName: "repo", taskOutputRoot: root, onEvent: (event) => events.push(event) });
+    try {
+      await backend.start("create");
+      await backend.prompt({ text: "build", delivery: "prompt" });
+      expect(events).toContainEqual({ type: "tool-update", id: "bash-1", output: "compiling\n" });
+      expect(events.findIndex((event) => event.type === "tool-update")).toBeLessThan(events.findIndex((event) => event.type === "tool-end"));
+      await expect(backend.prompt({ text: "blocked", delivery: "prompt" })).resolves.toMatchObject({ assistantText: "" });
+      expect(events).toContainEqual({ type: "user-message", message: expect.objectContaining({ role: "notice", text: reason }) });
+      expect(events.filter((event) => event.type === "turn-settled")).toHaveLength(2);
+    } finally { await backend.dispose(); }
+  });
   it("counts cumulative results once, including unchanged native subagent totals", async () => {
     const { filePath, store } = await scratchStore();
     let count = 0;
