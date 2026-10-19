@@ -11,6 +11,8 @@ import type {
  */
 export class TranscriptHistoryCoordinator {
   private generation = 0;
+  /** Bootstraps answer to their own count: a detail or a page request does not outdate one, a navigation does. */
+  private bootstrapGeneration = 0;
   private activeSessionId = "";
   private pendingSessionId?: string;
   private switching = false;
@@ -22,18 +24,23 @@ export class TranscriptHistoryCoordinator {
   }
 
   beginBootstrap(): TranscriptBootstrapRequest {
-    this.settledTransition = undefined;
-    this.generation += 1;
-    return { generation: this.generation };
+    // It cancels a page request, but a navigation in flight outranks it.
+    if (!this.switching) {
+      this.settledTransition = undefined;
+      this.generation += 1;
+    }
+    this.bootstrapGeneration += 1;
+    return { generation: this.bootstrapGeneration };
   }
 
   isCurrentBootstrap(request: TranscriptBootstrapRequest): boolean {
-    return request.generation === this.generation && !this.switching;
+    return request.generation === this.bootstrapGeneration && !this.switching;
   }
 
   beginThreadSwitch(sessionId?: string): TransitionToken {
     this.settledTransition = undefined;
     this.generation += 1;
+    this.bootstrapGeneration += 1;
     this.switching = true;
     this.pendingSessionId = sessionId;
     return this.generation as TransitionToken;

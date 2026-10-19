@@ -155,3 +155,54 @@ it("ignores duplicate connected notifications while an initial read is pending",
   expect(bootstrap).toHaveBeenCalledOnce();
   stop();
 });
+
+it("reads the snapshot again when a navigation outranks it", async () => {
+  vi.useFakeTimers();
+  const bootstrap = vi.fn().mockResolvedValue({ detail: { sessionId: "host" } } as HostBootstrap);
+  const applyBootstrap = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+  const onLoaded = vi.fn();
+  const stop = followWorkbenchBootstrap({
+    bootstrap, switchSession: vi.fn(), onConnectionState: () => () => {}, watchThread: () => () => {}, limitPushesToWatched: () => {},
+  }, {
+    history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true, acceptsDetail: () => true } as never,
+    threads: { getSnapshot: () => ({ activeThreadId: "" }), subscribe: () => () => {} } as never,
+    applyBootstrap, applyThreadIndex: vi.fn(), applyActionResult: vi.fn(),
+  }, vi.fn(), onLoaded);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(onLoaded).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(applyBootstrap).toHaveBeenCalledTimes(2);
+  expect(onLoaded).toHaveBeenCalledOnce();
+  stop();
+});
+
+it("keeps the window's own thread through a reconnect and asks the host for it again", async () => {
+  let connection!: (state: HostConnectionState) => void;
+  const threadIndex = { projects: [], sessions: [] };
+  const bootstrap = vi.fn().mockResolvedValue({ threadIndex, detail: { sessionId: "host" } } as unknown as HostBootstrap);
+  const result = { updates: [] };
+  const switchSession = vi.fn().mockResolvedValue(result);
+  let active = "host";
+  const applyBootstrap = vi.fn(() => true);
+  const applyThreadIndex = vi.fn();
+  const applyActionResult = vi.fn(() => true);
+  const onLoaded = vi.fn();
+  const stop = followWorkbenchBootstrap({
+    bootstrap, switchSession, onConnectionState: (listener) => { connection = listener; return () => {}; },
+    watchThread: () => () => {}, limitPushesToWatched: () => {},
+  }, {
+    history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true, acceptsDetail: (id: string) => id === active } as never,
+    threads: { getSnapshot: () => ({ activeThreadId: active }), getThread: (id: string) => ({ id, path: `${id}.jsonl` }), subscribe: () => () => {} } as never,
+    applyBootstrap, applyThreadIndex, applyActionResult,
+  }, vi.fn(), onLoaded);
+  await vi.waitFor(() => expect(onLoaded).toHaveBeenCalledOnce());
+  active = "mine";
+  connection("reconnecting");
+  connection("connected");
+  await vi.waitFor(() => expect(onLoaded).toHaveBeenCalledTimes(2));
+  expect(applyBootstrap).toHaveBeenCalledOnce();
+  expect(applyThreadIndex).toHaveBeenCalledExactlyOnceWith(threadIndex);
+  expect(switchSession).toHaveBeenCalledExactlyOnceWith("mine.jsonl");
+  expect(applyActionResult).toHaveBeenCalledExactlyOnceWith(result);
+  stop();
+});

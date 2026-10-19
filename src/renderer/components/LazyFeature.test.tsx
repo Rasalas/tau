@@ -140,4 +140,16 @@ describe("LazyFeatureBoundary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("draws the feature again when its reset key changes", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const Feature = ({ fail }: { fail: boolean }) => fail ? <ThrowingComponent message="bad thread" /> : <div>drawn</div>;
+    const { rerender } = render(<LazyFeatureBoundary label="stage" resetKey="a"><Feature fail /></LazyFeatureBoundary>);
+    expect(screen.getByText("Could not load stage.")).not.toBeNull();
+
+    rerender(<LazyFeatureBoundary label="stage" resetKey="a"><Feature fail={false} /></LazyFeatureBoundary>);
+    expect(screen.getByText("Could not load stage.")).not.toBeNull();
+    rerender(<LazyFeatureBoundary label="stage" resetKey="b"><Feature fail={false} /></LazyFeatureBoundary>);
+    expect(screen.getByText("drawn")).not.toBeNull();
+  });
 });

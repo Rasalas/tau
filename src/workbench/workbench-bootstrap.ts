@@ -10,16 +10,20 @@ import type { WorkbenchSession } from "./workbench-session";
  * Loads the initial snapshot, retrying failed reads and reconnects until it arrives, then
  * follows the shown thread. Replay cannot replace an initial snapshot that
  * never arrived. Disposing releases both subscriptions and ignores late replies.
+ * A snapshot that loses to a navigation is read again. After the first one, the
+ * host's thread (shared by every client) no longer replaces the window's own:
+ * the bootstrap brings the index and the window asks for its thread again.
  * `onLoaded` runs after an accepted initial or reconnect snapshot is on screen.
  */
 export function followWorkbenchBootstrap(
-  client: Pick<HostClient, "bootstrap" | "onConnectionState" | "watchThread" | "limitPushesToWatched">,
-  workbench: Pick<WorkbenchSession, "history" | "threads" | "applyBootstrap">,
+  client: Pick<HostClient, "bootstrap" | "switchSession" | "onConnectionState" | "watchThread" | "limitPushesToWatched">,
+  workbench: Pick<WorkbenchSession, "history" | "threads" | "applyBootstrap" | "applyThreadIndex" | "applyActionResult">,
   onError: (message: string) => void,
   onLoaded?: (bootstrap: HostBootstrap) => void,
 ): () => void {
   let disposed = false;
   let loaded = false;
+  let settled = false;
   let loading = false;
   let connected = true;
   let connectionGeneration = 0;
@@ -33,10 +37,24 @@ export function followWorkbenchBootstrap(
     loading = true;
     const generation = connectionGeneration;
     const request = workbench.history.beginBootstrap();
-    client.bootstrap().then((bootstrap) => {
-      if (disposed || !connected || generation !== connectionGeneration) return;
+    const stale = () => disposed || !connected || generation !== connectionGeneration;
+    client.bootstrap().then(async (bootstrap) => {
+      if (stale()) return;
+      const shown = settled ? workbench.threads.getSnapshot().activeThreadId : "";
+      const path = shown && shown !== bootstrap.detail.sessionId ? workbench.threads.getThread(shown)?.path : undefined;
+      let applied: boolean;
+      if (path) {
+        workbench.applyThreadIndex(bootstrap.threadIndex);
+        // A navigation under way brings its own detail; only a window still on its thread asks again.
+        const result = workbench.history.acceptsDetail(shown) ? await client.switchSession(path) : undefined;
+        if (stale()) return;
+        applied = Boolean(result && workbench.history.acceptsDetail(shown) && workbench.applyActionResult(result));
+      } else {
+        applied = workbench.applyBootstrap(bootstrap, request);
+        settled = true;
+        if (!applied) return;
+      }
       loaded = true;
-      const applied = workbench.applyBootstrap(bootstrap, request);
       stopFollowing();
       stopFollowing = followShownThread(client, workbench.threads);
       if (applied) onLoaded?.(bootstrap);

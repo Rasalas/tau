@@ -246,6 +246,22 @@ describe("WorkbenchStore", () => {
     expect(view.getSnapshot()?.displayPath).toBe("~/w/one");
   });
 
+  it("applies a bootstrap whose reply comes after a pushed detail of a running thread", () => {
+    const { history, store, threads, view } = build();
+    const request = history.beginBootstrap();
+    store.applyHostUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail: { sessionId: "one", messages: [], isStreaming: true, activeTools: [] } });
+
+    expect(store.applyBootstrap({
+      version: HOST_PROTOCOL_VERSION,
+      threadIndex,
+      detail: { sessionId: "one", messages: snapshot.messages, isStreaming: false, activeTools: [] },
+      catalog: { models: [], thinkingLevel: "medium", thinkingLevels: [], allTools: [], extensionCount: 0 },
+      project: { cwd: "/w/one", label: "main" },
+    }, request)).toBe(true);
+    expect(threads.getThread("one")?.title).toBe("One");
+    expect(view.getSnapshot()?.cwd).toBe("/w/one");
+  });
+
   it("leaves an earlier turn's work in its fold when the next turn starts without tools", () => {
     const { store, storage, view } = build();
     const edit = { id: "t1", name: "edit", args: { path: "a.ts" }, status: "done" as const, startedAt: 2, endedAt: 3 };

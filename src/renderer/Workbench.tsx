@@ -111,19 +111,19 @@ const LazyAppPageScreen = retryableLazy(() => import("./pages/AppPageScreen").th
 const LazyPageSidebar = retryableLazy(() => import("./pages/AppPageScreen").then(({ PageSidebar }) => ({ default: PageSidebar })));
 const LazySettingsScreen = retryableLazy(() => import("./settings/SettingsScreen").then(({ SettingsScreen }) => ({ default: SettingsScreen })));
 // Modals a command opens; they stay out of the first paint.
-const LazyThreadTreeModal = lazy(() => import("./components/ThreadTreeModal").then(({ ThreadTreeModal }) => ({ default: ThreadTreeModal })));
-const LazyProjectSourcesModal = lazy(() => import("./components/ProjectSources").then(({ ProjectSourcesModal }) => ({ default: ProjectSourcesModal })));
-const LazySystemPromptModal = lazy(() => import("./components/SystemPromptModal").then(({ SystemPromptModal }) => ({ default: SystemPromptModal })));
+const LazyThreadTreeModal = retryableLazy(() => import("./components/ThreadTreeModal").then(({ ThreadTreeModal }) => ({ default: ThreadTreeModal })));
+const LazyProjectSourcesModal = retryableLazy(() => import("./components/ProjectSources").then(({ ProjectSourcesModal }) => ({ default: ProjectSourcesModal })));
+const LazySystemPromptModal = retryableLazy(() => import("./components/SystemPromptModal").then(({ SystemPromptModal }) => ({ default: SystemPromptModal })));
 // The touch layout's own pieces: none of them is in a desktop window's first paint.
 // The compact list's order comes with the compact list's own chunk, never in the desktop's first bundle.
 let compactOrder: Pick<typeof TouchThreadBrowserModule, "compactListOrder"> | undefined;
 const loadCompactOrder = () => import("./touch/TouchThreadBrowser").then((module) => { compactOrder = module; });
-const LazyTouchLayer = lazy(() => import("./touch/TouchLayer").then(({ TouchLayer }) => ({ default: TouchLayer })));
-const LazyTouchThreadBrowser = lazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadBrowser }) => ({ default: TouchThreadBrowser })));
+const LazyTouchLayer = retryableLazy(() => import("./touch/TouchLayer").then(({ TouchLayer }) => ({ default: TouchLayer })));
+const LazyTouchThreadBrowser = retryableLazy(() => import("./touch/TouchThreadBrowser").then(({ TouchThreadBrowser }) => ({ default: TouchThreadBrowser })));
 const LazyPhoneNav = lazy(() => import("./touch/PhoneNav").then(({ RegistryPhoneNav }) => ({ default: RegistryPhoneNav })));
-const LazyPanelSheet = lazy(() => import("./touch/PanelSheet").then(({ PanelSheet }) => ({ default: PanelSheet })));
+const LazyPanelSheet = retryableLazy(() => import("./touch/PanelSheet").then(({ PanelSheet }) => ({ default: PanelSheet })));
 // Mounted closed from the start, like the palette, so its chunk is in before the first open.
-const LazyProjectPicker = lazy(() => import("./components/ProjectPicker").then(({ ProjectPicker }) => ({ default: ProjectPicker })));
+const LazyProjectPicker = retryableLazy(() => import("./components/ProjectPicker").then(({ ProjectPicker }) => ({ default: ProjectPicker })));
 
 /** One frozen empty list for both contribution kinds the compact layout leaves out. */
 const EMPTY_CONTRIBUTIONS: never[] = [];
@@ -617,33 +617,42 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   </LazyFeatureBoundary> : null;
 
   const pageSidebarFrame = (content: React.ReactNode) => <aside className="page-sidebar-frame">{content}</aside>;
+  // A modal's card stands where the modal would; a closed one shows nothing.
+  const dialogFrame = (open: boolean, close: () => void) => (content: React.ReactNode) => open ? <div className="palette-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><div className="lazy-feature-dialog">{content}</div></div> : null;
+  const closePanelSheet = () => setPanelSheet(undefined);
+  const closeSystemPrompt = () => setSystemPromptOpen(false);
+  // On a phone the list is the home screen: its card keeps the bar, so the rest of the app stays in reach.
+  const phoneHomeNav = phoneNav.route.kind === "threads" ? bottomNav : undefined;
+  const phoneHomeFrame = (content: React.ReactNode) => <section className={`touch-browser screen home${phoneHomeNav ? " with-nav" : ""}`} aria-label="Threads">{content}{phoneHomeNav}</section>;
+  const threadSidebarFrame = (content: React.ReactNode) => <nav className="touch-browser sidebar" aria-label="Thread list">{content}</nav>;
   const settingsFrame = (content: React.ReactNode) => <div className="settings-screen loading">{content}</div>;
   const chooseNewThreadProject = (project: UiProject) => { closeNewThreadPicker(); createThreadInProject(project, newThreadPick?.carry ? { carry: true } : undefined); };
   const createThreadWorkspace = registry.getProjectSources().find((source) => source.createThreadWorkspace)?.createThreadWorkspace;
   const overlays = <>
     {snapshot ? <PromptLinkHandler actions={actions} threads={threadStore} snapshot={snapshot} scope={activeDraftKey} /> : null}
-    {compact && startupReady ? <Suspense fallback={null}><LazyTouchLayer
+    {/* Gestures and the address bar only: failing, it draws no card over the window. */}
+    {compact && startupReady ? <LazyFeatureBoundary label="touch controls" frame={() => null}><Suspense fallback={null}><LazyTouchLayer
       syncUrl={clientProfile !== "desktop"}
       openThread={actions.switchSession}
       {...(phone ? { phone: { route: phoneNav.route, onRoute: phoneNav.applyRoute } } : {})}
-    /></Suspense> : null}
-    {phoneHome ? <Suspense fallback={null}>
+    /></Suspense></LazyFeatureBoundary> : null}
+    {phoneHome ? <LazyFeatureBoundary label="threads" frame={phoneHomeFrame}><Suspense fallback={null}>
       {/* Under a page or Settings the list stays mounted, keeping its scroll; the bar is the covering page's. */}
-      <LazyTouchThreadBrowser variant="home" {...threadBrowserProps} nav={phoneNav.route.kind === "threads" ? bottomNav : undefined} />
-    </Suspense> : null}
-    {sheetPanel ? <Suspense fallback={null}>
-      <LazyPanelSheet label={sheetPanel.label} detail={conversationSnapshot?.sessionTitle} host={hostFor(sheetPanel.id)} onClose={() => setPanelSheet(undefined)} />
-    </Suspense> : null}
-    {threadTreeModal ? <Suspense fallback={null}><LazyThreadTreeModal
+      <LazyTouchThreadBrowser variant="home" {...threadBrowserProps} nav={phoneHomeNav} />
+    </Suspense></LazyFeatureBoundary> : null}
+    {sheetPanel ? <LazyFeatureBoundary label={sheetPanel.label} frame={dialogFrame(true, closePanelSheet)} onClose={closePanelSheet}><Suspense fallback={null}>
+      <LazyPanelSheet label={sheetPanel.label} detail={conversationSnapshot?.sessionTitle} host={hostFor(sheetPanel.id)} onClose={closePanelSheet} />
+    </Suspense></LazyFeatureBoundary> : null}
+    {threadTreeModal ? <LazyFeatureBoundary label="thread tree" frame={dialogFrame(true, closeThreadTree)} onClose={closeThreadTree}><Suspense fallback={null}><LazyThreadTreeModal
       tree={threadTreeModal.tree} mode={threadTreeModal.mode} busy={threadTreeModal.busy} error={threadTreeModal.error}
       onClose={closeThreadTree} onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)} onFork={(entryId) => void forkFromTree(entryId)}
-    /></Suspense> : null}
-    {systemPromptOpen ? (
+    /></Suspense></LazyFeatureBoundary> : null}
+    {systemPromptOpen ? <LazyFeatureBoundary label="system prompt" frame={dialogFrame(true, closeSystemPrompt)} onClose={closeSystemPrompt}>
       <Suspense fallback={<LazyFeatureFallback label="system prompt" />}>
-        <LazySystemPromptModal threadId={snapshot?.sessionId} onClose={() => setSystemPromptOpen(false)} />
+        <LazySystemPromptModal threadId={snapshot?.sessionId} onClose={closeSystemPrompt} />
       </Suspense>
-    ) : null}
-    <LazyFeatureBoundary label="command palette" frame={(content) => paletteOpen ? <div className="palette-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closePalette(); }}><div className="lazy-feature-dialog">{content}</div></div> : null} onClose={closePalette}>
+    </LazyFeatureBoundary> : null}
+    <LazyFeatureBoundary label="command palette" frame={dialogFrame(paletteOpen, closePalette)} onClose={closePalette}>
       <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
         <LazyCommandPalette
           open={paletteOpen}
@@ -656,10 +665,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         />
       </Suspense>
     </LazyFeatureBoundary>
-    {projectSourcesOpen ? <Suspense fallback={null}>
+    {projectSourcesOpen ? <LazyFeatureBoundary label="project sources" frame={dialogFrame(true, closeProjectSources)} onClose={closeProjectSources}><Suspense fallback={null}>
       <LazyProjectSourcesModal actions={actions} onClose={closeProjectSources} sources={registry.getProjectSources()} {...(projectSource ? { initialSource: projectSource } : {})} />
-    </Suspense> : null}
-    <Suspense fallback={null}>
+    </Suspense></LazyFeatureBoundary> : null}
+    <LazyFeatureBoundary label="project picker" frame={dialogFrame(newThreadPick !== undefined, closeNewThreadPicker)} onClose={closeNewThreadPicker}><Suspense fallback={null}>
       <LazyProjectPicker
         open={newThreadPick !== undefined}
         projects={projects}
@@ -677,7 +686,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onRemove={removeProject}
         onSelect={chooseNewThreadProject}
       />
-    </Suspense>
+    </Suspense></LazyFeatureBoundary>
     {openPage && pageScreen ? appPage : null}
     {settingsPage ? <LazyFeatureBoundary label="settings" title="Settings failed to load." frame={settingsFrame} onClose={() => setSettingsPage(undefined)}>
       <Suspense fallback={settingsFrame(<LazyFeatureFallback label="settings" />)}>
@@ -821,7 +830,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       /> : null}
       {macInset && sidebarShown ? <div className="sidebar-top" aria-hidden><SidebarBrand /></div> : null}
       {split ? <div className={pageSidebar ? "sidebar-slot covered" : "sidebar-slot"}>
-        <Suspense fallback={<aside className="touch-browser sidebar" />}><LazyTouchThreadBrowser variant="sidebar" {...threadBrowserProps} /></Suspense>
+        <LazyFeatureBoundary label="threads" frame={threadSidebarFrame}><Suspense fallback={<aside className="touch-browser sidebar" />}><LazyTouchThreadBrowser variant="sidebar" {...threadBrowserProps} /></Suspense></LazyFeatureBoundary>
       </div> : null}
       {pageSidebar ? <div className="sidebar-slot"><LazyFeatureBoundary label="sidebar" frame={pageSidebarFrame}>
         <Suspense fallback={pageSidebarFrame(null)}><LazyPageSidebar registry={registry} store={pages} actions={actions} /></Suspense>
@@ -974,7 +983,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             {!compact ? <div className="workspace-area-tools">{projectControls}{stageTools}{stageVisibilityControl}</div> : null}
             <Region registry={registry} placement="workspace-summary" snapshot={snapshot} actions={actions} />
           </> : null}
-        {stageExpanded ? <LazyFeatureBoundary label="stage" title="The stage failed to load." frame={stageFrame}>
+        {stageExpanded ? <LazyFeatureBoundary label="stage" title="The stage failed to load." frame={stageFrame} resetKey={snapshot?.sessionId} onClose={() => sendLayout({ type: "hide-stage" })}>
           <Suspense fallback={stageFrame(<LazyFeatureFallback label="stage" />)}>
             <LazyStage
               focusRef={stageRef}
@@ -995,6 +1004,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               onActivate={activateStageTab}
               onClose={stageTabs.close}
               onReopen={(id) => { stageTabs.reopen(id); }}
+              {...(snapshot?.sessionId ? { resetKey: snapshot.sessionId } : {})}
               onPin={pinStageTab}
               onUnpin={unpinStageTab}
               onCloseOthers={stageTabs.closeOthers}
