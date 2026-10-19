@@ -526,7 +526,7 @@ export interface WorkspaceKitState {
   pushPrimary: boolean;
   commitFocusToken: number;
   /** "N files changed" asked the Files tab for its Changed view and this file (K75). */
-  filesFocus?: { path?: string; token: number };
+  filesFocus?: { path?: string; folder?: string; token: number };
   /** Changes at the start of the running turn, so the dock can show what the turn touched. */
   turnBaseline?: UiWorkspaceChanges;
   /** The turn is over; the dock yields to the transcript's checkpoint card. */
@@ -848,6 +848,8 @@ export interface WorkspaceStoreApi {
   refresh(): Promise<void>;
   /** An extension offers to open a file for editing: a double-click in the Files panel asks it. The last one wins. */
   registerFileEditor(editor: WorkspaceFileEditor): () => void;
+  /** Brings the Files panel forward on All with a project folder (relative to its root) opened (API 1.75.0). */
+  revealFolder?(relPath: string): void;
   /** A section drawn at the top of the Changes panel, clean worktree or not. */
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
   registerWorkspaceSummarySection?(section: ComponentType<RegionProps>, position?: "footer"): () => void;

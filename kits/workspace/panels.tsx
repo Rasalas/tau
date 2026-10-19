@@ -8,8 +8,10 @@ import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 
 interface FlatNode { node: FileNode; depth: number; }
 
-function FileTree({ nodes, changedPaths, activePaths, rowHeight, loadFiles, openFile, editFile }: {
+function FileTree({ nodes, changedPaths, activePaths, rowHeight, loadFiles, openFile, editFile, reveal }: {
   nodes: FileNode[];
+  /** A folder to open, with the ones above it; a new `token` asks again. */
+  reveal?: { folder: string; token: number };
   rowHeight: number;
   changedPaths: Set<string>;
   /** The file on screen, as the stage names it (relative or absolute). */
@@ -31,6 +33,43 @@ function FileTree({ nodes, changedPaths, activePaths, rowHeight, loadFiles, open
     visit(nodes, 0);
     return result;
   }, [expanded, nodes]);
+
+  // Opens a revealed folder's chain from the root, reading each level the tree has not loaded yet.
+  const revealed = useRef(0);
+  const [scrollPath, setScrollPath] = useState<string>();
+  const loadLevel = async (path: string, token: number) => {
+    setLoading((current) => new Set(current).add(path));
+    try { await loadFiles(path); }
+    catch (error) {
+      revealed.current = token;
+      setErrors((current) => new Map(current).set(path, error instanceof Error ? error.message : "Could not load directory."));
+    } finally { setLoading((current) => { const next = new Set(current); next.delete(path); return next; }); }
+  };
+  useEffect(() => {
+    if (!reveal || revealed.current === reveal.token || nodes.length === 0) return;
+    let level = nodes;
+    const chain: string[] = [];
+    let complete = true;
+    for (const segment of reveal.folder.split("/")) {
+      const node = level.find((entry) => entry.kind === "directory" && entry.name === segment);
+      // A folder the tree does not list (ignored, gone) is not revealed.
+      if (!node) { revealed.current = reveal.token; break; }
+      chain.push(node.path);
+      if (!node.children) {
+        if (!loading.has(node.path)) void loadLevel(node.path, reveal.token);
+        complete = false;
+        break;
+      }
+      level = node.children;
+    }
+    if (chain.length > 0) setExpanded((current) => new Set([...current, ...chain]));
+    if (complete && revealed.current !== reveal.token && chain.length > 0) {
+      revealed.current = reveal.token;
+      setScrollPath(chain.at(-1));
+    }
+  }, [reveal?.token, nodes]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scrollToIndex = scrollPath === undefined ? undefined : visible.findIndex((row) => row.node.path === scrollPath);
+  useEffect(() => { if (scrollPath !== undefined && scrollToIndex !== undefined && scrollToIndex >= 0) setScrollPath(undefined); }, [scrollPath, scrollToIndex]);
 
   const toggle = async (node: FileNode) => {
     if (node.kind !== "directory") { openFile(node.path); return; }
@@ -54,6 +93,7 @@ function FileTree({ nodes, changedPaths, activePaths, rowHeight, loadFiles, open
   return <VirtualList
     items={visible}
     itemHeight={rowHeight}
+    {...(scrollToIndex !== undefined && scrollToIndex >= 0 ? { scrollToIndex } : {})}
     className="file-tree"
     empty={<p className="empty-copy">No files indexed.</p>}
     renderItem={({ node, depth }) => {
@@ -229,6 +269,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   // "N files changed" asked for the Changed view and its first file.
   useEffect(() => {
     if (!filesFocus) return;
+    if (filesFocus.folder) { setView("all"); return; }
     setView("changed");
     setFileView("diff");
     if (filesFocus.path) setReading(filesFocus.path);
@@ -264,6 +305,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
     loadFiles={loadFiles}
     openFile={open}
     editFile={(path) => !inSheet && workspaceStore.editFile(path)}
+    {...(filesFocus?.folder ? { reveal: { folder: filesFocus.folder, token: filesFocus.token } } : {})}
   />;
   const goToFile = searcher ? <button
     type="button"

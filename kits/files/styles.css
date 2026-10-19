@@ -8,6 +8,8 @@
   flex: 1 1 auto; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font: calc(var(--text-sm) + .5px) var(--mono); color: var(--muted);
 }
+.files-crumb-link { padding: 0 2px; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.files-crumb-link:hover, .files-crumb-link:focus-visible { background: var(--raised); color: var(--ink); }
 .files-crumb-sep { padding: 0 2px; color: var(--fainter); }
 .files-crumbs > strong { font-weight: 400; color: var(--ink); }
 .stage-pane-header > small.files-status { color: var(--warn); }

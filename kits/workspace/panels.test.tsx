@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UiWorkspaceChanges, WorkbenchContextValue } from "tau";
+import type { FileNode, UiWorkspaceChanges, WorkbenchContextValue } from "tau";
 import { ClientEnvironmentProvider, createKitHarness, electronClientEnvironment, KitShell, PreferencesStore, RendererServicesProvider, WorkbenchContext, type ClientProfile, type KitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { changedTreeRows, ChangesPanel, FilesPanel, serviceSlot, type SearchFilesService } from "./panels.js";
 import { createWorkspaceHostClient } from "./protocol.js";
@@ -120,6 +120,35 @@ describe("FilesPanel", () => {
 
     expect(openFile).toHaveBeenNthCalledWith(1, `${CWD}/a.ts`);
     expect(openFile).toHaveBeenNthCalledWith(2, `${CWD}/a.ts`, { pin: true });
+  });
+
+  it("opens a revealed folder's chain from the root, loading what the tree has not read, and leaves the panel in front", async () => {
+    const workspaceStore = newStore();
+    const openPanel = vi.fn();
+    workspaceStore.bind({ openPanel } as never);
+    kitState(workspaceStore, { changes: NO_CHANGES, fileTree: [{ name: "src", path: "src", kind: "directory" }, { name: "docs", path: "docs", kind: "directory" }] });
+    vi.spyOn(workspaceStore, "refreshFiles").mockResolvedValue(undefined);
+    const loaded: string[] = [];
+    const attach = (nodes: FileNode[], path: string, children: FileNode[]): FileNode[] => nodes.map((node) => node.path === path ? { ...node, children } : node.children ? { ...node, children: attach(node.children, path, children) } : node);
+    vi.spyOn(workspaceStore, "loadFiles").mockImplementation(async (path) => {
+      loaded.push(path);
+      const children: FileNode[] = path === "src" ? [{ name: "lib", path: "src/lib", kind: "directory" }] : [{ name: "a.ts", path: "src/lib/a.ts", kind: "file" }];
+      act(() => workspaceStore.update({ fileTree: attach(workspaceStore.getSnapshot().fileTree, path, children) }));
+      return children;
+    });
+    render(withServices(workspaceStore,
+      <WorkbenchContext.Provider value={workbench()}>
+        <FilesPanel active extensionName="Workspace" actions={{} as never} />
+      </WorkbenchContext.Provider>,
+    ));
+    expect(screen.queryByTitle("src/lib/a.ts")).toBeNull();
+
+    act(() => workspaceStore.revealFolder("src/lib/"));
+
+    expect(await screen.findByTitle("src/lib/a.ts")).toBeTruthy();
+    expect(loaded).toEqual(["src", "src/lib"]);
+    expect(openPanel).toHaveBeenCalledWith("files");
+    expect(screen.queryByTitle("docs/x")).toBeNull();
   });
 
   it("reads a file in a phone's sheet, where no stage shows it, and goes back to the folders as they were", async () => {

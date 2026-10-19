@@ -2227,7 +2227,9 @@ after another kit changed them. Review Kit fills both with the pull or merge
 request of the branch. `registerFileEditor(open)` is the offer to edit a file:
 a double-click in the Files panel calls `open(relPath, actions)` instead of
 pinning the file tab, the last offer wins, and Files Kit is the kit that makes
-it. `openInEditor(relPath?, editorId?, { line?, column? }, workspace?)` opens a file in
+it. `revealFolder(relPath)` (new in API 1.75.0) brings the Files panel forward on its
+All view with that folder of the followed project opened; the folder crumbs of a
+file tab call it. `openInEditor(relPath?, editorId?, { line?, column? }, workspace?)` opens a file in
 one of the machine's editors at a line (`workspace`, new in API 1.63.0, names the
 project it is in; without it the followed one), and `chooseEditor(id)` makes one the
 default. `registerInPlaceProjects(match)` (new in API 1.75.0) names projects by their

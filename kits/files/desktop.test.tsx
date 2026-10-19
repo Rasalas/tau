@@ -87,6 +87,7 @@ function workspaceStore(editors: UiEditor[] = [{ id: "code", name: "VS Code" }, 
     chooseEditor: vi.fn(),
     openInEditor: async (relPath, editorId, position) => { opened.push([relPath, editorId, position]); },
     refresh: vi.fn(async () => undefined),
+    revealFolder: vi.fn(),
     registerFileEditor: (editor) => { fileEditor = editor; return () => { fileEditor = undefined; }; },
     edit: (relPath, actions) => fileEditor?.(relPath, actions),
   };
@@ -227,6 +228,27 @@ describe("Files Kit", () => {
     const editor = await findEditor("src/a.ts");
     await waitFor(() => expect(editor.view.state.doc.lineAt(editor.view.state.selection.main.head).number).toBe(3));
     await waitFor(() => expect(editor.view.state.facet(language)?.name).toBe("typescript"));
+  });
+
+  it("shows a folder of the path in the Files panel from its crumb, for a project-relative path only", async () => {
+    const { kind, actions, store } = setup({ "src/lib/a.ts": "a\n", "b.ts": "b\n" });
+    const { unmount } = render(<>{kind.render({ path: "src/lib/a.ts" }, handle(), actions, REPO)}</>);
+    await findEditor("src/lib/a.ts");
+    fireEvent.click(screen.getByRole("button", { name: "Show src/lib in Files" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show src in Files" }));
+    expect(store.revealFolder).toHaveBeenNthCalledWith(1, "src/lib");
+    expect(store.revealFolder).toHaveBeenNthCalledWith(2, "src");
+    unmount();
+    render(<>{kind.render({ path: "b.ts" }, handle(), actions, REPO)}</>);
+    await findEditor("b.ts");
+    expect(screen.queryByRole("button", { name: /in Files$/u })).toBeNull();
+  });
+
+  it("leaves the crumbs of a path outside the project plain", async () => {
+    const { kind, actions } = setup({});
+    render(<>{kind.render({ path: "/elsewhere/notes.md" }, handle(), actions, REPO)}</>);
+    await waitFor(() => expect(document.querySelector(".files-crumbs")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /in Files$/u })).toBeNull();
   });
 
   it("shows Markdown rendered or as source, and remembers the choice", async () => {

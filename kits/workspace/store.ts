@@ -588,6 +588,14 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     this.actions?.openPanel(this.reviewDrawn && this.reviewViews > 0 ? "review.diff" : WORKSPACE_FILES_PANEL);
   }
 
+  /** A folder crumb of a file tab: the Files panel in front, on All, with the folder opened. */
+  revealFolder(relPath: string): void {
+    const folder = relPath.replace(/^\/+|\/+$/gu, "");
+    if (!folder) return;
+    this.update({ filesFocus: { token: (this.state.filesFocus?.token ?? 0) + 1, folder } });
+    this.actions?.openPanel(WORKSPACE_FILES_PANEL);
+  }
+
   private async mutate(what: string, run: () => Promise<UiWorkspaceChanges>): Promise<void> {
     if (!this.allowed(what) || !this.requireHost(what)) return;
     try { this.update({ changes: await run() }); }

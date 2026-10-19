@@ -5,7 +5,7 @@ import { CodeEditor } from "./code-editor.js";
 import { parseDelimited } from "./delimited.js";
 import type { FileDocument } from "./document.js";
 import { fileViewKind, RENDERED_BY_DEFAULT, renderedMode, renderedToggleLabel, tableDelimiter, type RenderedMode } from "./file-kind.js";
-import { kit, WRAP_OPTION, wrapLines, type WorkspaceStoreLike } from "./kit.js";
+import { kit, WRAP_OPTION, workspaceRelative, wrapLines, type WorkspaceStoreLike } from "./kit.js";
 import { OpenInPicker } from "./open-in.js";
 import { FILES_KIT_ID, UNKNOWN_PROJECT, type FileEditorParams } from "./protocol.js";
 
@@ -67,14 +67,31 @@ function useWorkspaceStore(): WorkspaceStoreLike | undefined {
   return useSyncExternalStore(subscribe, () => kit.current?.workspace);
 }
 
-/** Breadcrumbs: the path's folders read quietly and the name stands out. */
-function Breadcrumbs({ path }: { path: string }) {
+/**
+ * Breadcrumbs: the path's folders read quietly and the name stands out. With
+ * `reveal`, a folder opens in the project's Files panel.
+ */
+function Breadcrumbs({ path, reveal }: { path: string; reveal?: (folder: string) => void }) {
   const parts = path.split("/").filter(Boolean);
   const name = parts.pop() ?? path;
-  return <span className="files-crumbs" title={path}>
-    {parts.map((part, index) => <span key={index} className="files-crumb">{part}<span className="files-crumb-sep">/</span></span>)}
+  return <span className="files-crumbs" title={reveal ? undefined : path}>
+    {parts.map((part, index) => {
+      const folder = parts.slice(0, index + 1).join("/");
+      return <span key={index} className="files-crumb">
+        {reveal
+          ? <button type="button" className="files-crumb-link" aria-label={`Show ${folder} in Files`} {...tooltipProps(`Show ${folder} in Files`, { side: "bottom" })} onClick={() => reveal(folder)}>{part}</button>
+          : part}
+        <span className="files-crumb-sep">/</span>
+      </span>;
+    })}
     <strong>{name}</strong>
   </span>;
+}
+
+/** The folder action for a tab's path: only a project-relative path names a folder of the followed project. */
+function revealFolderOf(store: WorkspaceStoreLike | undefined, path: string): ((folder: string) => void) | undefined {
+  if (!store?.revealFolder || workspaceRelative(path, undefined) !== path) return undefined;
+  return (folder) => store.revealFolder?.(folder);
 }
 
 /** A PDF, an image, audio or video, loaded by URL from the window's own process. */
@@ -141,7 +158,7 @@ export function MediaTab({ params, handle, actions }: { params: FileEditorParams
   useEffect(() => { handle.setTitle(name); }, [handle, name]);
   return <div className="files-tab">
     <header className="stage-pane-header files-header">
-      <Breadcrumbs path={params.path} />
+      <Breadcrumbs path={params.path} reveal={revealFolderOf(workspace, params.path)} />
       <span className="spacer" />
       {workspace ? <OpenInPicker store={workspace} relPath={params.path} /> : null}
     </header>
@@ -265,7 +282,7 @@ export function FileEditorTab({ params, handle, actions, document }: {
   // `editorFocus` holds anywhere in the tab, so `files.save` (`mod+s`) wins over the stash binding here.
   return <div ref={root} tabIndex={-1} className="files-tab" data-keybinding-context="editor" data-dirty={state.dirty || undefined}>
     <header className="stage-pane-header files-header">
-      <Breadcrumbs path={params.path} />
+      <Breadcrumbs path={params.path} reveal={revealFolderOf(workspace, params.path)} />
       {meta ? <small>{meta}</small> : null}
       {status ? <small className="files-status" role="status">{status}</small> : null}
       <span className="spacer" />
