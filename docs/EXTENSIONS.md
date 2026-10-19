@@ -5944,7 +5944,7 @@ legacy project discovery rather than treating an unknown project as private.
 
 `UiToolRun.media` retains image, audio and video results as `{ type, url }` entries. The transcript shows these outside the collapsed work log. Image previews open the existing lightbox. Runtime adapters retain these entries when translating tool results; persisted turn activity retains them across restarts.
 
-A document source may implement `loadMedia(path, { workspace })`, returning `{ url, mimeType, release? }`. File links in a transcript use its workspace identity, including when the selected project differs. The stage and compact file reader call `release` when the preview closes or changes. Workspace Kit serves audio, video and PDFs over connection-scoped browser resources, including byte ranges for seeking.
+A document source may implement `loadMedia(path, { workspace })`, returning `{ url, mimeType, release? }`. File links in a transcript use its workspace identity, including when the selected project differs. The stage and compact file reader call `release` when the preview closes or changes. Workspace Kit serves audio, video and PDFs over connection-scoped browser resources, including byte ranges for seeking. The Android app's web view draws no PDF in a frame, so the reader shows an "Open in…" button there: the app reads the resource over the same connection and hands it to a PDF app the user picks (`ClientEnvironment.openDocument`).
 
 Host extensions can reuse `shareableType(path)` and `respondSharedFile(path, mimeType, rangeHeader)` from `tau/host-extension`. The latter streams an **already authorized** file: callers must resolve and authorize the originating workspace and path before publishing a resource. It performs no authorization itself.
 

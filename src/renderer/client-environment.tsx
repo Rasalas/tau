@@ -24,6 +24,8 @@ export interface ClientEnvironment {
   shell?: ClientShell;
   /** Installed native app, independent of any connected host release. */
   mobileApp?: { platform: "ios" | "android"; version: string };
+  /** The web view draws no PDF in a frame: hands a host resource to the system's document viewer. */
+  openDocument?(document: { url: string; name: string; mimeType: string }): Promise<void>;
   /** Only a normal installed desktop release advertises this; isolated instances and development leave it absent. */
   release?: ClientRelease;
   /** Native clients supply their control so other clients do not ship its UI. */

@@ -42,6 +42,8 @@ interface TauNativePlugin {
   discoveryStop(): Promise<void>;
   deviceInfo(): Promise<DeviceInfo>;
   pushAvailable(): Promise<{ available: boolean }>;
+  /** Android only: reads a host resource through the workbench's connection and opens it in an app chosen by the user. */
+  openDocument(options: { url: string; name: string; mimeType: string }): Promise<void>;
   /** Android only: the system's font scale (1 by default). */
   textScale(): Promise<{ scale: number }>;
   addListener(event: "activityToken", listener: (event: import("./activities").ActivityToken) => void): Promise<PluginListenerHandle>;
@@ -131,6 +133,8 @@ export const textScalePort: TextScalePort = {
     return () => { void handle.remove(); };
   },
 };
+
+export const openNativeDocument = (document: { url: string; name: string; mimeType: string }) => TauNative.openDocument(document);
 
 let dictationId = "";
 export const nativeDictation: import("../../src/renderer/dictation").DictationPort = {
