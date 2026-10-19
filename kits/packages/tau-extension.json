@@ -10,7 +10,8 @@
   "permissions": [
     "packages",
     "sessions",
-    "runtime:extend"
+    "runtime:extend",
+    "workspace:write"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

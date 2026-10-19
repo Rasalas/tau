@@ -397,6 +397,43 @@ describe("Workspace Kit's first thread of a new project", () => {
   });
 });
 
+describe("Workspace Kit's in-place projects", () => {
+  const PACKAGES = "/home/.tau/extensions";
+
+  it("never put a new thread in a worktree, although Settings says so", async () => {
+    const createWorktree = vi.fn(async () => ({ workspaceId: "ws1_worktree", displayPath: "/x" }));
+    const preferences = new PreferencesStore();
+    preferences.setValue("tau.workspace", "new-thread-workspace", "worktree");
+    const workspaceStore = storeOver({ createWorktree, getWorkspaceInfo: async () => ({ ...REPO, root: PACKAGES }) }, preferences);
+    workspaceStore.registerInPlaceProjects((cwd) => cwd === PACKAGES);
+
+    workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", draftPending: true });
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+
+    workspaceStore.follow({ cwd: PACKAGES, workspaceId: "ws1_packages", draftPending: true });
+    await vi.waitFor(() => expect(workspaceStore.getSnapshot().workspace?.isRepo).toBe(true));
+    expect(workspaceStore.workspaceMode()).toBe("current");
+    workspaceStore.setWorkspaceMode("worktree");
+    expect(workspaceStore.workspaceMode()).toBe("current");
+    await expect(workspaceStore.prepareThreadWorktree({ prompt: "Change Tau: a button", preparing: () => undefined })).resolves.toEqual({});
+    expect(createWorktree).not.toHaveBeenCalled();
+  });
+
+  it("move a draft that was already open to the folder, and stop when withdrawn", () => {
+    const preferences = new PreferencesStore();
+    preferences.setValue("tau.workspace", "new-thread-workspace", "worktree");
+    const workspaceStore = storeOver({}, preferences);
+    workspaceStore.follow({ cwd: PACKAGES, workspaceId: "ws1_packages", draftPending: true });
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+    const withdraw = workspaceStore.registerInPlaceProjects((cwd) => cwd === PACKAGES);
+    expect(workspaceStore.workspaceMode()).toBe("current");
+    withdraw();
+    workspaceStore.follow({ cwd: PACKAGES, workspaceId: "ws1_packages", sessionId: "t1", draftPending: false });
+    workspaceStore.follow({ cwd: PACKAGES, workspaceId: "ws1_packages", draftPending: true });
+    expect(workspaceStore.workspaceMode()).toBe("worktree");
+  });
+});
+
 describe("Workspace Kit's default base", () => {
   it("rereads the shown base when Settings → Base changes", async () => {
     const preferences = new PreferencesStore();

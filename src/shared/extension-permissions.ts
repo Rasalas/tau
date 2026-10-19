@@ -152,6 +152,7 @@ export const HOST_SERVICE_PERMISSIONS: Readonly<Record<string, ExtensionPermissi
   newPackage: "packages",
   reviewPackage: "packages",
   approvePackage: "packages",
+  globalExtensionsDirectory: "packages",
   removePackage: "packages",
   updatePackages: "packages",
   // Trusting a project lets its .tau packages load, as installing one does.

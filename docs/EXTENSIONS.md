@@ -2230,7 +2230,11 @@ pinning the file tab, the last offer wins, and Files Kit is the kit that makes
 it. `openInEditor(relPath?, editorId?, { line?, column? }, workspace?)` opens a file in
 one of the machine's editors at a line (`workspace`, new in API 1.63.0, names the
 project it is in; without it the followed one), and `chooseEditor(id)` makes one the
-default.
+default. `registerInPlaceProjects(match)` (new in API 1.75.0) names projects by their
+path whose threads never get a worktree: the draft starts in the folder whatever
+Settings → New threads says, a worktree is neither suggested nor made, and a
+choice of one is ignored. Packages Kit names its customization project this way,
+because a package loads from the folder itself.
 
 Workspace Kit's host reads and writes the project's files for the kits built
 on it, and checks every path against the workspace (symlinks included):
@@ -4708,7 +4712,7 @@ A package's `permissions` array draws from a fixed list
 | `network` | reach the network, and take part in the host's own network access (`services.network`). In a worker the grant gates `fetch`, `WebSocket`, `EventSource`, `XMLHttpRequest` and the socket builtins, by `require` and by `import()` alike. For an `in-process` package nothing is enforced. Either way it is a guardrail against a mistake, not a boundary against code written to get around it — see §6. |
 | `machines` | act on other machines this host holds a key for, as this machine's agents (`services.machines`, API 1.15.0, [ADR 0027](adr/0027-a-host-reaches-other-machines-for-its-agents.md)): run kit commands there, read and stop their threads, follow their kits' topics, send them files; and take files their agents sent here (`services.blobs`). |
 | `native` | (API 1.17.0) load compiled code: a `.node` addon (by `require`, `import` or `process.dlopen`), a SQLite extension (`DatabaseSync#loadExtension`), the raw handles of `process.binding` and `process._linkedBinding`, and V8 flags (`v8.setFlagsFromString`). In a worker all of these are refused without it; see §6. Compiled code runs outside the worker's guards and caps and a crash in it stops the host, so grant it like `in-process`. An `in-process` package loads addons through `services.loadDependency` and needs no grant for it. |
-| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `newPackage`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), read the last build of each package half (`packageBuilds`, K112), and review a package folder in the global extension folder and record the user's allow for it (`reviewPackage`, `approvePackage`, API 1.75.0). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
+| `packages` | install, update, remove and list other extension packages (`listPackages`, `installPackage`, `newPackage`, `globalExtensionsDirectory`, `removePackage`, `updatePackages`), trust a project in Pi's name so its packages load (`projectTrust`, K112), read the last build of each package half (`packageBuilds`, K112), and review a package folder in the global extension folder and record the user's allow for it (`reviewPackage`, `approvePackage`, API 1.75.0). Tau's own Packages kit holds it; a package that asks for it can add code that later runs, so read the request carefully. |
 
 **Permissions gate the host half.** A desktop half runs in the window with
 what the user can do there: every `WorkbenchActions` member is ungated,
@@ -4966,6 +4970,26 @@ approved; the agent installs it with `tau_install_package` and the user allows i
 permission, in-process only) is the host's half of that: it validates the slug,
 refuses an existing path, scaffolds with `bin/tau-kit.mjs` (the same code as
 the command line) and answers the same `{ directory, id, name, apiVersion, files }`.
+
+### The customization project: "Customize Tau…" (API 1.75.0)
+
+"Customize Tau…" (the palette, and a button at the top of Settings → Extensions)
+makes the one project "Tau customizations" the first time and takes the same one
+afterwards. Its folder is the global extension folder, `services.globalExtensionsDirectory()`
+(`packages` permission, in-process only; `~/.tau/extensions`, or below
+`TAU_PACKAGES_HOME`), so a package a thread writes there is the one that loads. The
+host half of Packages Kit answers `customization-folder` (the folder and how many
+packages it holds; creates nothing) and `customization-project` (creates the folder,
+admits it with `admitWorkspace`, names it with `rememberProjectName`, answers
+`{ directory, workspaceId }`); the kit therefore asks for `workspace:write` too.
+The window then opens a new thread's draft in it with "Change Tau: " in the composer,
+the cursor behind it, and sends nothing. Text already in that draft stays.
+
+Threads there never get a worktree (`registerInPlaceProjects` above) and their
+instructions take the stronger form: `customizeInstructionsFor(cwd, folder)` answers
+"you are in the customization project; every request here is a package" when `cwd`
+is the folder or inside it, and the plain section elsewhere. With no package
+installed, the button in Settings → Extensions says so in a sentence.
 
 ### Seeing the result: `tau_window_screenshot` (API 1.75.0)
 
@@ -5322,7 +5346,7 @@ the port — nothing that hands out a live object. From
 | `runtimeOwner`, `thread(sessionId)` (a plain snapshot), `transcript`, `setThreadTitle` | `sessions.open` (a live `HostSessionFile`), `sessions.prepare`, `sessions.refreshIndex`, `executionPolicy` (a provider is a live object) |
 | `noteSubprocess`, `findCommand`, `skills` | a `beforeActivate` transaction (a worker hook returns nothing, so it cannot roll back an activation) |
 | `clients.observe`, `clients.count` | |
-| `refreshExtensionPackages` | `listPackages`, `installPackage`, `newPackage`, `removePackage`, `updatePackages` (installing hands the host a live progress callback), `reviewPackage`, `approvePackage`, `projectTrust`, `packageBuilds` |
+| `refreshExtensionPackages` | `listPackages`, `installPackage`, `newPackage`, `globalExtensionsDirectory`, `removePackage`, `updatePackages` (installing hands the host a live progress callback), `reviewPackage`, `approvePackage`, `projectTrust`, `packageBuilds` |
 | `sessions.list`, `sessions.read` (entries as data), `sessions.import`, `sessions.exclusive` | anything else that would hand out a live host object |
 | `registerThreadLifecycle`, `registerTurnObserver`, `setPendingWork`, `pinTranscriptEntries` (pins as data) | |
 | `sessions.remove`, `sessions.restore`, `sessions.trash`, `sessions.purge` | |

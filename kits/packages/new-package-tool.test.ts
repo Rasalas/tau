@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionServices, HostMcpInstructionsProvider, HostMcpTool, HostMcpToolProvider, RuntimeExtensionFactory, RuntimeSessionInfo } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
-import { CUSTOMIZE_INSTRUCTIONS } from "./customize-instructions.js";
+import { CUSTOMIZE_INSTRUCTIONS, CUSTOMIZE_PROJECT_INSTRUCTIONS } from "./customize-instructions.js";
 import { createPackagesHostExtension } from "./host.js";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -26,13 +26,14 @@ const run = (tool: HostMcpTool, params: unknown) => (tool.execute as unknown as 
 
 const made = { directory: "/home/.tau/extensions/copy-branch", id: "local.copy-branch", name: "Copy Branch", apiVersion: "1.75.0", files: ["AGENTS.md"] };
 
-async function harness() {
+async function harness(extensions = "/home/.tau/extensions") {
   const newPackage = vi.fn(async () => made);
   let runtime: RuntimeExtensionFactory | undefined;
   const providers: HostMcpToolProvider[] = [];
   const instructions: HostMcpInstructionsProvider[] = [];
   const services = {
     newPackage,
+    globalExtensionsDirectory: () => extensions,
     registerRuntimeExtension: (_name: string, factory: RuntimeExtensionFactory) => { runtime = factory; return () => { runtime = undefined; }; },
     mcp: {
       registerTools: (provider: HostMcpToolProvider) => { providers.push(provider); return () => undefined; },
@@ -97,6 +98,16 @@ describe("the customization instructions", () => {
     runtime()(fake.api, session(cwd));
     expect(fake.systemPrompt("base")).toBe(`base\n\n${CUSTOMIZE_INSTRUCTIONS}`);
     expect(instructions[0]!(session(cwd))).toBe(CUSTOMIZE_INSTRUCTIONS);
+  });
+
+  it("take the strong form in the customization project, in both", async () => {
+    const folder = await project();
+    const { runtime, instructions, session } = await harness(folder);
+    const fake = pi();
+    runtime()(fake.api, session(folder));
+    expect(fake.systemPrompt("base")).toBe(`base\n\n${CUSTOMIZE_PROJECT_INSTRUCTIONS}`);
+    expect(instructions[0]!(session(folder))).toBe(CUSTOMIZE_PROJECT_INSTRUCTIONS);
+    expect(instructions[0]!(session(await project()))).toBe(CUSTOMIZE_INSTRUCTIONS);
   });
 
   it("stay out of Tau's own source checkout, in both", async () => {

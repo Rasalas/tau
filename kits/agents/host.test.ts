@@ -135,6 +135,7 @@ function harness() {
     approvePackage: async () => { throw new Error("no installer in this test"); },
     removePackage: async () => { throw new Error("no installer in this test"); },
     newPackage: async () => { throw new Error("no installer in this test"); },
+    globalExtensionsDirectory: () => "/tmp/tau-extensions",
     updatePackages: async () => [],
     openWorkspace: async () => ({ version: 1 as const, updates: [] }),
     knownWorkspacePath: async (path) => path,

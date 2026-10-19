@@ -33,6 +33,7 @@ import {
   type InstallerOptions,
 } from "./extension-installer.js";
 import { packagesHome } from "./extension-sources.js";
+import { globalExtensionsDirectory } from "./extension-packages.js";
 import { createNewPackage } from "./new-package.js";
 import { packageBuilds } from "./package-builds.js";
 import type { PackageReview } from "./package-approval.js";
@@ -374,6 +375,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     newPackage: (spec) => createNewPackage(spec),
     reviewPackage: (path) => port.reviewExtensionPackage(path),
     approvePackage: (path, fingerprint) => port.approveExtensionPackage(path, fingerprint, (() => { const principal = currentInvocationPrincipal(); return principal !== undefined && isHostOwner(principal); })()),
+    globalExtensionsDirectory: () => globalExtensionsDirectory(),
     removePackage: (source, scope) => removeExtensionSource(source, scope, installer()),
     updatePackages: (source, progress) => { port.noteSubprocess(); return updateExtensionSources(source, installer(progress)); },
     packageBuilds: {
