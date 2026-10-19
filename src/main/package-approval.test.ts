@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ExtensionPackageSummary } from "../shared/contracts.js";
 import { readExtensionGrants } from "./extension-grants.js";
 import { approvePackageFolder, reviewPackageFolder } from "./package-approval.js";
 
@@ -107,7 +108,7 @@ describe("approvePackageFolder", () => {
     const { options, write } = await setup();
     await write("hello", GOOD);
     const { fingerprint } = await reviewPackageFolder("hello", options);
-    const confirm = vi.fn(async () => true);
+    const confirm = vi.fn(async (_pkg: ExtensionPackageSummary) => true);
     expect(await approvePackageFolder("hello", fingerprint, { ...options, owner: true, confirm })).toBe("acme.hello");
     expect(confirm).toHaveBeenCalledOnce();
     expect(confirm.mock.calls[0]![0]).toMatchObject({ id: "acme.hello", name: "Hello", permissions: ["sessions"], isolation: "worker", scope: "global", desktop: true, host: true });
