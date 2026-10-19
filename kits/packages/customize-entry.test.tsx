@@ -16,13 +16,13 @@ const PROJECT = { directory: DIRECTORY, workspaceId: "ws1_customizations" };
 /** A window whose draft opens in the project it is told to, with a composer that remembers its text. */
 function windowActions(initialDraft = "") {
   let draft = initialDraft;
-  let thread: { draftPending: boolean; workspaceId: string; cwd: string } | undefined;
+  let thread: { sessionId?: string; draftPending: boolean; workspaceId: string; cwd: string } | undefined;
   const app = {
     notify: vi.fn(),
     closeSettings: vi.fn(),
     focusComposer: vi.fn(),
     openWorkspace: vi.fn(async () => true),
-    newSession: vi.fn((options?: { workspace?: string }) => { thread = { draftPending: true, workspaceId: options?.workspace ?? "", cwd: DIRECTORY }; }),
+    newSession: vi.fn((options?: { workspace?: string }) => { thread = { draftPending: false, workspaceId: options?.workspace ?? "", cwd: DIRECTORY }; }),
     activeThread: () => thread,
     composerDraft: () => draft,
     setComposerDraft: vi.fn((text: string) => { draft = text; }),
@@ -58,6 +58,35 @@ describe("Customize Tau…", () => {
     expect(second.app.openWorkspace).toHaveBeenCalledWith("ws1_customizations");
     expect(second.app.newSession).toHaveBeenCalledWith({ workspace: "ws1_customizations" });
     expect(second.draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
+  });
+
+  it("asks again while the window does not list the project yet", async () => {
+    const { app, actions, draft } = windowActions();
+    const open = app.newSession.getMockImplementation()!;
+    app.newSession.mockImplementationOnce(() => undefined).mockImplementationOnce(() => undefined).mockImplementation(open);
+    await startCustomization(host(), actions);
+    expect(app.newSession.mock.calls.length).toBeGreaterThan(1);
+    expect(draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
+  });
+
+  it("uses a draft of the project that is already on screen instead of making another", async () => {
+    const { app, actions, draft } = windowActions();
+    await startCustomization(host(), actions);
+    expect(app.newSession).toHaveBeenCalledTimes(1);
+    await startCustomization(host(), actions);
+    expect(app.newSession).toHaveBeenCalledTimes(1);
+    expect(draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
+  });
+
+  it("writes through the window's current actions once the new draft has them", async () => {
+    const stale = windowActions();
+    const fresh = windowActions();
+    fresh.app.activeThread = stale.app.activeThread;
+    let current = stale.actions;
+    stale.app.newSession.mockImplementationOnce((options?: { workspace?: string }) => { stale.app.activeThread = () => ({ draftPending: false, workspaceId: options?.workspace ?? "", cwd: DIRECTORY }) as never; setTimeout(() => { current = fresh.actions; }, 40); });
+    await startCustomization(host(), stale.actions, undefined, () => current);
+    expect(fresh.draft()).toBe(CUSTOMIZE_PROMPT_PREFIX);
+    expect(stale.draft()).toBe("");
   });
 
   it("keeps what the user already typed in the draft", async () => {

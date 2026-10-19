@@ -11,7 +11,13 @@ const trimmed = (path: string) => path.replace(/[\\/]+$/u, "");
  * a new thread's draft in it, and "Change Tau: " in the composer for the user to finish.
  * Nothing is sent.
  */
-export async function startCustomization(host: HostExtensionClient, actions: WorkbenchActions, onFolder: (directory: string) => void = () => undefined): Promise<void> {
+export async function startCustomization(
+  host: HostExtensionClient,
+  actions: WorkbenchActions,
+  onFolder: (directory: string) => void = () => undefined,
+  /** The window's current actions: the ones in hand write to the draft that was on screen before the new one. */
+  latest?: () => WorkbenchActions,
+): Promise<void> {
   let project: CustomizationProject;
   try {
     project = await host.invoke("customization-project") as CustomizationProject;
@@ -25,19 +31,31 @@ export async function startCustomization(host: HostExtensionClient, actions: Wor
     actions.notify("The customization project could not be opened.", "error");
     return;
   }
-  actions.newSession({ workspace: project.workspaceId });
   const inProject = () => {
     const thread = actions.activeThread();
-    return thread?.draftPending === true && (thread.workspaceId === project.workspaceId || (thread.cwd !== undefined && trimmed(thread.cwd) === trimmed(project.directory)));
+    // A draft has no thread yet; `draftPending` only says its first prompt is on its way.
+    return thread !== undefined && thread.sessionId === undefined && (thread.workspaceId === project.workspaceId || (thread.cwd !== undefined && trimmed(thread.cwd) === trimmed(project.directory)));
   };
-  for (let attempt = 0; attempt < 80 && !inProject(); attempt += 1) await wait(25);
+  // A draft of the project already on screen is the one to use.
   if (!inProject()) {
-    actions.notify("The draft did not open. Try Customize Tau again.", "warning");
-    return;
+    const before = latest?.();
+    actions.newSession({ workspace: project.workspaceId });
+    // A project the window does not list yet gets no draft; ask again until the host's list has it.
+    for (let attempt = 1; attempt < 400 && !inProject(); attempt += 1) {
+      await wait(25);
+      if (attempt % 6 === 0 && !inProject()) actions.newSession({ workspace: project.workspaceId });
+    }
+    if (!inProject()) {
+      actions.notify("The draft did not open. Try Customize Tau again.", "warning");
+      return;
+    }
+    // The new draft's actions arrive with the next render.
+    for (let attempt = 0; latest && attempt < 40 && latest() === before; attempt += 1) await wait(25);
   }
+  const current = latest?.() ?? actions;
   // Text the user already typed into this draft stays as it is.
-  if (!actions.composerDraft().trim()) actions.setComposerDraft?.(CUSTOMIZE_PROMPT_PREFIX);
-  actions.focusComposer();
+  if (!current.composerDraft().trim()) current.setComposerDraft?.(CUSTOMIZE_PROMPT_PREFIX);
+  current.focusComposer();
 }
 
 /** The entry at the top of Settings → Extensions; with nothing installed it says what the button is for. */
@@ -85,7 +103,7 @@ export function registerCustomizeEntry(plugin: DesktopExtensionContext): void {
     label: "Customize Tau…",
     group: "Extensions",
     access: "write",
-    run: (app) => startCustomization(plugin.host, app, remember),
+    run: (app) => startCustomization(plugin.host, app, remember, () => bound ?? app),
   });
   // The Settings button has no actions of its own; this region hands it the window's.
   plugin.registerRegion({
@@ -112,8 +130,9 @@ export function registerCustomizeEntry(plugin: DesktopExtensionContext): void {
         host={plugin.host}
         start={async () => {
           if (!bound) { onNotify("The chat is not ready yet. Try again in a moment.", "warning"); return; }
-          bound.closeSettings?.();
-          await startCustomization(plugin.host, bound, remember);
+          const app = bound;
+          app.closeSettings?.();
+          await startCustomization(plugin.host, app, remember, () => bound ?? app);
         }}
       />
     ),
