@@ -132,7 +132,7 @@ export function registerSideQuestions(context: DesktopExtensionContext, { host, 
         </div>
         <footer className="btw-foot">
           {chat.status === "failed" ? (
-            <button type="button" disabled={!mayAsk} {...tooltipProps(mayAsk ? "Ask again" : READ_ONLY_REASON)} onClick={() => void retry(chat, actions)}>
+            <button type="button" aria-disabled={!mayAsk || undefined} {...tooltipProps(mayAsk ? "Ask again" : READ_ONLY_REASON)} onClick={() => { if (mayAsk) void retry(chat, actions); }}>
               <RotateCw size={12} aria-hidden="true" />Retry
             </button>
           ) : null}
@@ -143,9 +143,10 @@ export function registerSideQuestions(context: DesktopExtensionContext, { host, 
           <button
             type="button"
             className="primary"
-            disabled={!canFork || !mayAsk}
+            disabled={!canFork}
+            aria-disabled={!mayAsk || undefined}
             {...tooltipProps(!mayAsk ? READ_ONLY_REASON : "Continue this as a task of its own: a fork of the thread that starts from this question and its answer")}
-            onClick={() => void continueAsTask(chat, actions)}
+            onClick={() => { if (mayAsk) void continueAsTask(chat, actions); }}
           >
             <GitFork size={12} aria-hidden="true" />Continue as side task
           </button>

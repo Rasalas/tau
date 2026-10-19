@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleX, LoaderCircle, MessageSquare, Pencil, Send } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleSlash, CircleX, LoaderCircle, MessageSquare, Pencil, Send } from "lucide-react";
 import { errorMessage, type WorkbenchActions } from "tau";
 import { RequestMarkdown as Markdown } from "./request-markdown.js";
 import { providerInfo, requestNumber, type ComposerContextChips, type PullRequestCheckStatus, type PullRequestChip, type PullRequestComment, type PullRequestThread, type ReviewCommentChip } from "./protocol.js";
@@ -15,6 +15,7 @@ export function CheckIcon({ status, size = 13 }: { status: PullRequestCheckStatu
     case "passed": return <CircleCheck {...props} />;
     case "failed":
     case "cancelled": return <CircleX {...props} />;
+    case "skipped": return <CircleSlash {...props} />;
     default: return <CircleDashed {...props} />;
   }
 }

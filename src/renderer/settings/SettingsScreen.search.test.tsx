@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ExtensionRegistry } from "../extension-system";
@@ -22,10 +22,14 @@ function LatePage() {
 
 function setup() {
   const registry = new ExtensionRegistry();
+  const unload: Record<string, () => void> = {};
   registry.activate({
     id: "fixture.search",
     name: "Search fixture",
     activate(context) {
+      for (const id of ["quokka-one", "quokka-two", "quokka-three"]) {
+        unload[id] = context.registerSettingsPage({ id, label: `Quokka ${id.slice(7)}`, profiles: ["desktop"], Component: () => <p>{`Page ${id}`}</p> });
+      }
       context.registerCommand({ id: "search.files", label: "Go to file…", group: "Search", run: () => undefined });
       context.registerKeybinding({ keys: "mod+p", commandId: "search.files" });
       context.registerCommand({ id: "search.content", label: "Search in project…", group: "Search", run: () => undefined });
@@ -37,7 +41,7 @@ function setup() {
   render(<TestProviders><Harness registry={registry} /></TestProviders>);
   const modal = screen.getByRole("dialog", { name: "Settings" });
   const search = within(modal).getByRole("searchbox", { name: "Search settings" });
-  return { modal, search };
+  return { modal, search, unload };
 }
 
 describe("Settings search", () => {
@@ -67,5 +71,18 @@ describe("Settings search", () => {
     fireEvent.change(search, { target: { value: "quota" } });
     fireEvent.keyDown(search, { key: "Enter" });
     expect(within(modal).getByText("Usage page")).toBeTruthy();
+  });
+
+  it("keeps a row highlighted when the results shrink without a keystroke", () => {
+    const { modal, search, unload } = setup();
+    fireEvent.change(search, { target: { value: "quokka" } });
+    fireEvent.mouseMove(within(modal).getByRole("option", { name: /Quokka three/u }));
+    act(() => unload["quokka-three"]!());
+    act(() => unload["quokka-two"]!());
+    const options = within(within(modal).getByRole("listbox", { name: "Settings search results" })).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]!.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(within(modal).getByText("Page quokka-one")).toBeTruthy();
   });
 });

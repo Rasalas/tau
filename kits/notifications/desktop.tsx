@@ -254,9 +254,9 @@ function createSettingsPage(context: DesktopExtensionContext) {
             description="What plays when the mode includes a sound: one phrase when a thread is done, another when it needs you. Choosing one plays it."
             setting={sound}
             control={<>
-              <SegmentedControl label="Sound" value={sound.value} options={SOUNDS} onChange={(next) => { sound.set(next); playSound(next); }} />
-              <Button variant="ghost" icon={<Play size={13} />} aria-label={`Play ${SOUND_LABELS[sound.value]} for a finished thread`} onClick={() => playSound(sound.value, "done")}>Done</Button>
-              <Button variant="ghost" icon={<Play size={13} />} aria-label={`Play ${SOUND_LABELS[sound.value]} for a thread that needs you`} onClick={() => playSound(sound.value, "attention")}>Needs you</Button>
+              <SegmentedControl label="Sound" value={sound.value} options={SOUNDS} onChange={(next) => { sound.set(next); playSound(next, "done", true); }} />
+              <Button variant="ghost" icon={<Play size={13} />} aria-label={`Play ${SOUND_LABELS[sound.value]} for a finished thread`} onClick={() => playSound(sound.value, "done", true)}>Done</Button>
+              <Button variant="ghost" icon={<Play size={13} />} aria-label={`Play ${SOUND_LABELS[sound.value]} for a thread that needs you`} onClick={() => playSound(sound.value, "attention", true)}>Needs you</Button>
             </>}
           />
         </SettingsSection>

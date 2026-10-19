@@ -102,10 +102,10 @@
   border: 0; border-radius: var(--radius-sm); background: transparent;
   color: var(--ink); font: 500 var(--text-sm) var(--sans); cursor: pointer;
 }
-.btw-foot > button:hover:not(:disabled) { background: var(--raised); }
-.btw-foot > button:disabled { opacity: .5; cursor: default; }
+.btw-foot > button:hover:not(:disabled, [aria-disabled="true"]) { background: var(--raised); }
+.btw-foot > button:disabled, .btw-foot > button[aria-disabled="true"] { opacity: .5; cursor: default; }
 .btw-foot > button.primary { background: var(--acid); color: var(--acid-ink); }
-.btw-foot > button.primary:hover:not(:disabled) { background: var(--acid-strong); }
+.btw-foot > button.primary:hover:not(:disabled, [aria-disabled="true"]) { background: var(--acid-strong); }
 @media (max-width: 640px) {
   .btw-note { display: none; }
   .btw-foot > button { height: 32px; }

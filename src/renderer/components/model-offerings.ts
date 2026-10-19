@@ -177,7 +177,7 @@ export function filterCount(filters: OfferingFilters): number {
 /**
  * Search results across runtimes: the offerings that match, best first by
  * `sort` (by score when `relevance`). On a tie the runtime on hand
- * (`preferred`) goes first. `modelEntries` groups these into model rows.
+ * (`preferred`) goes first, then the order the runtime lists them in (newest first for most). `modelEntries` groups these into model rows.
  */
 export function searchOfferings(
   offerings: readonly Offering[],
@@ -193,7 +193,7 @@ export function searchOfferings(
   const compare = offeringComparator(sort);
   const home = (offering: Offering) => (offering.runtime === preferred ? 0 : 1);
   scored.sort((a, b) => (sort === "relevance" ? a.score - b.score : 0) || compare(a.offering, b.offering) || a.score - b.score
-    || home(a.offering) - home(b.offering) || compareNames(a.offering, b.offering));
+    || home(a.offering) - home(b.offering) || a.offering.position - b.offering.position || compareNames(a.offering, b.offering));
   return scored.map(({ offering }) => offering);
 }
 

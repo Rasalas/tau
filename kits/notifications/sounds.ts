@@ -45,6 +45,8 @@ const VOICES: Record<SoundName, Voice> = {
 };
 
 let audio: AudioContext | undefined;
+/** When each name and cue last stops ringing, on the audio clock; a burst of deliveries plays once. */
+const ringingUntil = new Map<string, number>();
 
 function context(): AudioContext | undefined {
   if (audio) return audio;
@@ -58,13 +60,19 @@ export function unlockSound(): void {
   void context()?.resume().catch(() => undefined);
 }
 
-/** Synthesised rather than shipped as files: no asset, no loader, no media policy to widen. */
-export function playSound(name: SoundName, cue: SoundCue = "done"): boolean {
+/**
+ * Synthesised rather than shipped as files: no asset, no loader, no media policy to widen.
+ * A cue that is still ringing is not started again unless `preview` asks for it.
+ */
+export function playSound(name: SoundName, cue: SoundCue = "done", preview = false): boolean {
   const ctx = context();
   if (!ctx) return false;
   if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
   const voice = VOICES[name];
+  const slot = `${name}:${cue}`;
+  if (!preview && ctx.currentTime < (ringingUntil.get(slot) ?? 0)) return true;
   const start = ctx.currentTime + 0.01;
+  let end = start;
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
   filter.frequency.value = voice.brightness;
@@ -85,7 +93,9 @@ export function playSound(name: SoundName, cue: SoundCue = "done"): boolean {
       oscillator.connect(gain).connect(filter);
       oscillator.start(at);
       oscillator.stop(at + length + 0.02);
+      end = Math.max(end, at + length);
     }
   }
+  ringingUntil.set(slot, end);
   return true;
 }

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { StageTabHandle, WorkbenchActions } from "tau";
-import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
+import { READ_ONLY_REASON, type StageTabHandle, type WorkbenchActions } from "tau";
+import { createKitHarness, HostClientProvider } from "../../src/renderer/test-support/kit-harness.js";
+import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { createHandoffExtension } from "./desktop.js";
 import { BTW_EVENT, BTW_STAGE_TAB, HANDOFF_EXTENSION_ID, type BtwChat } from "./protocol.js";
 import { HandoffStore } from "./store.js";
@@ -42,7 +43,10 @@ function setup(answers: Record<string, unknown> = {}) {
   const command = registry.getCommands().find((entry) => entry.id === "handoff.btw")!;
   const kind = registry.getStageTabKind(BTW_STAGE_TAB)!;
   const handle = { id: "tab-1", setTitle: vi.fn(), setDirty: vi.fn(), onClose: vi.fn(() => () => undefined) } as unknown as StageTabHandle;
-  const draw = (actions: WorkbenchActions, params: Record<string, unknown> = { chatId: "c1" }) => render(<>{kind.render(params, handle, actions)}</>);
+  const draw = (actions: WorkbenchActions, params: Record<string, unknown> = { chatId: "c1" }, readOnly = false) => {
+    const view = <>{kind.render(params, handle, actions)}</>;
+    return render(readOnly ? <HostClientProvider client={createFakeHostClient({ isReadOnly: () => true })}>{view}</HostClientProvider> : view);
+  };
   const push = (payload: unknown) => act(() => registry.dispatchExtensionEvent({ type: "extension-event", extensionId: HANDOFF_EXTENSION_ID, name: BTW_EVENT, payload }));
   return { invoke, registry, slash, command, kind, handle, draw, push };
 }
@@ -153,6 +157,28 @@ describe("a side question's tab", () => {
     expect(screen.getByRole("alert").textContent).toBe("Rate limited.");
     fireEvent.click(screen.getByRole("button", { name: /Retry/u }));
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(HANDOFF_EXTENSION_ID, "btw-ask", { threadId: "t1", question: "What is slow?", chatId: "c1" }));
+  });
+
+  it("keeps the buttons a read-only connection blocks focusable, with the reason, and does not act", async () => {
+    const { draw, push, invoke } = setup();
+    const actions = actionsFor();
+    draw(actions, { chatId: "c1" }, true);
+    push(chat({ status: "failed", error: "Rate limited.", answer: "Partial." }));
+    const retry = screen.getByRole("button", { name: /Retry/u });
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
+    expect(retry.getAttribute("aria-disabled")).toBe("true");
+    expect(retry.getAttribute("data-tooltip")).toBe(READ_ONLY_REASON);
+    retry.focus();
+    expect(document.activeElement).toBe(retry);
+    fireEvent.click(retry);
+    push(chat({ answer: "Done.", status: "done" }));
+    const fork = screen.getByRole("button", { name: /Continue as side task/u });
+    expect((fork as HTMLButtonElement).disabled).toBe(false);
+    expect(fork.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(fork);
+    await Promise.resolve();
+    expect(invoke).not.toHaveBeenCalledWith(HANDOFF_EXTENSION_ID, "btw-ask", expect.anything());
+    expect(actions.askFork).not.toHaveBeenCalled();
   });
 
   it("ends the question when its tab closes, and says so when another window did", async () => {

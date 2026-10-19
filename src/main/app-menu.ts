@@ -94,6 +94,10 @@ export function appMenuTemplate(platform: string, appName: string, handlers: App
         // ⌘+ on layouts where + is its own key; hidden, it only listens.
         { label: "Zoom In", accelerator: accelerator(APP_MENU_CHORDS.zoomInPlus), visible: false, click: zoom("in") },
         { label: "Zoom Out", accelerator: accelerator(APP_MENU_CHORDS.zoomOut), click: zoom("out") },
+        // Keypad keys; hidden, they only listen.
+        { label: "Actual Size", accelerator: accelerator(APP_MENU_CHORDS.actualSizeKeypad), visible: false, click: zoom("reset") },
+        { label: "Zoom In", accelerator: accelerator(APP_MENU_CHORDS.zoomInKeypad), visible: false, click: zoom("in") },
+        { label: "Zoom Out", accelerator: accelerator(APP_MENU_CHORDS.zoomOutKeypad), visible: false, click: zoom("out") },
         { type: "separator" },
         { role: "togglefullscreen" },
       ],
