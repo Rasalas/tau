@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { HostCommandError, type HostMcpTool, type HostMcpToolProvider, type HostThreadLifecycle, type HostTurnObserver, type PackageReview, type RuntimeExtensionContribution } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createPackagesHostExtension } from "./host.js";
+import { newPackageTools } from "./new-package-tool.js";
 import type { InstallRequest } from "./install-protocol.js";
 import { PACKAGES_EXTENSION_ID } from "./protocol.js";
 
@@ -50,6 +51,15 @@ describe("tau_install_package", () => {
     const registered: Array<{ name: string }> = [];
     await runtime.find((entry) => entry.name === "tau-install-package")!.factory({ registerTool: (tool: never) => registered.push(tool) } as never, { sessionId: "t1", cwd: "/project" });
     expect(registered.map((tool) => tool.name)).toEqual(["tau_install_package"]);
+  });
+
+  it("declares itself read-only so Ask does not confirm the call before the card does, and tau_new_package stays a write", async () => {
+    const { runtime } = await activate();
+    const registered: Array<{ name: string; annotations?: { readOnlyHint?: boolean } }> = [];
+    await runtime.find((entry) => entry.name === "tau-install-package")!.factory({ registerTool: (tool: never) => registered.push(tool) } as never, { sessionId: "t1", cwd: "/project" });
+    expect(registered[0]!.annotations).toEqual({ readOnlyHint: true });
+    const newPackage = newPackageTools({ services: {} } as never)[0]!;
+    expect(newPackage.annotations).toEqual({ readOnlyHint: false });
   });
 
   it("hands build errors back with file, line and column and shows no card", async () => {

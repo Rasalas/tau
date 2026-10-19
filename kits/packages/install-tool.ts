@@ -146,7 +146,8 @@ export class PackageInstalls {
     }, { access: "owner" });
 
     const tools = (session: RuntimeSessionInfo): HostMcpTool[] => [{
-      annotations: { readOnlyHint: false },
+      // Changes nothing itself: only the user's card answer, or Full access, starts a package. The Access Kit's gate would otherwise ask twice.
+      annotations: { readOnlyHint: true },
       name: INSTALL_TOOL,
       label: "Install package",
       description: "Install a Tau extension package from a folder inside the global extension folder (the one tau_new_package creates). Builds it and returns build errors with file, line and column. A package made with tau_new_package starts at once in a thread with Full access (the user sees a toast with Turn off). In any other thread, and for any package you did not make with tau_new_package, the user is asked in this thread what it may do, and only their confirmation starts it. Returns { status: running | declined | ended, id }.",

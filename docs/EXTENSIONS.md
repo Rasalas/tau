@@ -5528,6 +5528,7 @@ the host wrote, edits to its files load live without a new yes; a change to its
 `permissions` or `isolation` turns it off until `tau_install_package` runs again
 (at Full access it starts at once, otherwise the card asks about the new items).
 For any other package a change to any file turns it off until it is allowed again.
+The tool declares itself read-only (`readOnlyHint`), so the Access Kit's gate does not confirm the call at Ask before the card asks; `tau_new_package`, which writes files, stays under the normal Ask rule.
 
 `services.startOwnPackage(path, fingerprint, threadId)` is the host's half
 (`packages`, in-process only). It starts the package only when the host wrote that
