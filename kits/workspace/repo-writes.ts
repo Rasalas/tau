@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { appendFile, lstat, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gitExecutable, HostCommandError } from "tau/host-extension";
+import { gitEnvironment, gitExecutable, HostCommandError } from "tau/host-extension";
 
 /*
  * A project's first commit, made from a tree another kit keeps in a repository
@@ -20,7 +20,7 @@ function gitEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) if (!REPOSITORY_ENV.test(key)) env[key] = value;
   delete env.ELECTRON_RUN_AS_NODE;
-  return { ...env, ...extra, GIT_OPTIONAL_LOCKS: "0" };
+  return gitEnvironment({ ...env, ...extra, GIT_OPTIONAL_LOCKS: "0" });
 }
 
 function spawnGit(args: readonly string[], options: GitOptions = {}) {

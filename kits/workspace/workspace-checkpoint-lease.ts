@@ -4,7 +4,7 @@ import { mkdir, open, readFile, readdir, realpath, rename, rm, rmdir, stat } fro
 import { hostname, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { gitExecutable } from "tau/host-extension";
+import { gitEnvironment, gitExecutable } from "tau/host-extension";
 
 const execFileAsync = promisify(execFile);
 
@@ -84,7 +84,7 @@ async function defaultRunGit(cwd: string, args: string[]): Promise<string> {
     cwd,
     maxBuffer: 1024 * 1024,
     timeout: 10_000,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    env: gitEnvironment({ ...process.env, GIT_OPTIONAL_LOCKS: "0" }),
     windowsHide: true,
   });
   return stdout;

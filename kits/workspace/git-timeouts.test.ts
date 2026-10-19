@@ -19,6 +19,7 @@ describe("workspace Git command timeouts", () => {
     ["push", "--set-upstream", "origin", "HEAD:refs/heads/topic"],
     ["clean", "-fd", "--"],
     ["read-tree", "--reset", "-u", "target-tree"],
+    ["-c", "core.splitIndex=false", "-c", "splitIndex.sharedIndexExpire=never", "read-tree", "HEAD"],
     ["read-tree", "--reset", "-u", "rollback-tree"],
   ])("does not time out %j", async (...args) => {
     expect(await runGitCommand("/workspace", args)).toBe("output");
@@ -49,7 +50,7 @@ describe("workspace Git command timeouts", () => {
     const env = { GIT_INDEX_FILE: "/scratch/index" };
     await runGitCommand("/workspace", ["commit", "-m", "change"], 1024, signal, env, 60_000);
     expect(execute).toHaveBeenCalledWith(expect.any(String), ["-c", "core.quotePath=false", "-c", "core.fsmonitor=false", "commit", "-m", "change"], expect.objectContaining({
-      cwd: "/workspace", maxBuffer: 1024, signal, env: { ...env, GIT_OPTIONAL_LOCKS: "0" }, timeout: 60_000,
+      cwd: "/workspace", maxBuffer: 1024, signal, env: expect.objectContaining({ ...env, GIT_OPTIONAL_LOCKS: "0" }), timeout: 60_000,
     }));
   });
 });

@@ -155,7 +155,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./session-import.js",   "./session-info-index.js",   "./session-lineage.js",   "./session-locks.js",   "./session-model-provider.js",   "./session-usage.js",
   // Pi sessions read without Pi's repairs on open, and the Pi CLI taking the same session locks (K13).
   "./session-read.js",   "./pi-session-lock-extension.js",
-  "./shared-files.js",   "./shell-environment.js",   "./single-instance.js",   "./skill-expansion.js",   "./workspace-skills.js",   "./skill-invocation.js",   "./small-completion-model.js",
+  "./shared-files.js",   "./shell-environment.js",   "./git-environment.js",   "./single-instance.js",   "./skill-expansion.js",   "./workspace-skills.js",   "./skill-invocation.js",   "./small-completion-model.js",
   "./startup-workspace.js",   "./system-prompt-resolver.js",   "./tau-runtime-owner.js",
   "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
   "./agent-session-control.js",   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",

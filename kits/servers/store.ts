@@ -1,3 +1,4 @@
+import { gitEnvironment } from "tau/host-extension";
 import { execFile } from "node:child_process";
 import { lstat, readdir, realpath, rm } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -89,7 +90,7 @@ export class ServersStore {
 export type GitRunner = (cwd: string, args: string[]) => Promise<string>;
 
 const runGit: GitRunner = (cwd, args) => new Promise((done, fail) => {
-  execFile("git", args, { cwd, encoding: "utf8", timeout: 10_000 }, (error, stdout) => (error ? fail(error) : done(stdout)));
+  execFile("git", args, { cwd, env: gitEnvironment(), encoding: "utf8", timeout: 10_000 }, (error, stdout) => (error ? fail(error) : done(stdout)));
 });
 
 /**

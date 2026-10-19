@@ -1,3 +1,4 @@
+import { gitEnvironment } from "tau/host-extension";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, open, readdir, rm, stat, writeFile } from "node:fs/promises";
@@ -78,7 +79,7 @@ export function rankFiles(files: readonly string[], query: string, limit = 30): 
 
 const run = (command: string, args: readonly string[], cwd: string) => new Promise<string>((resolveRun, reject) => {
   const invocation = commandInvocation(command, args);
-  execFile(invocation.command, invocation.args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout: 15_000, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments }, (error, stdout) => {
+  execFile(invocation.command, invocation.args, { env: gitEnvironment(), cwd, maxBuffer: 32 * 1024 * 1024, timeout: 15_000, windowsHide: true, windowsVerbatimArguments: invocation.windowsVerbatimArguments }, (error, stdout) => {
     if (error) reject(error);
     else resolveRun(stdout);
   });

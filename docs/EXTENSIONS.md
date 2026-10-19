@@ -5984,3 +5984,13 @@ shell lists and output subscriptions.
 The adapter is created once when first used and disposed with its registration.
 A replacement activation creates a new adapter and rebuilds watches. Custom
 adapter functions cannot run in worker extensions.
+
+### Git subprocess environment, API 1.75.0
+
+`gitEnvironment(base = process.env)` from `tau/host-extension` returns a copy of
+the environment with `safe.bareRepository=explicit` appended through
+`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n` and `GIT_CONFIG_VALUE_n`. Use it for Git
+subprocesses so repository discovery cannot trust an embedded bare repository.
+It preserves existing config entries and index overrides, normalizes config
+variable casing for Windows and rejects an invalid config count. Intentionally
+accessing a bare repository requires an explicit `--git-dir`.

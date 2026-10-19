@@ -30,7 +30,9 @@ async function captureGitSnapshot(
     GIT_OPTIONAL_LOCKS: "0",
   };
   const run = (args: string[], maxBuffer = SNAPSHOT_GIT_BUFFER): Promise<string> =>
-    runGit(cwd, args, maxBuffer, undefined, env);
+    runGit(cwd, ["read-tree", "add", "write-tree"].includes(args[0] ?? "")
+      ? ["-c", "core.splitIndex=false", "-c", "splitIndex.sharedIndexExpire=never", ...args]
+      : args, maxBuffer, undefined, env);
   try {
     // Fallback is allowed only before Git recognizes this workspace. Capture
     // failures in a repository must never become filesystem checkpoints.

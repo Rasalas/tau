@@ -1,3 +1,4 @@
+import { gitEnvironment } from "tau/host-extension";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
@@ -80,7 +81,7 @@ export const runAgentGit: AgentGitRunner = async (cwd, args, options = {}) => {
     maxBuffer: PATCH_BUFFER,
     timeout: 120_000,
     windowsHide: true,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", ...(options.indexFile ? { GIT_INDEX_FILE: options.indexFile } : {}) },
+    env: gitEnvironment({ ...process.env, GIT_OPTIONAL_LOCKS: "0", ...(options.indexFile ? { GIT_INDEX_FILE: options.indexFile } : {}) }),
   });
   if (options.stdin !== undefined) child.child.stdin?.end(options.stdin);
   const { stdout } = await child;

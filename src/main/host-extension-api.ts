@@ -144,3 +144,5 @@ export { SecurityKeychain, SecretToolStore, runProcess, parseSecurityPassword, p
 
 // The transcript representation of a wake. New in API 1.52.0.
 export { wakeMessageText } from "../shared/message-turns.js";
+
+export { gitEnvironment } from "./git-environment.js";

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
-import { gitExecutable } from "tau/host-extension";
+import { gitEnvironment, gitExecutable } from "tau/host-extension";
 
 const execFileAsync = promisify(execFile);
 
@@ -14,7 +14,10 @@ export type SnapshotGitRunner = (
   env?: NodeJS.ProcessEnv,
 ) => Promise<string>;
 
-function gitCommandTimeout(args: readonly string[]): number {
+function gitCommandTimeout(input: readonly string[]): number {
+  let offset = 0;
+  while (input[offset] === "-c") offset += 2;
+  const args = input.slice(offset);
   if (["commit", "pull", "push", "clean", "read-tree"].includes(args[0] ?? "")) return 0;
   if (args[0] === "worktree" && (args[1] === "add" || args[1] === "remove")) return 5 * 60 * 1000;
   return 10_000;
@@ -33,7 +36,7 @@ export async function runGitCommand(
     maxBuffer,
     timeout,
     signal,
-    env: { ...(env ?? process.env), GIT_OPTIONAL_LOCKS: "0" },
+    env: gitEnvironment({ ...(env ?? process.env), GIT_OPTIONAL_LOCKS: "0" }),
     windowsHide: true,
   });
   const { stdout } = await run().catch(async (error: unknown) => {

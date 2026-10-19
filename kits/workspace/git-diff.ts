@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { basename, dirname } from "node:path";
-import { gitExecutable } from "tau/host-extension";
+import { gitEnvironment, gitExecutable } from "tau/host-extension";
 import type {
   ChangeStatus,
   DiffLoadOptions,
@@ -206,7 +206,7 @@ export async function streamFilePatch(
   const { hunkOffset: offset, hunkLimit: limit } = normalizeDiffLoadOptions(options, MAX_DIFF_HUNKS);
   return new Promise((settle, reject) => {
     const child = spawn(gitExecutable(), ["-c", "core.quotePath=false", "-c", "core.fsmonitor=false", ...args], {
-      cwd, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
+      cwd, env: gitEnvironment({ ...process.env, GIT_OPTIONAL_LOCKS: "0" }), stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
     });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
