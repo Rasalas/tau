@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import { HTML_PAGE_LIMITS } from "./protocol.js";
 
@@ -33,7 +34,7 @@ async function atomicWrite(path: string, data: string): Promise<void> {
   const temporary = `${path}.${randomBytes(6).toString("hex")}.tmp`;
   try {
     await writeFile(temporary, data);
-    await rename(temporary, path);
+    await renameReplacing(temporary, path);
   } catch (error) {
     await rm(temporary, { force: true }).catch(() => undefined);
     throw error;

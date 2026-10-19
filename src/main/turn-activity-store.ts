@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { renameReplacing } from "./atomic-rename.js";
 import { join } from "node:path";
 import type { UiToolRun, UiTurnActivityEntry } from "../shared/contracts.js";
 
@@ -161,7 +162,7 @@ export class TurnActivityStore {
     const temporary = `${target}.${randomBytes(4).toString("hex")}.tmp`;
     await mkdir(this.options.directory, { recursive: true });
     await writeFile(temporary, text ? `${text}\n` : "", "utf8");
-    await rename(temporary, target);
+    await renameReplacing(temporary, target);
   }
 
   /** The host's current record of one turn; later saves of the same turn add what changed. */

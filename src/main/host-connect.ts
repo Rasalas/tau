@@ -1,7 +1,8 @@
 import { HOST_FACTORY_COMMANDS } from "../shared/host-factory-commands.js";
 import type { HostCommand } from "../shared/host-command-definition.js";
 import { bindHostCommand } from "./host-command-handler.js";
-import { readFile, mkdir, writeFile, rename, rm } from "node:fs/promises";
+import { readFile, mkdir, writeFile, rm } from "node:fs/promises";
+import { renameReplacing } from "./atomic-rename.js";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { pairingUrl } from "../shared/connections.js";
@@ -100,7 +101,7 @@ export class HostConnect {
         if (this.closed) throw new Error("This host stopped before registration completed.");
         const temporary = `${this.path}.${randomUUID()}`;
         await mkdir(this.options.userData, { recursive: true, mode: 0o700 });
-        try { await writeFile(temporary, JSON.stringify(config), { mode: 0o600 }); await rename(temporary, this.path); }
+        try { await writeFile(temporary, JSON.stringify(config), { mode: 0o600 }); await renameReplacing(temporary, this.path); }
         finally { await rm(temporary, { force: true }); }
         this.config = config;
         await this.open();

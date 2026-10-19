@@ -1,6 +1,7 @@
 import { tryProcessLock, type ProcessLock } from "tau/host-extension";
 import { randomUUID, createHash } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 
 export interface ChatGPTRegistration {
@@ -41,7 +42,7 @@ export class ChatGPTPlanStore {
     const temporary = `${path}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporary, value, { flag: "wx", mode: 0o600 });
-      await rename(temporary, path);
+      await renameReplacing(temporary, path);
     } finally { await rm(temporary, { force: true }); }
   }
 

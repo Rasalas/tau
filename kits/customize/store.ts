@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { dirname } from "node:path";
 import { CUSTOMIZE_LIMITS, EMPTY_STATE, type CustomizeState, type UserScript, type UserScriptTarget, type UserStyle } from "./protocol.js";
 
@@ -147,7 +148,7 @@ export class CustomizeStore {
     const temporary = `${this.file}.${randomBytes(6).toString("hex")}.tmp`;
     try {
       await writeFile(temporary, JSON.stringify(next, null, 2), { mode: 0o600 });
-      await rename(temporary, this.file);
+      await renameReplacing(temporary, this.file);
     } catch (error) {
       await rm(temporary, { force: true }).catch(() => undefined);
       throw error;

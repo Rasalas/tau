@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
 import { recallablePrompt } from "./history.js";
@@ -54,7 +55,7 @@ function readEntry(value: unknown): StashEntry | undefined {
 async function writeAtomically(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, JSON.stringify(value), { mode: 0o600 });
-  await rename(temporary, path);
+  await renameReplacing(temporary, path);
 }
 
 async function readJson(path: string): Promise<unknown> {

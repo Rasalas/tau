@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
-import { rename, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
+import { renameReplacing } from "./atomic-rename.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import {
@@ -174,7 +175,7 @@ export class RuntimeInstanceSettings {
     // A fresh file takes the mode; renaming it over the old one keeps a write atomic and private.
     const temporary = `${this.options.file}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
-    await rename(temporary, this.options.file);
+    await renameReplacing(temporary, this.options.file);
   }
 }
 

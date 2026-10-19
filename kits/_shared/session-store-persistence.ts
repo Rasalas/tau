@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from "node:util";
 import { readPersistedJson, THREAD_TEXT_CHARS, threadTextsDelta, tryProcessLock, writePersistedJson, type PersistedJsonLogger, type StoredThreadText, type ThreadText, type ThreadTextsAnswer } from "tau/host-extension";
 import { sessionStoreSqliteWorkerMain, type SqliteChanges, type SqliteDatabaseStats, type SqliteSessionChange, type SqliteStoreRead } from "./session-store-persistence-worker.js";
 import type { SessionDatabaseStatus } from "./session-database-protocol.js";
+import { sqliteRecoveryMessage } from "./session-database-errors.js";
 
 interface SessionStoreData<T, M> { sessions: T[]; models?: Record<string, M[]> }
 interface Changes<T, M> {
@@ -110,10 +111,10 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     if (!this.worker) {
       const worker = new Worker(`import("node:module").then(({ createRequire }) => (${sessionStoreSqliteWorkerMain.toString()})(createRequire(process.execPath)))`, { eval: true, workerData: { path: this.databasePath, summaryVersion: this.options.summaryVersion } });
       this.worker = worker;
-      worker.on("message", (reply: { id: number; value?: unknown; error?: string }) => {
+      worker.on("message", (reply: { id: number; value?: unknown; error?: string; errcode?: unknown }) => {
         const pending = this.requests.get(reply.id);
         this.requests.delete(reply.id);
-        if (reply.error) pending?.reject(new Error(reply.error)); else pending?.resolve(reply.value);
+        if (reply.error) pending?.reject(this.failure(reply.error, reply.errcode)); else pending?.resolve(reply.value);
         if (!this.requests.size && this.worker === worker) {
           worker.unref();
           this.timer = setTimeout(() => { if (this.worker === worker && !this.requests.size) { this.worker = undefined; void worker.terminate(); } }, 30_000);
@@ -133,6 +134,14 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     this.worker.ref();
     const id = ++this.sequence;
     return new Promise((resolve, reject) => { this.requests.set(id, { resolve, reject }); this.worker!.postMessage({ id, operation, ...values }); });
+  }
+
+  /** Known SQLite failures read as a sentence plus a next step; the driver text stays in `cause` and the log. */
+  private failure(message: string, errcode: unknown): Error {
+    const sentence = sqliteRecoveryMessage(errcode);
+    if (!sentence) return new Error(message);
+    this.options.logger?.warn(`Session database failed: ${message}`);
+    return new Error(sentence, { cause: new Error(message) });
   }
 
   private async closeWorker(): Promise<void> {

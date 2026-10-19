@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, lstat, mkdir, readdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { renameReplacing } from "./atomic-rename.js";
 import { dirname, join } from "node:path";
 
 const TAU_PACKAGE_NAME = "tau-pi-desktop-prototype";
@@ -74,7 +75,7 @@ export async function writeWorkbenchSourceRoot(userData: string, root: string): 
   const temporary = `${path}.${process.pid}.tmp`;
   await mkdir(dirname(path), { recursive: true });
   await writeFile(temporary, `${JSON.stringify({ version: 2, root, buildHash } satisfies WorkbenchSourceState, null, 2)}\n`, { mode: 0o600 });
-  await rename(temporary, path);
+  await renameReplacing(temporary, path);
 }
 
 /** Reads and revalidates the persisted checkout before the launcher imports it. */

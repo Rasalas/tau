@@ -139,6 +139,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./kit-message-order.js", // A runtime kit's messages in the order they began, as the live view shows them.
   "./managed-workbench-source.js",   "./mcp-endpoint.js",   "./model-attribution.js",   "./model-completion.js",   "./model-login.js",   "./model-price-book.js",   "./models-config.js",   "./packaged-app.js",
   "./opencode-catalog.js",
+  "./atomic-rename.js", // Replace-by-rename that survives a Windows scanner holding the target.
   "./editable-json.js", "./persisted-json.js",   "./persisted-transcript.js",   "./pi-bridge-client.js",
   "./persisted-transcript-reader.js", // Bounded persisted Pi history reads, owned by the host.
   "./secret-store.js", // OS-store leaf shared by host kits; no runtime access to values.

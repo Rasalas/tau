@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { renameReplacing } from "../_shared/atomic-rename.js";
 import { ProviderReadCache } from "./provider-read-cache.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -269,7 +270,7 @@ export function createSourceControl(context: HostExtensionContext, options: Sour
       await mkdir(services.stateDir, { recursive: true });
       const temporary = `${hostsPath}.${process.pid}.tmp`;
       await writeFile(temporary, `${JSON.stringify({ version: 1, hosts: next }, null, 2)}\n`);
-      await rename(temporary, hostsPath);
+      await renameReplacing(temporary, hostsPath);
       hostChoices = Promise.resolve(next);
       revision += 1;
       return next;
