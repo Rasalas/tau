@@ -305,6 +305,8 @@ export function agentAction(
 class PreviewController implements PreviewToolController {
   private view: PreviewSurface | undefined;
   private browserChanges: Promise<unknown> = Promise.resolve();
+  /** The latest navigation still loading; other lifecycle changes wait for it, a newer open replaces it. */
+  private loading: Promise<void> | undefined;
   private stopping: Promise<void> | undefined;
 
   private bounds: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
@@ -622,13 +624,26 @@ class PreviewController implements PreviewToolController {
 
   /** `typed` is the address bar; the agent's tools pass a URL and never search. */
   async open(url: unknown, typed = false): Promise<PreviewState> {
-    return this.changeBrowser(() => this.loadSurface(url, typed));
+    // The wait runs outside the queue, so a corrected URL supersedes a stalled load.
+    const { surface, loaded } = await this.changeBrowser(() => this.startLoad(url, typed), false);
+    await loaded;
+    this.publish();
+    return surface.state();
+  }
+
+  private async startLoad(url: unknown, typed: boolean): Promise<{ surface: PreviewSurface; loaded: Promise<void> }> {
+    const resolved = normalizePreviewUrl(typed && typeof url === "string" ? resolveTypedInput(url, this.defaults.search) : url, this.workspaceRoot);
+    const surface = await this.openSurface();
+    const loaded = surface.load(resolved, LOAD_TIMEOUT_MS);
+    const settled = loaded.then(() => undefined, () => undefined);
+    this.loading = settled;
+    void settled.then(() => { if (this.loading === settled) this.loading = undefined; });
+    return { surface, loaded };
   }
 
   private async loadSurface(url: unknown, typed = false): Promise<PreviewState> {
-    const resolved = normalizePreviewUrl(typed && typeof url === "string" ? resolveTypedInput(url, this.defaults.search) : url, this.workspaceRoot);
-    const surface = await this.openSurface();
-    await surface.load(resolved, LOAD_TIMEOUT_MS);
+    const { surface, loaded } = await this.startLoad(url, typed);
+    await loaded;
     this.publish();
     return surface.state();
   }
@@ -1020,9 +1035,12 @@ class PreviewController implements PreviewToolController {
   }
 
   /** Creation, navigation, profile mutation and closing share one lifecycle. */
-  private changeBrowser<T>(work: () => Promise<T>): Promise<T> {
+  private changeBrowser<T>(work: () => Promise<T>, afterLoad = true): Promise<T> {
     if (this.stopping) return Promise.reject(new Error("Preview is shutting down."));
-    const changed = this.browserChanges.then(work);
+    const changed = this.browserChanges.then(async () => {
+      if (afterLoad) await this.loading;
+      return work();
+    });
     this.browserChanges = changed.catch(() => undefined);
     return changed;
   }
@@ -1146,6 +1164,7 @@ class PreviewController implements PreviewToolController {
 
   async dispose(): Promise<void> {
     this.stopping ??= this.browserChanges.then(async () => {
+      await this.loading;
       this.pickToken += 1;
       try { await this.history.flush(); }
       finally { await this.closeSurface(); }

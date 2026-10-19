@@ -151,6 +151,7 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
   let deviceKey = "";
   let emulation: Promise<void> = Promise.resolve();
   let placing = 0;
+  let cancelLoad: (() => void) | undefined;
   const emulate = async (next: PreviewDeviceMetrics | undefined): Promise<void> => {
     if (contents.isDestroyed()) return;
     if (!next) {
@@ -286,16 +287,26 @@ export function createElectronPreviewSurface(options: PreviewSurfaceOptions, win
       if (!visible) placement.place(rect, visible, next !== undefined);
     },
     async load(url: string, timeoutMs: number) {
+      // A newer load ends the older wait; the abort of the old navigation must not end the new one.
+      const replacing = cancelLoad !== undefined;
+      cancelLoad?.();
       const settled = new Promise<void>((resolve) => {
+        let skipAbort = replacing;
         const done = () => {
           contents.off("did-finish-load", done);
-          contents.off("did-fail-load", done);
+          contents.off("did-fail-load", failed);
           clearTimeout(timer);
+          if (cancelLoad === done) cancelLoad = undefined;
           resolve();
         };
+        const failed = (_event: unknown, code: number) => {
+          if (code === -3 && skipAbort) { skipAbort = false; return; }
+          done();
+        };
+        cancelLoad = done;
         const timer = setTimeout(done, timeoutMs);
         contents.once("did-finish-load", done);
-        contents.once("did-fail-load", done);
+        contents.on("did-fail-load", failed);
       });
       // `loadURL` rejects on an aborted load; the listeners above report it.
       contents.loadURL(url).catch((error: unknown) => note(`load failed: ${error instanceof Error ? error.message : String(error)}`));

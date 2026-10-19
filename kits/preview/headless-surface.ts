@@ -59,6 +59,8 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
   let dpr = 1;
   let touch = false;
   let emulation: Promise<unknown> = Promise.resolve();
+  let loadGeneration = 0;
+  let supersede: (() => void) | undefined;
   let snapshot: PreviewState = { ...EMPTY_PREVIEW_STATE, available: true, surface: "headless", consoleErrors: [] };
   const send = <T = Record<string, unknown>>(method: string, params: object = {}) => browser.send<T>(method, params, pageSession);
   const recorder = new HeadlessPreviewRecorder(send, () => browser.close());
@@ -186,6 +188,10 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
     async load(url, timeoutMs) {
       if (!(await previewFileAllowed(url, options.workspaceRoot()))) throw new Error("Preview cannot read a file outside the workspace.");
       await emulation;
+      // A newer load replaces this one; the older stops waiting and leaves the state to the newer.
+      const mine = ++loadGeneration;
+      supersede?.();
+      const replaced = new Promise<void>((resolve) => { supersede = resolve; });
       snapshot = { ...snapshot, loading: true, consoleErrors: [] };
       options.onChange();
       let release: () => void = () => undefined;
@@ -208,9 +214,12 @@ export async function createHeadlessPreviewSurface(options: PreviewSurfaceOption
         if (result.errorText) throw new Error(result.errorText);
         wantedLoader = result.loaderId;
         // Same-document navigation has no loader and no load event.
-        if (wantedLoader && !loadedLoaders.has(wantedLoader)) await loaded;
-        await refresh();
-      } finally { clearTimeout(timer); release(); snapshot = { ...snapshot, loading: false }; options.onChange(); }
+        if (wantedLoader && !loadedLoaders.has(wantedLoader)) await Promise.race([loaded, replaced]);
+        if (mine === loadGeneration) await refresh();
+      } finally {
+        clearTimeout(timer); release();
+        if (mine === loadGeneration) { supersede = undefined; snapshot = { ...snapshot, loading: false }; options.onChange(); }
+      }
     },
     navigate(action) {
       if (action === "reload" || action === "hard-reload") run(send("Page.reload", { ignoreCache: action === "hard-reload" }));

@@ -144,6 +144,35 @@ describe("a preview call without a drawable window", () => {
   });
 });
 
+describe("the preview surface's loads", () => {
+  it("ends an older wait when a newer load starts, and ignores the abort of the older navigation", async () => {
+    const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
+    const add = (event: string, handler: (...args: unknown[]) => void) => { handlers.set(event, [...(handlers.get(event) ?? []), handler]); };
+    Object.assign(electron.contents, {
+      on: add,
+      once: (event: string, handler: (...args: unknown[]) => void) => {
+        const once = (...args: unknown[]) => { handlers.set(event, (handlers.get(event) ?? []).filter((entry) => entry !== once)); handler(...args); };
+        add(event, once);
+      },
+      off: (event: string, handler: (...args: unknown[]) => void) => { handlers.set(event, (handlers.get(event) ?? []).filter((entry) => entry !== handler)); },
+      loadURL: vi.fn(async () => undefined),
+    });
+    const emit = (event: string, ...args: unknown[]) => { for (const handler of [...(handlers.get(event) ?? [])]) handler({}, ...args); };
+    const view = surface();
+    const older = view.load("http://localhost:1/", 15_000);
+    const newer = view.load("http://localhost:2/", 15_000);
+    await older;
+    let finished = false;
+    void newer.then(() => { finished = true; });
+    emit("did-fail-load", -3);
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    emit("did-finish-load");
+    await newer;
+    expect(finished).toBe(true);
+  });
+});
+
 describe("the preview surface's capture", () => {
   it("draws a view the window never showed, without showing it", async () => {
     const view = surface();
