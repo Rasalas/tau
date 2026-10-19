@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { DEFAULT_INSTANCE_ID, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage } from "tau/host-extension";
 import { SessionStorePersistence } from "../_shared/session-store-persistence.js";
+import type { SessionDatabase } from "../_shared/session-database-protocol.js";
 
 /**
  * App-data persistence for OpenCode threads: the Tau thread → OpenCode session
@@ -204,6 +205,7 @@ export class OpenCodeSessionStore {
   }
 
   get databasePath(): string { return this.persistence.databasePath; }
+  get database(): SessionDatabase { return this.persistence; }
   dispose(): Promise<void> { return this.persistence.dispose(); }
   flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
 

@@ -79,6 +79,7 @@ import { startMcpApps } from "./mcp-app-commands.js";
 import { CodexThreadRuntimeBackend, MODEL_PROVIDER, codexBilling, storedModel, type CodexSessionInput, type CodexSessionLike } from "./thread-backend.js";
 import { readCodexIdentity, type AccountIdentity } from "./account-identity.js";
 import { codexLimitWindows, codexReadSnapshot, mergeCodexSnapshot, type CodexRateSnapshot, type LimitAccount } from "./limits.js";
+import { registerSessionDatabase } from "../_shared/session-database.js";
 
 export { codexBilling };
 
@@ -228,6 +229,7 @@ export function createCodexHostExtension(options: CodexHostExtensionOptions = {}
       const env = options.env ?? process.env;
       const storePath = CodexSessionStore.defaultPath(options.sessionsDir ?? services.sessionsDir);
       const store = new CodexSessionStore({ filePath: storePath });
+      registerSessionDatabase(context, store.database);
       const activity = new TurnActivityStore({ directory: join(dirname(storePath), "codex-activity") });
       const readVersion = options.readVersion ?? readCodexVersion;
       const settings = new RuntimeInstanceSettings({

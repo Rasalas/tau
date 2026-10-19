@@ -43,6 +43,8 @@ function fakeHost(initial: UiStorageReport) {
     remove: vi.fn(async (_path: string, confirm: boolean) => confirm
       ? { removed: true as const }
       : { removed: false as const, confirm: ["uncommitted" as const], dirtyFiles: 2, unpushedCommits: 0 }),
+    databases: vi.fn(async () => []),
+    reclaimDatabases: vi.fn(async () => []),
     onChanged: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
     setReport: (next) => { report = next; for (const listener of listeners) listener(); },
   };
@@ -58,6 +60,34 @@ const report = (worktrees: UiStorageWorktree[], policy: CleanupPolicy = EMPTY_PO
 });
 
 describe("Settings → Storage", () => {
+  it("shows each thread history database with its size and reclaims on request", async () => {
+    const host = fakeHost(report([]));
+    const onNotify = vi.fn();
+    vi.mocked(host.databases).mockResolvedValue([
+      { backend: "codex", label: "Codex", sizeBytes: 30 * 1024 * 1024, reclaimableBytes: 12 * 1024 * 1024, lastReclaim: { at: Date.now() - 3 * 86_400_000, bytes: 2 * 1024 * 1024 } },
+      { backend: "opencode", label: "OpenCode", sizeBytes: 1024 * 1024, reclaimableBytes: 0 },
+    ]);
+    vi.mocked(host.reclaimDatabases).mockResolvedValue([
+      { backend: "codex", label: "Codex", sizeBytes: 18 * 1024 * 1024, reclaimableBytes: 0, reclaimedBytes: 12 * 1024 * 1024 },
+    ]);
+    const Page = createStoragePage(host);
+    render(<Page onNotify={onNotify} />);
+
+    expect(await screen.findByText("Thread history · 31 MB")).toBeTruthy();
+    expect(screen.getByText("12 MB can be given back.")).toBeTruthy();
+    expect(screen.getByText(/Last time: 2.0 MB, 3d ago\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reclaim now" }));
+    await waitFor(() => expect(onNotify).toHaveBeenCalledWith("Gave back 12 MB."));
+    expect(host.reclaimDatabases).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Thread history · 18 MB")).toBeTruthy();
+  });
+
+  it("says so when no runtime has a thread history yet", async () => {
+    const Page = createStoragePage(fakeHost(report([])));
+    render(<Page onNotify={() => undefined} />);
+    expect(await screen.findByText("No thread history on disk yet")).toBeTruthy();
+  });
+
   it("lists every worktree with its size and says what the next cleanup removes", async () => {
     const due = tree({ path: "/w/due", branch: "tau/due", verdict: { remove: true, reasons: ["unchanged"], blockers: [] } });
     const kept = tree({ path: "/w/kept", branch: "tau/kept", dirtyFiles: 2, verdict: { remove: false, reasons: ["unchanged"], blockers: ["uncommitted"] } });

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { HostCommandError, type HostExtensionServices } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
+import { registerSessionDatabase } from "../_shared/session-database.js";
 import { createWorktree } from "./workspace-worktrees.js";
 import { registerWorktreeStorage } from "./worktree-storage-host.js";
 
@@ -77,4 +78,48 @@ it("includes other local runtimes in settle retention and fails closed on missin
   refreshIndex.mockRejectedValueOnce(new Error("Index unavailable"));
   await expect(storage.sweep()).rejects.toThrow("Index unavailable");
   expect(existsSync(path)).toBe(true);
+});
+
+it("lists the runtimes' session databases for the Storage page and lets only Workspace reclaim them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tau-storage-databases-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const reclaim = vi.fn(async () => ({ sizeBytes: 1_000, reclaimableBytes: 0, reclaimedBytes: 9_000, lastReclaim: { at: 5, bytes: 9_000 } }));
+  let registration: ReturnType<typeof registerWorktreeStorage> | undefined;
+  const registry = await activateHostKit({
+    id: "tau.workspace", name: "Workspace", permissions: ["sessions", "process", "workspace:read"],
+    activate(context) {
+      registration = registerWorktreeStorage(context, { removed: () => undefined });
+      return () => registration!.dispose();
+    },
+  }, {
+    stateDir: join(root, "state"), cwd: () => root, thread: () => undefined, noteSubprocess: () => undefined,
+    sessions: { list: async () => [], trash: async () => [], refreshIndex: vi.fn() } as never,
+  });
+  cleanup.push(() => registry.dispose());
+  let outsider: ((id: string) => Promise<unknown>) | undefined;
+  await registry.activate({
+    id: "tau.codex", name: "Codex",
+    activate(context) {
+      registerSessionDatabase(context, { databaseStatus: async () => ({ sizeBytes: 10_000, reclaimableBytes: 9_000 }), reclaim });
+    },
+  });
+  await registry.activate({
+    id: "tau.opencode", name: "OpenCode",
+    activate(context) {
+      registerSessionDatabase(context, { databaseStatus: async () => ({ sizeBytes: 0, reclaimableBytes: 0 }), reclaim: async () => ({ sizeBytes: 0, reclaimableBytes: 0 }) });
+    },
+  });
+  await registry.activate({
+    id: "tau.other", name: "Other",
+    activate(context) { outsider = (id) => context.invokeHostExtension(id, "session-database"); },
+  });
+  await expect(registry.invoke("tau.workspace", "database-report")).resolves.toEqual({
+    databases: [{ backend: "codex", label: "Codex", sizeBytes: 10_000, reclaimableBytes: 9_000 }],
+  });
+  expect(reclaim).not.toHaveBeenCalled();
+  await expect(registry.invoke("tau.workspace", "database-reclaim")).resolves.toMatchObject({
+    databases: [{ backend: "codex", sizeBytes: 1_000, reclaimedBytes: 9_000 }],
+  });
+  expect(reclaim).toHaveBeenCalledTimes(1);
+  await expect(outsider!("tau.codex")).rejects.toThrow();
 });

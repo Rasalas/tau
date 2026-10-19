@@ -8,6 +8,7 @@ import type {
   CleanupReason,
   UiCleanupResult,
   UiStorageRemoval,
+  UiSessionDatabase,
   UiStorageReport,
   UiStorageWorktree,
   WorktreeCleanupRules,
@@ -20,6 +21,10 @@ export interface StorageHost {
   setPolicy(patch: CleanupPolicyPatch): Promise<CleanupPolicy>;
   cleanUp(paths: string[]): Promise<UiCleanupResult>;
   remove(path: string, confirm: boolean): Promise<UiStorageRemoval>;
+  /** The thread history databases of the runtimes, with their size and free space. */
+  databases(): Promise<UiSessionDatabase[]>;
+  /** Gives their free space back now. */
+  reclaimDatabases(): Promise<UiSessionDatabase[]>;
   /** Called when a sweep or a removal changed what is on disk. */
   onChanged(listener: () => void): () => void;
 }
@@ -64,6 +69,51 @@ export function formatAge(at: number, now: number): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+function DatabaseRows({ host, onNotify }: { host: Pick<StorageHost, "databases" | "reclaimDatabases">; onNotify: SettingsPageProps["onNotify"] }) {
+  const [databases, setDatabases] = useState<UiSessionDatabase[]>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try { setDatabases(await host.databases()); setError(undefined); } catch (failure) { setError(errorMessage(failure)); }
+  }, [host]);
+  useEffect(() => { void load(); }, [load]);
+  const reclaim = async () => {
+    setBusy(true);
+    try {
+      const next = await host.reclaimDatabases();
+      setDatabases(next);
+      const freed = next.reduce((sum, database) => sum + (database.reclaimedBytes ?? 0), 0);
+      onNotify(freed > 0 ? `Gave back ${formatBytes(freed)}.` : "Nothing to give back.");
+    } catch (failure) {
+      onNotify(errorMessage(failure), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const total = databases?.reduce((sum, database) => sum + database.sizeBytes, 0) ?? 0;
+  const free = databases?.reduce((sum, database) => sum + database.reclaimableBytes, 0) ?? 0;
+  const last = databases?.flatMap((database) => database.lastReclaim ? [database.lastReclaim] : []).sort((a, b) => b.at - a.at)[0];
+  return (
+    <SettingsSection id="setting-workspace-storage-databases" title={`Thread history${databases?.length ? ` · ${formatBytes(total)}` : ""}`}>
+      {error ? <SettingsState kind="error" title="The thread history could not be measured" description={error} onRetry={() => void load()} /> : null}
+      {!databases && !error ? <SettingsState kind="loading" title="Measuring thread history" rows={2} /> : null}
+      {databases?.length === 0 ? <SettingsState kind="empty" title="No thread history on disk yet" description="Threads of Codex, Claude Code and the other runtimes are kept in a database that gives deleted space back by itself." /> : null}
+      {databases?.length ? <>
+        <SettingRow
+          title="Reclaim now"
+          description={`${free > 0 ? `${formatBytes(free)} left by deleted threads can be given back.` : "Deleted threads leave nothing to give back now."} Tau also does this by itself when idle.${last ? ` Last time: ${formatBytes(last.bytes)}, ${formatAge(last.at, Date.now())}.` : ""}`}
+          control={<Button variant="primary" busy={busy} onClick={() => void reclaim()}>Reclaim now</Button>}
+        />
+        {databases.map((database) => (
+          <SettingRow key={database.backend} title={database.label}
+            description={database.reclaimableBytes > 0 ? `${formatBytes(database.reclaimableBytes)} can be given back.` : "Nothing to give back."}
+            control={<span>{formatBytes(database.sizeBytes)}</span>} />
+        ))}
+      </> : null}
+    </SettingsSection>
+  );
+}
+
 /** The index is the page's only source for titles; outside a workbench there is none. */
 function useThreadTitles(): ThreadStore | undefined {
   try {
@@ -81,6 +131,7 @@ export const STORAGE_SETTINGS_ROWS = [
   { id: "setting-workspace-storage-settled", label: "Delete settled worktrees", keywords: ["cleanup", "days", "retention", "settled"] },
   { id: "setting-workspace-storage-merged", label: "Delete merged worktrees", keywords: ["cleanup", "pull request", "merged branch"] },
   { id: "setting-workspace-storage-unchanged", label: "Delete unchanged worktrees", keywords: ["cleanup", "no commits"] },
+  { id: "setting-workspace-storage-databases", label: "Thread history", keywords: ["database", "sqlite", "reclaim", "disk space", "size", "vacuum"] },
   { id: "setting-workspace-storage-worktrees", label: "Worktrees", keywords: ["disk space", "size", "measure", "clean up now", "remove worktree"] },
 ];
 
@@ -290,6 +341,8 @@ export function createStoragePage(host: StorageHost) {
           ) : null}
           {rules}
         </SettingsSection>
+
+        <DatabaseRows host={host} onNotify={onNotify} />
 
         <SettingsSection
           id="setting-workspace-storage-worktrees"

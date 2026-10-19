@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { appendUsageTurn, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
 import { SessionStorePersistence, sessionMessageIndex } from "../_shared/session-store-persistence.js";
+import type { SessionDatabase } from "../_shared/session-database-protocol.js";
 import { talliesOfRecord } from "../_acp/session-store.js";
 
 /**
@@ -171,6 +172,7 @@ export class AntigravitySessionStore {
   }
 
   get databasePath(): string { return this.persistence.databasePath; }
+  get database(): SessionDatabase { return this.persistence; }
   dispose(): Promise<void> { return this.persistence.dispose(); }
   flushAndRelease(): Promise<void> { return this.persistence.flushAndRelease(); }
 

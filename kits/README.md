@@ -54,6 +54,17 @@ before writing and merges only locally changed thread IDs and model catalogs.
 Unchanged cached records cannot revert another host's edits or deletions.
 Concurrent edits to the same ID use the last writer's record.
 
+The store's SQLite file gives deleted space back by itself: it is created with
+`auto_vacuum = INCREMENTAL`, and a file from before is converted with one
+`VACUUM` in the first idle pass. A minute after the store's last request (not
+at startup, at most every 30 minutes) the store returns free pages in 4 MB
+steps once 8 MB and a quarter of the file are free, stopping between steps for
+any queued write, then truncates the WAL. It removes the pre-SQLite files
+(`.pre-sqlite`, `.records`) a week after a migration the database recorded.
+Every runtime kit answers `session-database` and `session-database-reclaim`
+(`callers: ["tau.workspace"]`), which Settings → Storage shows as "Thread
+history" with a "Reclaim now" button.
+
 A kit's `pi` entry is the exception to "a kit is two halves": when a Pi TUI
 owns the session and Tau is only attached, the host half cannot hand a closure
 to that process. `pi.ts` default-exports `(pi, bridge) => void`, is prebuilt to
