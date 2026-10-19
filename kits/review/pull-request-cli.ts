@@ -128,6 +128,10 @@ export const pullRequestCalls = {
       ? { args: ["pr", "diff", ref.url, "--color", "never"] }
       : gitlab(ref).api(`${gitlab(ref).base}/diffs?per_page=100&page=${page}`);
   },
+  /** GitLab before 15.7 has no `/diffs`; `/changes` answers every file at once. */
+  legacyDiff(ref: PullRequestRef): CliCall {
+    return gitlab(ref).api(`${gitlab(ref).base}/changes?access_raw_diffs=true`);
+  },
   /** GitHub's per-file listing, for a diff `gh pr diff` refuses (over 300 files or too large); one JSON object per line. */
   files(ref: PullRequestRef): CliCall {
     return { args: [...github(ref).api, "--paginate", `repos/${ref.repo}/pulls/${ref.number}/files?per_page=100`, "--jq", ".[]"] };

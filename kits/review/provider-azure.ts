@@ -187,7 +187,18 @@ export function azureAutoMerge(raw: Json): AutoMergeState | undefined {
   return { method: record(raw.completionOptions).squashMerge === true ? "squash" : "merge" };
 }
 
-export function parseAzureDetail(ref: PullRequestRef, pull: string, threads: string, commits: string, checks: PullRequestCheck[]): PullRequestDetail {
+/** The source branch head of the newest iteration; `lastMergeSourceCommit` lags a push until the trial merge finishes. */
+export function azureIterationHead(iterations: string): string | undefined {
+  let newest: { id: number; sha: string } | undefined;
+  for (const iteration of list(record(JSON.parse(iterations)).value)) {
+    const sha = text(record(iteration.sourceRefCommit).commitId);
+    const id = typeof iteration.id === "number" ? iteration.id : -1;
+    if (sha && (!newest || id >= newest.id)) newest = { id, sha };
+  }
+  return newest?.sha;
+}
+
+export function parseAzureDetail(ref: PullRequestRef, pull: string, threads: string, commits: string, checks: PullRequestCheck[], iterations = "{}"): PullRequestDetail {
   const raw = record(JSON.parse(pull));
   const author = actor(raw.createdBy);
   const reviewers: PullRequestReviewer[] = list(raw.reviewers).flatMap((reviewer) => {
@@ -196,6 +207,7 @@ export function parseAzureDetail(ref: PullRequestRef, pull: string, threads: str
   });
   const closed = text(raw.closedDate);
   const autoMerge = azureAutoMerge(raw);
+  const headSha = azureIterationHead(iterations) ?? text(record(raw.lastMergeSourceCommit).commitId);
   return {
     ref,
     ...(autoMerge ? { autoMerge } : {}),
@@ -205,7 +217,7 @@ export function parseAzureDetail(ref: PullRequestRef, pull: string, threads: str
     ...(state(raw) === "merged" && closed ? { mergedAt: closed } : {}),
     ...(state(raw) === "closed" && closed ? { closedAt: closed } : {}),
     ...(branchName(raw.sourceRefName) ? { headRef: branchName(raw.sourceRefName) } : {}),
-    ...(text(record(raw.lastMergeSourceCommit).commitId) ? { headSha: text(record(raw.lastMergeSourceCommit).commitId) } : {}),
+    ...(headSha ? { headSha } : {}),
     title: text(raw.title) ?? `!${ref.number}`,
     body: typeof raw.description === "string" ? raw.description : "",
     state: state(raw),
@@ -343,13 +355,14 @@ export function createAzureProvider(tools: ProviderTools): SourceControlProvider
     },
 
     detail: async (ref, fresh) => {
-      const [pull, threadList, commits, found] = await Promise.all([
+      const [pull, threadList, commits, found, iterations] = await Promise.all([
         az(ref, ["repos", "pr", "show", "--id", String(ref.number)], `Reading ${noun(ref)}`),
         threads(ref, fresh),
         invoke(ref, "pullRequestCommits", {}, `Reading the commits of ${noun(ref)}`).catch(() => "{}"),
         checks(ref).catch(() => []),
+        invoke(ref, "pullRequestIterations", {}, `Reading the latest push of ${noun(ref)}`).catch(() => "{}"),
       ]);
-      return parseAzureDetail(ref, pull, threadList, commits, found);
+      return parseAzureDetail(ref, pull, threadList, commits, found, iterations);
     },
     checks,
     threads: async (ref, fresh) => parseAzureThreads(await threads(ref, fresh)).threads,

@@ -134,12 +134,21 @@ function labels(value: unknown): PullRequestLabel[] {
 
 const STATUSES: Record<string, PullRequestCheckStatus> = { success: "passed", failure: "failed", error: "failed", warning: "neutral", pending: "pending", skipped: "skipped" };
 
+function resolveUrl(target: string, base: string): string | undefined {
+  try {
+    const url = new URL(target, base);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+  } catch { return undefined; }
+}
+
 /** `GET /repos/:o/:r/commits/:sha/status`: one check per status context. */
-export function parseForgejoChecks(output: string): PullRequestCheck[] {
+export function parseForgejoChecks(output: string, requestUrl: string): PullRequestCheck[] {
   return list(record(JSON.parse(output)).statuses).flatMap((status) => {
     const name = text(status.context);
     if (!name) return [];
-    const url = text(status.target_url);
+    // Forgejo often sends a path; resolve it against the request's page, and drop what does not parse.
+    const target = text(status.target_url);
+    const url = target ? resolveUrl(target, requestUrl) : undefined;
     const description = text(status.description);
     return [{ name, status: STATUSES[text(status.status) ?? text(status.state) ?? ""] ?? "pending", ...(url ? { url } : {}), ...(description ? { description } : {}) }];
   });
@@ -328,7 +337,7 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
 
   const readChecks = async (ref: PullRequestRef, sha: string | undefined): Promise<PullRequestCheck[]> => {
     if (!sha) return [];
-    return parseForgejoChecks(await api(ref.host, `${repoPath(ref.repo)}/commits/${encodeURIComponent(sha)}/status`, `Reading the checks of ${noun(ref)}`));
+    return parseForgejoChecks(await api(ref.host, `${repoPath(ref.repo)}/commits/${encodeURIComponent(sha)}/status`, `Reading the checks of ${noun(ref)}`), ref.url);
   };
 
   const reviews = (ref: PullRequestRef, fresh: boolean) => tools.cached("reviews", ref, fresh, () => api(ref.host, `${pullPath(ref)}/reviews?limit=${PAGE}`, `Reading the reviews of ${noun(ref)}`));
@@ -414,7 +423,7 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
       const [comments, reviewList, commits, checks] = await Promise.all([
         api(ref.host, `${issuePath(ref)}/comments`, `Reading the comments of ${noun(ref)}`),
         reviews(ref, fresh),
-        api(ref.host, `${pullPath(ref)}/commits?limit=${PAGE}`, `Reading the commits of ${noun(ref)}`),
+        api(ref.host, `${pullPath(ref)}/commits?limit=${PAGE}&files=false&verification=false`, `Reading the commits of ${noun(ref)}`),
         readChecks(ref, sha).catch(() => []),
       ]);
       return parseForgejoDetail(ref, pull, comments, reviewList, commits, checks);
