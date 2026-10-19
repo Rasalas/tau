@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -15,7 +15,7 @@ const git = (cwd: string, ...args: string[]) => run("git", ["-c", "user.name=Tau
 const folders: string[] = [];
 
 async function repositoryWithRemote(): Promise<{ work: string; remote: string }> {
-  const root = await mkdtemp(join(tmpdir(), "tau-request-context-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "tau-request-context-")));
   folders.push(root);
   const remote = join(root, "remote.git");
   const work = join(root, "work");
@@ -147,7 +147,7 @@ it("keeps discovery branch/base semantics for detached and unborn checkouts", as
   const detached = await readReviewRequestContext(work, { discovery: true });
   expect(detached.branch).toBeUndefined();
   expect(detached.base).toBe("main");
-  const empty = await mkdtemp(join(tmpdir(), "tau-unborn-discovery-"));
+  const empty = await realpath(await mkdtemp(join(tmpdir(), "tau-unborn-discovery-")));
   folders.push(empty);
   await git(empty, "init", "-b", "main");
   await git(empty, "remote", "add", "origin", "https://github.com/acme/repo.git");
