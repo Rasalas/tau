@@ -72,10 +72,8 @@ function ShowMoreThreadRow({ remaining, all = false, onClick }: { remaining: num
 /**
  * A thread nobody has written to yet is a draft, not a row,
  * unless it is already at work. Threads an agent spawned are never in the rail — not in the settled shelf,
- * not in a search, not even while one is the thread on screen after a take-over
- * (the header above the transcript names it). Fifty of them would bury the
- * threads the user started; the Agents panel and the stage tabs it opens are
- * where they belong.
+ * not in a search, not even while one is the thread on screen.
+ * Subagents open inside their parent conversation.
  *
  * A thread is an agent's when an extension published its lineage, or when the
  * thread index read the link off the thread's own session file - which is what
