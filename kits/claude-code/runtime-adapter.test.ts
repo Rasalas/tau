@@ -40,6 +40,16 @@ it("completes a small job with the instance's own login and no persisted session
   } });
   expect(calls[0]!.options).not.toHaveProperty("resume");
 });
+it("completes without strict MCP mode next to a managed-mcp.json", async () => {
+  const { query, calls } = scripted(() => [assistant("Titel"), success()]);
+  const managed = createClaudeCodeRuntimeAdapter({ storePath: "/unused", query, managedMcp: () => true });
+  await managed.complete!("/repo", "haiku", { system: "Title", prompt: "Task" });
+  expect(calls[0]!.options).toMatchObject({ mcpServers: {}, tools: [] });
+  expect(calls[0]!.options).not.toHaveProperty("strictMcpConfig");
+  const plain = createClaudeCodeRuntimeAdapter({ storePath: "/unused", query, managedMcp: () => false });
+  await plain.complete!("/repo", "haiku", { system: "Title", prompt: "Task" });
+  expect(calls[1]!.options).toMatchObject({ strictMcpConfig: true });
+});
 const failure = (...errors: string[]) => frame({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, errors });
 
 it("closes a failed short SDK request and clears its abort timer", async () => {
@@ -169,7 +179,7 @@ describe("Claude Code runtime adapter", () => {
   });
 
   it("restricts a thread to the tools it was given, Claude's own by their Pi names, and to Tau's MCP server alone", () => {
-    const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {}, managedMcp: false };
     expect(claudeQueryOptions(plan)).not.toHaveProperty("tools");
     expect(claudeQueryOptions(plan)).not.toHaveProperty("strictMcpConfig");
     expect(claudeQueryOptions(plan)).not.toHaveProperty("settings");
@@ -178,6 +188,14 @@ describe("Claude Code runtime adapter", () => {
     expect(restricted).toMatchObject({ tools: ["Read", "Grep", "Glob", "WebFetch"], strictMcpConfig: true, settings: { disableAllHooks: true }, allowedTools: ["mcp__tau"] });
     expect(restricted).not.toHaveProperty("mcpServers");
     expect(claudeQueryOptions({ ...plan, tools: ["tau_list_threads"] })).toMatchObject({ tools: [], strictMcpConfig: true });
+  });
+
+  it("leaves strict MCP mode off for a restricted thread next to a managed-mcp.json", () => {
+    const plan = { cwd: "/repo", executable: "/usr/local/bin/agent-cli", claudeSessionId: SESSION, started: false, policy: runtimePermissionPolicy("full"), abortController: new AbortController(), env: {} };
+    const options = claudeQueryOptions({ ...plan, tools: ["read"], managedMcp: true });
+    expect(options).toMatchObject({ tools: ["Read"], settings: { disableAllHooks: true } });
+    expect(options).not.toHaveProperty("strictMcpConfig");
+    expect(claudeQueryOptions({ ...plan, tools: ["read"], managedMcp: false })).toMatchObject({ strictMcpConfig: true });
   });
 
   it.each([{ tools: "default" }, { "mcp-config": "/fixture/servers.json" }, { verbose: null }] as Record<string, string | null>[])("refuses extra launch arguments on a restricted thread: %j", (extraArgs) => {

@@ -3,6 +3,7 @@ import { AGENT_OOM_MESSAGE, spawnOwnedProcess, wrapAgentCommand, type AgentScope
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import manifest from "./tau-extension.json";
+import { hasManagedMcpConfig } from "./managed-mcp.js";
 import { probeClaude, type ClaudeProbe } from "./probe.js";
 import { ClaudeSdkSession } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
@@ -110,6 +111,8 @@ export interface ClaudeCodeRuntimeOptions {
   extraArgs?: Record<string, string | null>;
   /** How long a session waits for the CLI to register Tau's MCP server; tests shorten it. */
   mcpTimeoutMs?: number;
+  /** Whether an administrator's managed-mcp.json is installed; read from the machine by default. */
+  managedMcp?(): boolean;
 }
 
 /** What the SDK runs through node instead of executing; a launcher in front of one would not apply. */
@@ -158,6 +161,8 @@ export interface ClaudeQueryPlan {
   tools?: readonly string[];
   network?: ClaudeNetworkLimit;
   extraArgs?: Record<string, string | null>;
+  /** A managed-mcp.json is installed, so strict MCP mode is left off; read from the machine when absent. */
+  managedMcp?: boolean;
 }
 
 /** A project's network limit as the Agent SDK runtime applies it. */
@@ -224,7 +229,7 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     abortController: plan.abortController,
     ...(plan.stderr ? { stderr: plan.stderr } : {}),
     ...(plan.mcpServer ? tauMcpOptions(plan.mcpServer) : {}),
-    ...(plan.tools ? claudeToolOptions(plan.tools) : {}),
+    ...(plan.tools ? claudeToolOptions(plan.tools, plan.managedMcp) : {}),
     ...(plan.network ? claudeNetworkOptions(plan.network) : {}),
     ...(plan.extraArgs && Object.keys(plan.extraArgs).length ? { extraArgs: { ...plan.extraArgs } } : {}),
   };
@@ -273,9 +278,10 @@ const CLAUDE_TOOL_NAMES: Readonly<Record<string, string>> = {
  * endpoint filters Tau's tools. Hooks and statusLine commands are disabled for
  * restricted threads. A name Claude does not have is dropped, as on Pi.
  */
-export function claudeToolOptions(tools: readonly string[]): Pick<Options, "tools" | "strictMcpConfig" | "settings"> {
+export function claudeToolOptions(tools: readonly string[], managedMcp = hasManagedMcpConfig()): Pick<Options, "tools" | "strictMcpConfig" | "settings"> {
   const own = tools.flatMap((tool) => CLAUDE_TOOL_NAMES[tool] ?? (/^[A-Z][A-Za-z]*$/u.test(tool) ? [tool] : []));
-  return { tools: [...new Set(own)], strictMcpConfig: true, settings: { disableAllHooks: true } };
+  // With a managed-mcp.json the CLI already ignores other servers and refuses the flag.
+  return { tools: [...new Set(own)], ...(managedMcp ? {} : { strictMcpConfig: true as const }), settings: { disableAllHooks: true } };
 }
 
 /**
@@ -365,6 +371,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
   const commandName = (): string => (typeof options.command === "function" ? options.command() : options.command) ?? process.env.TAU_CLAUDE_CODE_COMMAND ?? "claude";
   const query = options.query ?? sdkQuery;
   const env = options.env ?? process.env;
+  const managedMcp = (): boolean => options.managedMcp?.() ?? hasManagedMcpConfig();
   const sessionStore = options.sessionStore ?? new ClaudeRuntimeSessionStore({ filePath: options.storePath });
   const running = new Map<string, Set<RunningTurn>>();
   const requestQueues = new Map<string, Promise<void>>();
@@ -379,7 +386,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
     if (!probeOptions.fresh && !probeOptions.usage && probeCache && now - probeCache.at < PROBE_TTL_MS) return probeCache.result;
     const cwd = dirname(options.storePath);
     const result = mkdir(cwd, { recursive: true, mode: 0o700 }).then(() =>
-      probeClaude({ query, executable: options.resolveCommand?.(commandName()) ?? commandName(), cwd, env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP }, ...(probeOptions.usage ? { usage: true } : {}) }));
+      probeClaude({ query, executable: options.resolveCommand?.(commandName()) ?? commandName(), cwd, env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP }, managedMcp: managedMcp(), ...(probeOptions.usage ? { usage: true } : {}) }));
     probeCache = { at: now, result };
     // A failed probe is not remembered; the next caller tries again.
     result.catch(() => { if (probeCache?.result === result) probeCache = undefined; });
@@ -529,6 +536,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
       ...(input.mcpServer ? { mcpServer: input.mcpServer } : {}),
       ...(input.tools ? { tools: input.tools } : {}),
       ...(input.network ? { network: input.network } : {}),
+      managedMcp: managedMcp(),
     });
     const session = new ClaudeSdkSession({
       query,
@@ -562,7 +570,7 @@ export function createClaudeCodeRuntimeAdapter(options: ClaudeCodeRuntimeOptions
           cwd, model, systemPrompt: request.system, persistSession: false,
           pathToClaudeCodeExecutable: options.resolveCommand?.(commandName()) ?? commandName(),
           env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(request.maxTokens ?? 256) },
-          tools: [], mcpServers: {}, strictMcpConfig: true, settingSources: [],
+          tools: [], mcpServers: {}, ...(managedMcp() ? {} : { strictMcpConfig: true }), settingSources: [],
           settings: { disableAllHooks: true }, thinking: { type: "disabled" },
           permissionMode: "plan", maxTurns: 1, abortController: controller,
         } });
