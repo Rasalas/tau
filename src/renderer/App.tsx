@@ -47,10 +47,10 @@ import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { useRendererLayout } from "./use-renderer-layout";
 import { stageOwner } from "../workbench/thread-stages";
 import { usePanelLayout } from "./use-panel-layout";
-import { loadSubmissionController, loadSubmissionEnvironment } from "./deferred-surfaces";
+import { loadQueuedMessageActions, loadSubmissionController, loadSubmissionEnvironment } from "./deferred-surfaces";
 import { useTurnActivityCache } from "./use-turn-activity-cache";
 import { useWorkbenchStartup } from "./use-workbench-startup";
-import { threadComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
+import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
 import { usePendingAttachments } from "./use-pending-attachments";
@@ -285,7 +285,7 @@ export default function App() {
   const currentActions = useCallback(() => actionsRef.current, []);
   const queueSessionId = useCallback(() => currentPendingNewThread() ? undefined : viewStore.getSnapshot()?.sessionId, [currentPendingNewThread, viewStore]);
   const queueComposerOf = useCallback(
-    (threadId: string) => threadComposer(composerScopeStore, clientStorage, threadId, setNotice),
+    async (threadId: string) => (await loadQueuedMessageActions()).threadComposer(composerScopeStore, clientStorage, threadId, setNotice),
     [clientStorage, composerScopeStore, setNotice],
   );
   const { queue, cancelQueued, steerQueued, reorderQueue, planQueued, returnQueued, steerQueuedMessage } = useFollowUpQueue({

@@ -8,7 +8,9 @@ import { draftKey, writeComposerDraft } from "../workbench/draft-store";
 import type { HostClient } from "../workbench/host-client";
 import { ThreadStore } from "../workbench/thread-store";
 import type { WorkbenchActions } from "./extension-system";
-import { requeue, returnToComposer, threadComposer, useFollowUpQueue } from "./use-follow-up-queue";
+import { useFollowUpQueue } from "./use-follow-up-queue";
+import * as deferredSurfaces from "./deferred-surfaces";
+import { requeue, returnToComposer, threadComposer } from "./queued-message-actions";
 
 const image = { kind: "image" as const, name: "a.png", mimeType: "image/png", data: "AA", size: 1 };
 
@@ -58,12 +60,26 @@ describe("queued messages of a thread the user leaves while the host answers", (
     return { ...rendered, leave, submit, scopes, storage, onScreen, toast, queueMessage, moveQueued };
   }
 
+  it("leaves the queue untouched when its action code cannot load", async () => {
+    const load = vi.spyOn(deferredSurfaces, "loadQueuedMessageActions").mockRejectedValueOnce(new Error("Chunk unavailable"));
+    const take = vi.fn(async () => []);
+    try {
+      const queue = queueOf(take);
+      await act(async () => { await queue.result.current.steerQueued("q1"); });
+      expect(take).not.toHaveBeenCalled();
+      expect(queue.submit).not.toHaveBeenCalled();
+    } finally {
+      load.mockRestore();
+    }
+  });
+
   it("sends one sent now to its own thread", async () => {
     let taken!: (items: UiQueuedPrompt[]) => void;
     const queue = queueOf(() => new Promise((resolve) => { taken = resolve; }));
     let sending!: Promise<void>;
     act(() => { sending = queue.result.current.steerQueued("q1"); });
     queue.leave();
+    await vi.waitFor(() => expect(taken).toBeTypeOf("function"));
     await act(async () => { taken([{ id: "q1", text: "for A", attachments: [] }]); await sending; });
     expect(queue.submit).toHaveBeenCalledExactlyOnceWith("for A", [], undefined, undefined, "A");
   });
@@ -73,8 +89,9 @@ describe("queued messages of a thread the user leaves while the host answers", (
     const queue = queueOf(() => new Promise((resolve) => { taken = resolve; }));
     act(() => queue.result.current.cancelQueued("q1"));
     queue.leave();
+    await vi.waitFor(() => expect(taken).toBeTypeOf("function"));
     await act(async () => { taken([{ id: "q1", text: "for A", attachments: [] }]); });
-    expect(queue.toast).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(queue.toast).toHaveBeenCalledOnce());
     act(() => queue.toast.mock.calls[0]![0].actions[0].run());
     await vi.waitFor(() => {
       expect(queue.queueMessage).toHaveBeenCalledExactlyOnceWith("A", "for A", [], undefined, undefined);
@@ -88,7 +105,7 @@ describe("queued messages of a thread the user leaves while the host answers", (
     queue.leave();
     writeComposerDraft(queue.storage, draftKey("A"), "saved in A");
     act(() => queue.result.current.returnQueued(undefined, "A"));
-    expect(take).toHaveBeenCalledWith("A", undefined);
+    await vi.waitFor(() => expect(take).toHaveBeenCalledWith("A", undefined));
     await vi.waitFor(() => expect(queue.scopes.getSnapshot(createDraftKey(draftKey("A"))).draft).toBe("saved in A\n\nfor A"));
     expect(queue.onScreen.setComposerDraft).not.toHaveBeenCalled();
   });

@@ -66,6 +66,7 @@ export const NearbyMachineList = deferred(() => import("./settings/NearbyMachine
 
 // Code behind a user action rather than a surface.
 export const loadSubmissionController = deferredModule(() => import("../workbench/submission-controller"));
+export const loadQueuedMessageActions = deferredModule(() => import("./queued-message-actions"));
 export const loadSubmissionEnvironment = deferredModule(() => import("./submission-environment"));
 export const loadRuntimeControlRuns = deferredModule(() => import("./settings/runtime-control-runs"));
 export const loadFileMentions = deferredModule(() => import("./file-mention-expander"));
