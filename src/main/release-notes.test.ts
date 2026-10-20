@@ -84,6 +84,24 @@ describe("showing them once after an update", () => {
     expect((await offline.pending())?.version).toBe("0.4.0");
   });
 
+  it("shares a version-range read across windows and later views", async () => {
+    const range = vi.fn(async () => [{ version: "0.5.0", body: "- Target" }, { version: "0.4.0", body: "- Earlier change" }]);
+    const notes = await store("0.3.0", { read: async () => undefined, range });
+    const [first, second] = await Promise.all([notes.get("0.5.0", "0.3.0"), notes.get("0.5.0", "0.3.0")]);
+    expect(first.map((entry) => entry.version)).toEqual(["0.5.0", "0.4.0"]);
+    expect(second).toEqual(first);
+    expect(await notes.get("0.5.0", "0.3.0")).toEqual(first);
+    expect(range).toHaveBeenCalledOnce();
+  });
+
+  it("can retry an unavailable read", async () => {
+    const read = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ body: "- Available now" });
+    const notes = await store("0.3.0", { read });
+    expect(await notes.get("0.5.0")).toEqual([]);
+    expect((await notes.get("0.5.0"))[0]?.items).toEqual(["Available now"]);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   it("groups available notes across skipped versions without duplicating the target", async () => {
     const before = await store("0.3.0", {
       read: async () => ({ body: "- Target" }),

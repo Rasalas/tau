@@ -150,6 +150,7 @@ export class ReleaseNotesStore {
   private loaded: Promise<void> | undefined;
   private notes: Promise<ReleaseNotes | undefined> | undefined;
   private readonly reads = new Map<string, Promise<ReleaseNotes | undefined>>();
+  private readonly lookups = new Map<string, Promise<ReleaseNotes[]>>();
   private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: ReleaseNotesOptions) {}
@@ -204,7 +205,21 @@ export class ReleaseNotesStore {
   }
 
   /** An explicit read, independent of the once-after-install announcement. Cached stable releases work offline. */
-  async get(version: string, fromVersion?: string): Promise<ReleaseNotes[]> {
+  get(version: string, fromVersion?: string): Promise<ReleaseNotes[]> {
+    const key = `${fromVersion ?? ""}:${version}`;
+    let pending = this.lookups.get(key);
+    if (!pending) {
+      pending = this.load(version, fromVersion).then((notes) => {
+        if (!notes.length) this.lookups.delete(key);
+        return notes;
+      }, (error: unknown) => { this.lookups.delete(key); throw error; });
+      if (this.lookups.size >= 24) this.lookups.delete(this.lookups.keys().next().value!);
+      this.lookups.set(key, pending);
+    }
+    return pending;
+  }
+
+  private async load(version: string, fromVersion?: string): Promise<ReleaseNotes[]> {
     await this.start();
     const cached = () => (this.state.cache ?? []).filter((entry) => entry.version === version || Boolean(fromVersion && compareVersions(entry.version, fromVersion) > 0 && compareVersions(entry.version, version) <= 0));
     if (fromVersion && compareVersions(fromVersion, version) < 0) {

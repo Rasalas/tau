@@ -4,15 +4,6 @@ import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { isMacPlatform } from "../keybindings";
 import { ReleaseNotesContent } from "./UpdateNotes";
 
-/** The notes of the version that just started: what changed, and the rest on the release page. */
-export function ReleaseNotesDialog({ notes, onOpen, onClose }: { notes: ReleaseNotes; onOpen(url: string): void; onClose(): void }) {
-  return <Dialog className="confirm-dialog release-notes update-center" label={`What’s new in Tau ${notes.version}`} onClose={onClose}>
-    <h2>What’s new in Tau {notes.version}</h2>
-    <ReleaseNotesContent version={notes.version} notes={{ state: "ready", releases: [notes] }} onRetry={() => {}} onOpen={onOpen} />
-    <footer><button type="button" className="primary" autoFocus onClick={onClose}>Close</button></footer>
-  </Dialog>;
-}
-
 /** Window-level hints and dialogs load when they first have something to show. */
 export function WindowShellUi({ quitHint, running, notes, onAnswerQuit, onOpen, onCloseNotes }: {
   quitHint: QuitShortcutMode | undefined;
@@ -34,6 +25,10 @@ export function WindowShellUi({ quitHint, running, notes, onAnswerQuit, onOpen, 
       onConfirm={(dontAskAgain) => onAnswerQuit(true, dontAskAgain)}
       onCancel={() => onAnswerQuit(false)}
     /> : null}
-    {notes ? <ReleaseNotesDialog notes={notes} onOpen={onOpen} onClose={onCloseNotes} /> : null}
+    {notes ? <Dialog className="confirm-dialog release-notes update-center" label={`What’s new in Tau ${notes.version}`} onClose={onCloseNotes}>
+      <h2>What’s new in Tau {notes.version}</h2>
+      <ReleaseNotesContent version={notes.version} notes={{ state: "ready", releases: [notes] }} onRetry={() => {}} onOpen={onOpen} />
+      <footer><button type="button" className="primary" autoFocus onClick={onCloseNotes}>Close</button></footer>
+    </Dialog> : null}
   </>;
 }

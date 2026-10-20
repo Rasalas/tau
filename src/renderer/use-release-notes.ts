@@ -4,23 +4,11 @@ import type { HostClient } from "../workbench/host-client";
 import { useHostClient } from "./host-client-context";
 
 export type NotesView = { state: "loading" } | { state: "unavailable" } | { state: "ready"; releases: ReleaseNotes[] };
-const caches = new WeakMap<HostClient, Map<string, Promise<ReleaseNotes[]>>>();
 
 function read(client: HostClient, version: string, fromVersion?: string): Promise<ReleaseNotes[]> {
-  let cache = caches.get(client);
-  if (!cache) { cache = new Map(); caches.set(client, cache); }
-  const key = `${fromVersion ?? ""}:${version}`;
-  let pending = cache.get(key);
-  if (!pending) {
-    pending = client.windowAction({ kind: "release-notes", version, ...(fromVersion ? { fromVersion } : {}) }).then((value) => {
-      const releases = Array.isArray(value) ? value.filter((entry): entry is ReleaseNotes => Boolean(entry && typeof entry.version === "string" && Array.isArray(entry.items) && entry.items.every((item: unknown) => typeof item === "string") && typeof entry.totalItems === "number")) : [];
-      if (!releases.length) cache!.delete(key);
-      return releases;
-    }).catch(() => { cache!.delete(key); return []; });
-    if (cache.size > 24) cache.delete(cache.keys().next().value!);
-    cache.set(key, pending);
-  }
-  return pending;
+  return client.windowAction({ kind: "release-notes", version, ...(fromVersion ? { fromVersion } : {}) }).then((value) =>
+    Array.isArray(value) ? value.filter((entry): entry is ReleaseNotes => Boolean(entry && typeof entry.version === "string" && Array.isArray(entry.items) && entry.items.every((item: unknown) => typeof item === "string") && typeof entry.totalItems === "number")) : [],
+  ).catch(() => []);
 }
 
 export function useReleaseNotes(version: string | undefined, fromVersion?: string, enabled = true, attempt = 0): NotesView {
