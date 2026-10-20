@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { errorMessage, hostIsReadOnly, useContextMenu } from "tau";
+import { isMacClient } from "../_shared/platform-keys.js";
 import type { ILink, ITheme, Terminal } from "@xterm/xterm";
 import { terminalFont, terminalKit, terminalServices, terminalStore, onTerminalEvent, onTerminalReconnect, useTerminalFont, watchTerminalOutput } from "./store.js";
 import { unseenOutput } from "./output.js";
@@ -16,7 +17,7 @@ import { TERMINAL_DATA_EVENT, type TerminalDataEvent, type UiTerminalSession } f
 /** Lines a view keeps; the host retains as many for a view that reattaches. */
 const SCROLLBACK_LINES = 5_000;
 
-const MAC = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform);
+const MAC = isMacClient();
 
 /**
  * xterm draws with its own palette; the tokens the workbench theme sets are

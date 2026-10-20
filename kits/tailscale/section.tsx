@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { ExternalLink, RefreshCw, X } from "lucide-react";
 import {
   Button,
@@ -195,6 +195,10 @@ function ConsentDialog({ view, dnsName, busy, onOpen, onCancel, onConfirm }: {
   const [agreed, setAgreed] = useState(false);
   const field = useRef<HTMLSpanElement>(null);
   const taken = takenBy(view, port);
+  const reasonId = useId();
+  const takenId = useId();
+  // Why Set up is off, written out: a disabled button takes no focus for a tooltip.
+  const reason = agreed ? undefined : "Confirm that the name will be published first.";
   const submit = () => {
     // A refused draft stays in the field with its reason; the port it shows is not the one to set up.
     if (field.current?.querySelector("input")?.value.trim() !== String(port)) return;
@@ -237,16 +241,17 @@ function ConsentDialog({ view, dnsName, busy, onOpen, onCancel, onConfirm }: {
           />
         </span>
       </label>
-      {taken ? <p className="tailscale-warning-line">Serve already forwards port {port} to {taken}. Pick another port.</p> : null}
+      {taken ? <p id={takenId} className="tailscale-warning-line">Serve already forwards port {port} to {taken}. Pick another port.</p> : null}
       <p className="tailscale-address">Address: <code>{serveUrl(dnsName, port)}</code></p>
       <label className="tailscale-agree">
         <Switch role="checkbox" label={`I understand that ${dnsName} will be published`} checked={agreed} disabled={busy} onChange={setAgreed} />
         <span aria-hidden="true">I understand that <code>{dnsName}</code> will be published.</span>
       </label>
       <footer>
+        {reason ? <small id={reasonId} className="tailscale-footer-reason">{reason}</small> : null}
         <Button onClick={onCancel}>Cancel</Button>
-        <span {...tooltipProps(agreed ? undefined : "Confirm that the name will be published first.")}>
-          <Button variant="primary" busy={busy} disabled={!agreed || taken !== undefined} onClick={submit}>
+        <span {...tooltipProps(reason)}>
+          <Button variant="primary" busy={busy} disabled={!agreed || taken !== undefined} aria-describedby={[reason && reasonId, taken && takenId].filter(Boolean).join(" ") || undefined} onClick={submit}>
             {busy ? "Setting up…" : "Set up"}
           </Button>
         </span>

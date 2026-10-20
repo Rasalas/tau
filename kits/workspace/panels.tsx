@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, FileDiff, PanelTop, RotateCw, Search, SquarePen, WrapText } from "lucide-react";
-import { ChangesTree, DiffStack, FileKindIcon, tooltipProps, useClientEnvironment, useHostCapabilities, useDiffPresentation, useWorkbench, useWorkbenchShell, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
+import { ChangesTree, DiffStack, Empty, FileKindIcon, tooltipProps, useClientEnvironment, useHostCapabilities, useDiffPresentation, useWorkbench, useWorkbenchShell, VirtualList, type FileNode, type PanelProps, type UiFileDiff } from "tau";
 import { FileReader } from "./file-reader.js";
 import { relativeHostPath } from "./host-paths.js";
 import { clientDrawsReview } from "./store.js";
@@ -8,8 +8,13 @@ import { useWorkspaceKit, useWorkspaceStore } from "./store-context.js";
 
 interface FlatNode { node: FileNode; depth: number; }
 
-function FileTree({ nodes, changedPaths, activePaths, rowHeight, loadFiles, openFile, editFile, reveal }: {
+function FileTree({ nodes, loadingRoot = false, rootError, onRetry, changedPaths, activePaths, rowHeight, loadFiles, openFile, editFile, reveal }: {
   nodes: FileNode[];
+  /** The root listing is on its way; an empty tree is not yet "no files". */
+  loadingRoot?: boolean;
+  /** Why the root listing did not arrive, with `onRetry` to ask again. */
+  rootError?: string | undefined;
+  onRetry?(): void;
   /** A folder to open, with the ones above it; a new `token` asks again. */
   reveal?: { folder: string; token: number };
   rowHeight: number;
@@ -95,7 +100,11 @@ function FileTree({ nodes, changedPaths, activePaths, rowHeight, loadFiles, open
     itemHeight={rowHeight}
     {...(scrollToIndex !== undefined && scrollToIndex >= 0 ? { scrollToIndex } : {})}
     className="file-tree"
-    empty={<p className="empty-copy">No files indexed.</p>}
+    empty={rootError ? <div className="file-tree-failed" role="alert">
+      <Empty size="compact" title="The files did not load" description={rootError}>
+        {onRetry ? <button type="button" className="file-tree-retry" onClick={onRetry}><RotateCw size={13} aria-hidden="true" />Try again</button> : null}
+      </Empty>
+    </div> : loadingRoot ? <p className="empty-copy" role="status">Loading files…</p> : <p className="empty-copy">No files indexed.</p>}
     renderItem={({ node, depth }) => {
       // Nodes and changed files are both named relative to the workspace root.
       const changed = changedPaths.has(node.path);
@@ -107,6 +116,7 @@ function FileTree({ nodes, changedPaths, activePaths, rowHeight, loadFiles, open
           className={`file-row ${node.kind} ${changed ? "selected" : ""} ${active ? "active" : ""}`}
           style={{ marginLeft: `${depth * 16}px`, width: `calc(100% - ${depth * 16}px)` }}
           aria-current={active ? "true" : undefined}
+          aria-expanded={node.kind === "directory" ? open : undefined}
           onClick={() => void toggle(node)}
           onDoubleClick={() => { if (node.kind === "file" && !editFile(node.path)) openFile(node.path, { pin: true }); }}
           title={node.path}
@@ -249,7 +259,7 @@ function statusWord(status?: string): string | undefined {
  */
 export function FilesPanel({ active, placement, search }: PanelProps & { search?: ServiceSlot<SearchFilesService> }) {
   const workspaceStore = useWorkspaceStore();
-  const { fileTree, changes, cwd, workspace } = useWorkspaceKit();
+  const { fileTree, fileTreeLoading, fileTreeError, changes, cwd, workspace } = useWorkspaceKit();
   const { openFile, activeDocumentPath: activePath } = useWorkbench();
   const { registry } = useWorkbenchShell();
   const touch = useCompactLayout();
@@ -299,6 +309,9 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
 
   const tree = <FileTree
     nodes={fileTree}
+    loadingRoot={fileTreeLoading === true}
+    rootError={fileTreeError}
+    onRetry={() => void refreshFiles()}
     changedPaths={changedPaths}
     activePaths={(onStage ? [reading] : [activePath, relativeHostPath(activePath, cwd)]).filter((path): path is string => Boolean(path))}
     rowHeight={touch ? 44 : onStage ? 24 : 30}

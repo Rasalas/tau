@@ -1,6 +1,6 @@
 /* The reload conflict dialog. Loaded with its chunk, which only a reload that
    meets unsaved work fetches. */
-.reload-conflict-scrim { z-index: 100; }
+.palette-backdrop:has(> .reload-conflict) { z-index: 100; }
 .reload-conflict {
   width: 500px; max-width: calc(100vw - 48px);
   border: 1px solid var(--line-float); border-radius: 12px;

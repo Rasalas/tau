@@ -17,6 +17,8 @@ const LAZY = [
   { sheet: "./touch/sheet.css", module: "./touch/Sheet.tsx", owns: [".touch-sheet", ".touch-sheet-content"] },
   { sheet: "./components/stage-panels.css", module: "./components/Stage.tsx", owns: [".stage-strip", ".stage-tabs", ".stage-tab", ".stage-strip-actions"] },
   { sheet: "./components/thread-tree.css", module: "./components/ThreadTreeModal.tsx", owns: [".thread-tree", ".thread-tree-list", ".thread-tree-label", ".project-modal-help"] },
+  { sheet: "./components/add-model-provider.css", module: "./components/AddModelProviderModal.tsx", owns: [".add-provider-modal", ".add-provider-form", ".add-provider-field"] },
+  { sheet: "./components/system-prompt.css", module: "./components/SystemPromptModal.tsx", owns: [".system-prompt-modal", ".system-prompt-tabs", ".system-prompt-text"] },
   { sheet: "./components/reload-curtain.css", module: "./components/ReloadCurtain.tsx", owns: [".reload-mark", ".reload-orbit", ".reload-pulse", ".reload-constant"] },
   { sheet: "./components/attachment-lightbox.css", module: "./components/AttachmentLightbox.tsx", owns: [".attachment-lightbox", ".lightbox-stage", ".lightbox-thumb"] },
   { sheet: "./renderer-benchmark.css", module: "./RendererBenchmark.tsx", owns: [".renderer-benchmark", ".benchmark-list-row"] },

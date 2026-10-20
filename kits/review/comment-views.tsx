@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { MessageSquare, Send, Trash2, X } from "lucide-react";
 import type { DiffLineSlot, WorkbenchActions } from "tau";
+import { modEnterLabel } from "../_shared/platform-keys.js";
 import {
   commentChip,
   commentLocation,
@@ -30,7 +31,7 @@ function CommentEditor({ store, draft }: { store: ReviewCommentStore; draft: Com
         }}
       />
       <footer>
-        <span>⌘↵ to comment · ⇧-click another line for a range</span>
+        <span>{modEnterLabel()} to comment · ⇧-click another line for a range</span>
         <button className="text-button" onClick={() => store.cancelDraft()}>Cancel</button>
         <button className="mini-button" disabled={!draft.body.trim()} onClick={() => store.saveDraft()}>Comment</button>
       </footer>

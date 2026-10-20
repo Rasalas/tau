@@ -535,6 +535,10 @@ export interface WorkspaceKitState {
   editors: UiEditor[];
   terminals: UiTerminal[];
   fileTree: FileNode[];
+  /** The project's root listing is on its way; an empty tree then means "not yet", not "no files". */
+  fileTreeLoading?: boolean;
+  /** Why the root listing did not arrive, until a later read does. */
+  fileTreeError?: string;
   committing: boolean;
   pushPrimary: boolean;
   commitFocusToken: number;

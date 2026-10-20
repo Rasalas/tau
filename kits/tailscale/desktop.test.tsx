@@ -81,6 +81,8 @@ describe("Tailscale on Settings → Connections", () => {
     expect(dialog.textContent).toContain(`https://${NAME}:8443/`);
     const setUp = screen.getByRole("button", { name: "Set up" }) as HTMLButtonElement;
     expect(setUp.disabled).toBe(true);
+    // Why it is off is written out and named by the button, not only a hover tooltip.
+    expect(document.getElementById(setUp.getAttribute("aria-describedby")!)?.textContent).toBe("Confirm that the name will be published first.");
 
     const port = screen.getByRole("spinbutton", { name: "HTTPS port" });
     fireEvent.change(port, { target: { value: "443" } });

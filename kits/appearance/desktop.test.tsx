@@ -156,6 +156,37 @@ describe("Settings → Appearance", () => {
     expect(document.getElementById("tau-appearance-editor")).toBeNull();
   });
 
+  it("takes focus when it opens, and asks before Escape or Discard drop unsaved edits", async () => {
+    renderPage();
+    const file = new File([JSON.stringify({ name: "Night", type: "dark", colors: { "editor.background": "#101820", "editor.foreground": "#e0e6f0" } })], "night-color-theme.json", { type: "application/json" });
+    fireEvent.change(screen.getByLabelText("VS Code theme file"), { target: { files: [file] } });
+    const editor = await screen.findByRole("dialog", { name: "Theme editor" });
+    await waitFor(() => expect(editor.contains(document.activeElement)).toBe(true));
+
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Theme name" }), { target: { value: "Night owl" } });
+    // Escape from anywhere in the window reaches the editor through the escape stack.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    const confirm = await screen.findByRole("dialog", { name: "Discard theme changes?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Discard theme changes?" })).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Theme editor" })).toBeTruthy();
+
+    fireEvent.click(within(editor).getByRole("button", { name: "Discard" }));
+    const again = await screen.findByRole("dialog", { name: "Discard theme changes?" });
+    fireEvent.click(within(again).getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Theme editor" })).toBeNull());
+    expect(document.getElementById("tau-appearance-editor")).toBeNull();
+  });
+
+  it("closes on Escape without asking when nothing changed", async () => {
+    renderPage();
+    const file = new File([JSON.stringify({ name: "Night", type: "dark", colors: { "editor.background": "#101820", "editor.foreground": "#e0e6f0" } })], "night-color-theme.json", { type: "application/json" });
+    fireEvent.change(screen.getByLabelText("VS Code theme file"), { target: { files: [file] } });
+    await screen.findByRole("dialog", { name: "Theme editor" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Theme editor" })).toBeNull());
+  });
+
   it("says why a file is no theme, and keeps the editor closed", async () => {
     const { registry } = activate();
     const page = registry.getSettingsPages().find((entry) => entry.id === APPEARANCE_SETTINGS_PAGE)!;

@@ -1,0 +1,18 @@
+/* Add model provider (Pi's custom providers). Loaded with its chunk; the modal
+   frame it shares with the project picker stays in styles.css. */
+.project-modal.add-provider-modal { width: 460px; }
+.add-provider-form { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-5) var(--space-6); }
+.add-provider-error {
+  padding: var(--space-4); border-radius: var(--radius-sm);
+  background: var(--danger-bg); color: var(--danger); font: var(--text-xs) var(--sans);
+}
+.add-provider-row { display: flex; gap: var(--space-4); }
+.add-provider-field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.add-provider-field.wide { flex: 2; }
+.add-provider-field > label { color: var(--faint); font: 600 var(--text-2xs) var(--sans); }
+.add-provider-field > :is(input, select) {
+  min-width: 0; padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-control); border-radius: var(--radius-sm);
+  background: var(--well); color: var(--ink); font: var(--text-sm) var(--sans);
+}
+.add-provider-actions { display: flex; justify-content: flex-end; gap: var(--space-4); margin-top: var(--space-4); }

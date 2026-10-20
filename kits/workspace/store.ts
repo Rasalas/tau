@@ -162,6 +162,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private rowStatuses = new Map<string, Readonly<Record<string, ThreadRowStatusMark>>>();
   private changesRequest = 0;
   private workspaceRequest = 0;
+  private filesRequest = 0;
   private sessionId?: string;
   private namer?: WorktreeNamer;
   private defaults?: ProjectDefaults;
@@ -266,7 +267,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       cwd: next.cwd,
       workspaceId: next.workspaceId,
       draftPending: next.draftPending,
-      ...(projectChanged ? { changes: NO_CHANGES, fileTree: [], workspace: undefined } : {}),
+      ...(projectChanged ? { changes: NO_CHANGES, fileTree: [], fileTreeError: undefined, workspace: undefined } : {}),
       ...(threadChanged ? { turnBaseline: next.sessionId ? readBaseline(next.sessionId) : undefined, turnSettled: false } : {}),
       ...(draftChanged ? { draftBranch: undefined, draftBase: undefined } : {}),
     });
@@ -513,11 +514,20 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   /** The followed project's tree: a draft's project, not the one the host has open. */
   async refreshFiles(): Promise<void> {
     if (!hostAvailable()) return;
+    const request = ++this.filesRequest;
     const cwd = this.state.cwd;
+    this.update({ fileTreeLoading: true });
     try {
       const tree = (await this.host.getFileTree(undefined, this.workspace())) ?? [];
-      if (cwd === this.state.cwd) this.update({ fileTree: tree });
-    } catch (error) { this.notify(errorMessage(error), "error"); }
+      if (request === this.filesRequest && cwd === this.state.cwd) this.update({ fileTree: tree, fileTreeError: undefined });
+    } catch (error) {
+      if (request !== this.filesRequest) return;
+      // The Files panel says so with a retry; an empty tree alone reads as a project without files.
+      if (cwd === this.state.cwd) this.update({ fileTreeError: errorMessage(error) });
+      this.notify(errorMessage(error), "error");
+    } finally {
+      if (request === this.filesRequest) this.update({ fileTreeLoading: false });
+    }
   }
 
   async loadFiles(path: string): Promise<FileNode[]> {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostClientProvider } from "../host-client-context";
 import { createFakeHostClient } from "../test-support/fake-host-client";
@@ -38,7 +38,7 @@ describe("SystemPromptModal", () => {
       </HostClientProvider>,
     );
 
-    expect(screen.getByRole("dialog", { name: "Active Instructions and System Prompt" })).toBeDefined();
+    expect(screen.getByRole("dialog", { name: "Active instructions and system prompt" })).toBeDefined();
 
     await waitFor(() => {
       expect(inspectSystemPrompt).toHaveBeenCalledWith("thread-1");
@@ -60,16 +60,24 @@ describe("SystemPromptModal", () => {
       expect(screen.getByText(/You are an expert coding assistant/)).toBeDefined();
     });
 
+    expect(screen.getByRole("tab", { name: /Effective prompt/i }).getAttribute("aria-selected")).toBe("true");
+
     // Switch to Base Prompt
-    fireEvent.click(screen.getByRole("button", { name: /Base Prompt/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /Base prompt/i }));
+    expect(screen.getByRole("tab", { name: /Base prompt/i }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /Effective prompt/i }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tabpanel", { name: /Base prompt/i })).toBeDefined();
     expect(screen.getByText("/mock/project/.tau/system-prompt.md")).toBeDefined();
 
-    // Switch to Appends
-    fireEvent.click(screen.getByRole("button", { name: /Appends/i }));
+    // The arrow keys move along the tabs and focus the one they select.
+    fireEvent.keyDown(screen.getByRole("tab", { name: /Base prompt/i }), { key: "ArrowRight" });
+    const appends = screen.getByRole("tab", { name: /Appends/i });
+    expect(appends.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(appends);
     expect(screen.getByText("Extra append rule.")).toBeDefined();
 
     // Switch to Context
-    fireEvent.click(screen.getByRole("button", { name: /Project Context/i }));
+    fireEvent.click(screen.getByRole("tab", { name: /Project context/i }));
     expect(screen.getByText("/mock/project/AGENTS.md")).toBeDefined();
     expect(screen.getByText(/# Agents rules/)).toBeDefined();
   });
@@ -87,5 +95,26 @@ describe("SystemPromptModal", () => {
     const closeButtons = screen.getAllByRole("button", { name: /Close/i });
     fireEvent.click(closeButtons[0]);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("takes focus, keeps Tab inside and closes on Escape", async () => {
+    const onClose = vi.fn();
+    render(
+      <HostClientProvider client={createFakeHostClient({ inspectSystemPrompt: vi.fn().mockResolvedValue(mockInspection) })}>
+        <SystemPromptModal onClose={onClose} />
+      </HostClientProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Active instructions and system prompt" });
+    await screen.findByText(/You are an expert coding assistant/);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    const last = screen.getAllByRole("button", { name: "Close" }).at(-1)!;
+    act(() => { last.focus(); });
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(last);
+
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

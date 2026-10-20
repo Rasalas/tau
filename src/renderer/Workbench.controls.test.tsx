@@ -90,10 +90,10 @@ describe("Workbench imperative controls", () => {
     expect(shell.classList.contains("sidebar-closed")).toBe(false);
 
     await runPaletteCommand("Inspect active system prompt");
-    const instructions = await screen.findByRole("dialog", { name: "Active Instructions and System Prompt" });
+    const instructions = await screen.findByRole("dialog", { name: "Active instructions and system prompt" });
     expect(instructions).toBeTruthy();
     fireEvent.click(within(instructions).getByText("Close", { exact: true }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Active Instructions and System Prompt" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Active instructions and system prompt" })).toBeNull());
 
     pressMod("m", { shiftKey: true });
     expect(await screen.findByRole("dialog", { name: "Select model" })).toBeTruthy();

@@ -74,7 +74,10 @@ describe("Settings → About → updates (K103, design 2k)", () => {
     expect(await screen.findByRole("button", { name: "Update rex" })).toHaveProperty("disabled", true);
     cleanup();
     renderPage({ status: { ...STATUS, devicesMayInstall: false } });
-    expect(await screen.findByRole("button", { name: "Update rex" })).toHaveProperty("disabled", true);
+    const update = await screen.findByRole("button", { name: "Update rex" });
+    expect(update).toHaveProperty("disabled", true);
+    // The reason is written out and named by the button, not only a hover tooltip.
+    expect(document.getElementById(update.getAttribute("aria-describedby")!)?.textContent).toBe("rex's owner lets only its own Tau window install updates.");
   });
 
   it("says why a copy cannot update itself, and offers no update controls", async () => {

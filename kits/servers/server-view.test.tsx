@@ -8,7 +8,7 @@ import { TestProviders } from "../../src/renderer/test-support/test-providers.js
 import { createCompactPanel } from "./compact-panel.js";
 import { DriftFeed } from "./drift-view.js";
 import ServerView, { type ServerViewParts } from "./server-view.js";
-import { createChangesSection, createRowMark, createTitleChip } from "./status-parts.js";
+import { createChangesSection, createRailSection, createRowMark, createTitleChip } from "./status-parts.js";
 import { ServersStatusStore } from "./status-store.js";
 import { registerServerSurfaces } from "./surfaces.js";
 import { SERVER_TARGET_TAB, SERVERS_COMPACT_PANEL, SERVERS_STATUS_EVENT, type ServersStatus, type TargetStatus } from "./view-protocol.js";
@@ -115,10 +115,20 @@ describe("the status around the workbench", () => {
     const Chip = createTitleChip(h.store);
     render(h.wrap(<Chip snapshot={{ cwd: "/work/site" } as never} actions={h.actions} />));
     await flush();
-    const chip = screen.getByRole("button", { name: "Servers: Files to upload" });
+    const chip = screen.getByRole("button", { name: "Servers: Files to upload, 4 not uploaded" });
     expect(chip.textContent).toContain("4");
     fireEvent.click(chip);
     expect(h.actions.openStageTab).toHaveBeenCalledWith(SERVER_TARGET_TAB, { workspace: "/work/site", targetId: "sftp-site-1" });
+  });
+
+  it("names each server's state and a running check in the rail, not only with its dot and tooltip", async () => {
+    const h = harness({ ...PENDING, checking: true });
+    const workspace = { getSnapshot: () => ({ cwd: "/work/site" }), subscribe: () => () => undefined, registerChangesSection: vi.fn(), registerThreadRowAccessory: vi.fn() };
+    const Rail = createRailSection(h.store, () => workspace);
+    const Chip = createTitleChip(h.store);
+    render(h.wrap(<><Rail actions={h.actions} /><Chip snapshot={{ cwd: "/work/site" } as never} actions={h.actions} /></>));
+    expect(await screen.findByRole("button", { name: "site: Files to upload, checking. 4 files not uploaded." })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Servers: Files to upload, checking, 4 not uploaded" })).toBeTruthy();
   });
 
   it("draws nothing for a project without servers", async () => {

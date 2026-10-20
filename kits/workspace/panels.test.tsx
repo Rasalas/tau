@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FileNode, UiWorkspaceChanges, WorkbenchContextValue } from "tau";
@@ -120,6 +120,33 @@ describe("FilesPanel", () => {
 
     expect(openFile).toHaveBeenNthCalledWith(1, `${CWD}/a.ts`);
     expect(openFile).toHaveBeenNthCalledWith(2, `${CWD}/a.ts`, { pin: true });
+  });
+
+  it("says the files are loading or did not load, offers another try, and tells folders' state", async () => {
+    const workspaceStore = newStore();
+    kitState(workspaceStore, { changes: NO_CHANGES, fileTree: [], fileTreeLoading: true });
+    const refreshFiles = vi.spyOn(workspaceStore, "refreshFiles").mockResolvedValue(undefined);
+    vi.spyOn(workspaceStore, "refreshChanges").mockResolvedValue(undefined);
+    render(withServices(workspaceStore,
+      <WorkbenchContext.Provider value={workbench()}>
+        <FilesPanel active extensionName="Workspace" actions={{} as never} />
+      </WorkbenchContext.Provider>,
+    ));
+    expect((await screen.findByRole("status")).textContent).toBe("Loading files…");
+    expect(screen.queryByText("No files indexed.")).toBeNull();
+
+    act(() => workspaceStore.update({ fileTreeLoading: false, fileTreeError: "The machine did not answer." }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("The machine did not answer.");
+    const calls = refreshFiles.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(refreshFiles).toHaveBeenCalledTimes(calls + 1);
+
+    act(() => workspaceStore.update({ fileTreeError: undefined, fileTree: [{ name: "src", path: "src", kind: "directory", children: [] }] }));
+    const folder = await screen.findByTitle("src");
+    expect(folder.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(folder);
+    await waitFor(() => expect(screen.getByTitle("src").getAttribute("aria-expanded")).toBe("true"));
   });
 
   it("opens a revealed folder's chain from the root, loading what the tree has not read, and leaves the panel in front", async () => {

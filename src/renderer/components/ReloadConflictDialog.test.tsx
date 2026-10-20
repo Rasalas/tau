@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReloadConflictDialog } from "./ReloadConflictDialog";
+import { useEscapeLayer } from "./ui/escape-layers";
 
 afterEach(cleanup);
 
@@ -30,6 +32,24 @@ describe("ReloadConflictDialog", () => {
 
   it("cancels with Escape", () => {
     const { onCancel } = setup();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("takes focus on waiting and leaves Escape to a layer opened over it", () => {
+    const onCancel = vi.fn();
+    function Over() {
+      const [open, setOpen] = useState(true);
+      useEscapeLayer(() => setOpen(false), open);
+      return open ? <p>Menu over the dialog</p> : null;
+    }
+    const view = (over: boolean) => <><ReloadConflictDialog runningThreads={2} onCancel={onCancel} onWait={() => {}} onAbort={() => {}} />{over ? <Over /> : null}</>;
+    const { rerender } = render(view(false));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /wait, then reload/i }));
+    rerender(view(true));
+    act(() => { fireEvent.keyDown(window, { key: "Escape" }); });
+    expect(screen.queryByText("Menu over the dialog")).toBeNull();
+    expect(onCancel).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onCancel).toHaveBeenCalledOnce();
   });

@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { X } from "lucide-react";
 import { PanelSlot } from "../components/PanelHosts";
+import { useEscapeLayer } from "../components/ui/escape-layers";
 import { useFocusReturn } from "../components/ui/focus";
 import { useWorkspaceFileHistory } from "./use-workspace-file-history";
 import { useSheetDrag } from "./sheet-drag";
@@ -9,12 +10,13 @@ import { useSheetDrag } from "./sheet-drag";
  * A panel that claims `compact`, drawn over the thread on a compact layout.
  * The panel keeps its one host element, so closing the sheet and opening it
  * again finds the panel as it was left. A pull down closes it once the
- * panel's own scroll is at the top.
+ * panel's own scroll is at the top, and Escape closes it as it does a sheet.
  */
 export function PanelSheet({ label, detail, host, onClose }: { label: string; detail?: string | undefined; host: HTMLElement; onClose(): void }) {
   const close = useWorkspaceFileHistory(label, onClose);
   const surface = useRef<HTMLElement>(null);
   useFocusReturn(true, surface);
+  useEscapeLayer(close);
   useSheetDrag(surface, close);
   return <section ref={surface} className="touch-panel-sheet" role="dialog" aria-label={label} tabIndex={-1}>
     <header className="touch-sheet-header">

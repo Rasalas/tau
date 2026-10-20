@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { errorMessage, Popover, Spinner } from "tau";
+import { modEnterLabel } from "../_shared/platform-keys.js";
 import { providerInfo, type PendingReviewComment, type PullRequestReviewEvent, type RequestService } from "./protocol.js";
 
 const EVENTS: Array<{ value: PullRequestReviewEvent; label: string; hint: string }> = [
@@ -96,7 +97,7 @@ export function ReviewComposer({ service, events: offered, pending, onRemovePend
       ) : null}
       {error ? <p className="pr-error" role="alert">{error}</p> : null}
       <footer>
-        <span className="keyboard-hint">⌘↵ to send</span>
+        <span className="keyboard-hint">{modEnterLabel()} to send</span>
         <button className="text-button" disabled={busy} onClick={onCancel}>Cancel</button>
         <button className="mini-button" disabled={busy || !ready} onClick={() => void submit()}>
           {busy ? "Sending…" : mode === "comment" ? "Comment" : `Submit review${pending.length > 0 ? ` (${pending.length})` : ""}`}

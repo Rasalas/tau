@@ -117,10 +117,12 @@ export function createRequestBadge(rows: RowRequests, links: ThreadLinkRows) {
         ? `${first.label} ${first.state}${first.checks ? `, checks ${first.checks}` : ""}${request ? "" : ", linked"}`
         : `${entries.length} requests, ${state}: ${entries.map((entry) => `${entry.label} ${entry.state}`).join(", ")}`;
     const body = <><Icon size={12} aria-hidden="true" />{stack ? stack.size : single ? first.number : `+${entries.length}`}</>;
-    const props = { className: `request-badge state-${state}`, "aria-label": label };
+    // The badge sits inside the row's button, so it is no Tab stop of its own: the
+    // row names its requests, and its menu's "Linked pull requests…" opens them.
+    const props = { className: `request-badge state-${state}`, "aria-label": label, tabIndex: -1 };
     return single && !stack
       ? <a {...props} {...tooltipProps(entries.map(line).join("\n"), { variant: "lines" })} href={first.url} data-request-workspace={session.projectPath}>{body}</a>
-      : <><span {...props} ref={anchor} role="button" tabIndex={0} {...triggerProps} data-request-thread={session.id} data-request-workspace={session.projectPath} data-request-branch={request ? first.url : undefined}
+      : <><span {...props} ref={anchor} role="button" {...triggerProps} data-request-thread={session.id} data-request-workspace={session.projectPath} data-request-branch={request ? first.url : undefined}
         onKeyDown={(event) => {
           triggerProps.onKeyDown(event);
           if (event.defaultPrevented) return;
