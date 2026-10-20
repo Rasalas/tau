@@ -38,6 +38,52 @@ it("waits for consent data and requires Save before granting agent device contro
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("configure", expect.objectContaining({ agentControl: true })));
   await screen.findByText("Settings saved.");
 });
+it("keeps Save and the fields away until the saved settings load, and offers a retry when they fail", async () => {
+  const invoke = host();
+  let fail = true;
+  const saved = { ...structuredClone(state), settings: { ...structuredClone(DEFAULT_SETTINGS), agentControl: true, hosts: [...DEFAULT_SETTINGS.hosts, { id: "ssh-1", name: "Studio Mac", ssh: "studio", remoteDirectory: "/tmp/tools" }] } };
+  invoke.mockImplementation(async <T,>(command: string): Promise<T> => {
+    if (command === "state") { if (fail) throw new Error("Host stopped"); return structuredClone(saved) as T; }
+    return {} as T;
+  });
+  render(<DeviceSettingsPage invoke={invoke} />);
+  await screen.findByText("Host stopped");
+  expect(screen.queryByRole("button", { name: "Save simulator settings" })).toBeNull();
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  fail = false;
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect((await screen.findByRole("checkbox")).getAttribute("aria-checked")).toBe("true");
+  expect(screen.getByRole("textbox", { name: "Machine 2 name" })).toHaveProperty("value", "Studio Mac");
+  expect(invoke).not.toHaveBeenCalledWith("configure", expect.anything());
+});
+it("clears a capture failure once frames arrive again", async () => {
+  const invoke = host();
+  let frames = 0;
+  invoke.mockImplementation(async <T,>(command: string): Promise<T> => {
+    if (command === "state") return structuredClone(state) as T;
+    if (command === "frame") { if (++frames === 1) throw new Error("Screenshot failed"); return { dataUrl: png } as T; }
+    return {} as T;
+  });
+  render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);
+  fireEvent.click(await screen.findByRole("button", { name: /Test iPhone · ios/ }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Screenshot failed");
+  await screen.findByRole("img", { name: "Test iPhone screen" }, { timeout: 3_000 });
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+it("captures nothing while the window is hidden and resumes when it shows", async () => {
+  let hidden = true;
+  Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+  try {
+    const invoke = host();
+    render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Test iPhone · ios/ }));
+    await act(async () => {});
+    expect(invoke).not.toHaveBeenCalledWith("frame", expect.anything());
+    hidden = false;
+    fireEvent(document, new Event("visibilitychange"));
+    await screen.findByRole("img", { name: "Test iPhone screen" });
+  } finally { Reflect.deleteProperty(document, "hidden"); }
+});
 it("opens an explicit device tab and captures its screen through the host", async () => {
   const invoke = host();
   render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);

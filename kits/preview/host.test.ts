@@ -386,6 +386,21 @@ describe("preview panel commands", () => {
     await kit.registry.invoke(PREVIEW_HOST_EXTENSION_ID, "close", undefined);
     expect(destroy).toHaveBeenCalledTimes(1);
   });
+
+  it("replaces a headless browser that exited on the next open instead of failing until Close", async () => {
+    const destroy = vi.fn();
+    let exited = false;
+    const dead = fakeSurface({ destroy, state: () => ({ ...EMPTY_PREVIEW_STATE, surface: "headless", available: !exited }) });
+    const fresh = fakeSurface();
+    const created = [dead.surface, fresh.surface];
+    const kit = await activate(async () => created.shift());
+    await kit.call("preview_open", { url: "https://example.com/one" });
+    exited = true;
+    expect(await kit.text("preview_open", { url: "https://example.com/two" })).toMatchObject({ isError: false });
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(fresh.loaded).toEqual(["https://example.com/two"]);
+    expect(dead.loaded).toEqual(["https://example.com/one"]);
+  });
 });
 
 const scratch: string[] = [];

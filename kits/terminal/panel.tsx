@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Columns2, Ellipsis, FolderOpen, Plus, Rows2, SquareArrowOutUpRight, SquareStack, Terminal as TerminalIcon, X } from "lucide-react";
-import { Empty, errorMessage, Menu, tooltipProps, useHostCapabilities, type MenuItem, type PanelProps } from "tau";
+import { ConfirmDialog, Empty, errorMessage, Menu, tooltipProps, useHostAvailability, useHostCapabilities, type MenuItem, type PanelProps } from "tau";
 import { terminalServices, terminalStore, useTerminalKit } from "./store.js";
 import { paneIds, type TerminalGroup } from "./layout.js";
-import { closeTerminals, groupPanes, moveTerminalToStage, openTerminal, syncStageTabs, TERMINAL_READ_ONLY, wantsFirstShell } from "./controller.js";
+import { closeQuestion, closeTerminals, groupPanes, moveTerminalToStage, openTerminal, syncStageTabs, TERMINAL_READ_ONLY, wantsFirstShell } from "./controller.js";
 import { groupLabel, PaneTree, shellDirectory, useOpenFolder, type Run } from "./panes.js";
 import { chipLabels, tabTitle, threadScope } from "./scope.js";
 import { inTerminal, useTerminalChord } from "./shortcut.js";
-import type { UiTerminalSession } from "./protocol.js";
+import { TERMINAL_HOST_EXTENSION_ID, type UiTerminalSession } from "./protocol.js";
 
 export { placeOf, type TerminalPlace } from "./panes.js";
 
@@ -37,6 +37,7 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
   const elsewhereButton = useRef<HTMLButtonElement>(null);
   const wasActive = useRef(false);
   const { readOnly } = useHostCapabilities();
+  const availability = useHostAvailability(TERMINAL_HOST_EXTENSION_ID);
   const chord = useTerminalChord();
 
   const run: Run = (work) => {
@@ -169,6 +170,10 @@ export function TerminalPanel({ actions, active, placement }: PanelProps) {
         ? <PaneTree group={current} sessions={sessions} place="panel" actions={actions} run={run} activeSessionId={activeSessionId} />
         : onStage > 0
           ? <p className="empty-copy">Every shell is on the stage.</p>
+          : !availability.available || (!terminalStore.isKnown() && terminalStore.isUnreachable())
+            ? <Empty icon={<TerminalIcon size={20} />} title="The machine is not answering" description={availability.reason ?? "Its shells show here once it is back."} />
+          : !terminalStore.isKnown()
+            ? <Empty icon={<TerminalIcon size={20} />} title="Loading shells…" />
           : <Empty
             icon={<TerminalIcon size={20} />}
             title={readOnly ? "No shell is open" : "No terminal in this thread"}
@@ -211,4 +216,13 @@ function TerminalTab({ group, label, sessions, selected, fromElsewhere, readOnly
     </button>
     {readOnly ? null : <button type="button" className="terminal-tab-close" aria-label={`Close tab ${label}`} {...tooltipProps("Close this tab's shells")} onClick={onClose}><X size={12} /></button>}
   </div>;
+}
+
+/** Asks before a close interrupts a program, in Tau's own dialog; one mounted copy shows it. */
+export function TerminalCloseQuestion() {
+  const [asker] = useState(() => ({}));
+  useEffect(() => closeQuestion.mount(asker), [asker]);
+  const question = useSyncExternalStore(closeQuestion.subscribe, closeQuestion.current);
+  if (!question || !closeQuestion.shownBy(asker)) return null;
+  return <ConfirmDialog title="A program is still running" message={question.message} confirmLabel="Close anyway" destructive onConfirm={() => question.answer(true)} onCancel={() => question.answer(false)} />;
 }

@@ -177,6 +177,21 @@ describe("device hub lifetime", () => {
     expect(launched[0].args.at(-1)).toMatch(/^sh -c '.*cat <&3.*kill/s);
     manager.dispose();
   });
+  it("starts the local hub as an owned process so it ends when Tau is killed", async () => {
+    const owned: { command: string; args: readonly string[]; env: NodeJS.ProcessEnv }[] = [];
+    const launch = vi.fn() as unknown as typeof spawn;
+    const own = (input: { command: string; args: readonly string[]; env: NodeJS.ProcessEnv }) => {
+      owned.push(input);
+      return Object.assign(new EventEmitter(), { exitCode: 1, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: () => true }) as unknown as ReturnType<typeof spawn>;
+    };
+    const manager = new DeviceManager(await directory(), vi.fn(), fetch, launch, own);
+    await manager.configure({ ...settings(), node: "/opt/node" });
+    vi.spyOn(manager.tools, "installed").mockResolvedValue(true);
+    await expect(manager.discover("local")).rejects.toThrow();
+    expect(launch).not.toHaveBeenCalled();
+    expect(owned[0]).toMatchObject({ command: "/opt/node", args: expect.arrayContaining(["--port", "--hide-sidebar"]), env: expect.objectContaining({ ELECTRON_RUN_AS_NODE: "1" }) });
+    manager.dispose();
+  });
   async function running() {
     const path = await directory();
     const manager = new DeviceManager(path, vi.fn(async () => ({ stdout: "", stderr: "" })));

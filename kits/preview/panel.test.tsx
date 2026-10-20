@@ -123,11 +123,33 @@ describe("PreviewPanel bounds", () => {
     expect(latest()?.visible).toBe(false);
 
     reports.length = 0;
+    let rect = domRect({ left: 900, top: 120, width: 400, height: 500 });
+    vi.mocked(Element.prototype.getBoundingClientRect).mockImplementation(function boundingRect(this: Element) {
+      return this.classList.contains("preview-surface") ? rect : EMPTY_RECT;
+    });
     await act(async () => { window.dispatchEvent(new Event("resize")); });
+    rect = domRect({ left: 900, top: 140, width: 400, height: 500 });
     await act(async () => { window.dispatchEvent(new Event("scroll", { bubbles: true })); });
+    await settle();
 
-    expect(reports.length).toBeGreaterThan(0);
+    expect(reports.length).toBe(2);
     expect(reports.every((report) => report.visible === false)).toBe(true);
+  });
+
+  it("measures scrolls once a frame and sends nothing when the rectangle did not move", async () => {
+    render(panel());
+    await settle();
+    reports.length = 0;
+    await act(async () => { for (let i = 0; i < 20; i++) document.dispatchEvent(new Event("scroll", { bubbles: true })); });
+    await settle();
+    expect(reports).toEqual([]);
+
+    vi.mocked(Element.prototype.getBoundingClientRect).mockImplementation(function boundingRect(this: Element) {
+      return this.classList.contains("preview-surface") ? domRect({ left: 900, top: 80, width: 360, height: 500 }) : EMPTY_RECT;
+    });
+    await act(async () => { for (let i = 0; i < 20; i++) document.dispatchEvent(new Event("scroll", { bubbles: true })); });
+    await settle();
+    expect(reports).toEqual([{ x: 900, y: 80, width: 360, height: 500, visible: true }]);
   });
 
   it("comes back after the modal closes even if the panel remounted meanwhile", async () => {

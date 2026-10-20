@@ -134,10 +134,15 @@ export function rankServers(servers: readonly PreviewServer[]): PreviewServer[] 
 
 export type ProbeResult = "html" | "http" | "none";
 
-/** Whether an HTTP server answers there, and whether with a page. A redirect counts as a page. */
+/** Whether an HTTP server answers there, and whether with a page. A redirect counts as a page. HEAD spares a dev server a render; one that refuses HEAD gets a GET. */
 export async function probeHttp(url: string, timeoutMs = 800): Promise<ProbeResult> {
   try {
-    const response = await fetch(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+    const ask = (method: "HEAD" | "GET") => fetch(url, { method, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+    let response = await ask("HEAD");
+    if (response.status === 405 || response.status === 501) {
+      void response.body?.cancel().catch(() => undefined);
+      response = await ask("GET");
+    }
     void response.body?.cancel().catch(() => undefined);
     if (response.status >= 300 && response.status < 400) return "html";
     const type = response.headers.get("content-type") ?? "";

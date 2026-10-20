@@ -12,7 +12,7 @@ import type { DesktopExtension } from "tau";
 
 // Keep the actual Terminal Kit commands, bindings and workbench panel routing;
 // its PTY renderer is unrelated to whether the shortcut opens the closed stage.
-vi.mock("./panel.js", () => ({ TerminalPanel: () => <div>Terminal panel content</div> }));
+vi.mock("./panel.js", () => ({ TerminalPanel: () => <div>Terminal panel content</div>, TerminalCloseQuestion: () => null }));
 
 const workspace: DesktopExtension = { id: "test.terminal-workspace", name: "Workspace", activate(plugin) {
   plugin.registerRegion({ id: "context", placement: "workspace-summary", Component: () => <div>Project context</div> });

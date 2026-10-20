@@ -86,6 +86,8 @@ interface Session {
   /** The label was made from the directory, so it follows the directory. */
   derivedLabel: boolean;
   notice?: string;
+  /** The shell Settings named when it opened; a restart starts the same one. */
+  shell?: string;
   cwd: CwdTracker;
   /** Gone once the shell exited; the record stays so the user can read the end and restart. */
   pty?: PtyProcess;
@@ -144,7 +146,7 @@ export class TerminalSessions {
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
     };
-    const session: Session = { record, root: input.root, derivedLabel: !input.label?.trim(), ...(input.notice ? { notice: input.notice } : {}), cwd: new CwdTracker(this.machine), pty, scrollback: new Scrollback(), offset: 0 };
+    const session: Session = { record, root: input.root, derivedLabel: !input.label?.trim(), ...(input.notice ? { notice: input.notice } : {}), ...(input.shell ? { shell: input.shell } : {}), cwd: new CwdTracker(this.machine), pty, scrollback: new Scrollback(), offset: 0 };
     this.sessions.set(id, session);
     if (input.notice) this.recordData(id, `\x1b[2m${input.notice}\x1b[0m\r\n`);
     pty.onData((data) => this.recordData(id, data));
@@ -167,6 +169,7 @@ export class TerminalSessions {
       root,
       ...(session.derivedLabel ? {} : { label: record.label }),
       ...(session.notice ? { notice: session.notice } : {}),
+      ...(session.shell ? { shell: session.shell } : {}),
     });
   }
 
