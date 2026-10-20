@@ -119,11 +119,16 @@ client-storage key `scheduling.repeat-last`.
 
 ## Missed and uncertain work
 
-On activation, any due occurrence is `held`, not replayed. Turning scheduling
-on or enabling an overdue job also holds it. A live timer more than 60 seconds
-late holds its occurrence. A smaller delay tolerates normal event-loop jitter.
-A daily or cron run that lasts beyond its next occurrence holds that
-occurrence when it finishes. There is no backlog or catch-up queue.
+Only an enabled job with scheduling on can miss an occurrence. On activation,
+its due occurrence is `held`, not replayed. Turning scheduling on or enabling
+an overdue one-off also holds it. Enabling a daily or cron job moves it to its
+next future occurrence, so a job that was off does not come back as missed.
+A live timer more than 60 seconds late holds its occurrence. A smaller delay
+tolerates normal event-loop jitter. Timers re-read the wall clock at least every
+30 seconds: a run due after the computer wakes from sleep starts on time, and
+one that passed while it slept is held within 30 seconds of waking, as if Tau
+had been closed. A daily or cron run that lasts beyond its next occurrence
+holds that occurrence when it finishes. There is no backlog or catch-up queue.
 
 For a held or failed job, `resolve` with `skip` discards the occurrence. A daily
 or cron job keeps its enablement and moves to its next future occurrence. A one-off stays
@@ -156,9 +161,11 @@ There are at most 100 jobs. Prompts are at most 16,384 characters, names 120,
 workspace paths 4,096, runtime kinds 128, and error details 500. The stored file
 is limited to 2 MiB, with 8 KiB per job reserved for run records and JSON
 formatting. Large configurations can therefore reach the limit before 100 jobs.
-Mutations are serialized; a concurrent mutation gets a
-bounded busy error rather than joining a queue. One pending start can block
-other mutations until it returns or the kit is deactivated. Listing still works.
+Mutations are serialized through a queue. A webhook delivery, manual run or
+edit made during another operation waits its turn; past 100 waiting operations
+the next gets a busy error. A timed run is judged late by when its timer fired,
+not when its turn came. One pending start delays other mutations until it
+returns. Listing still works.
 
 Only the latest run record is retained per job, with intent ID, timestamp,
 thread ID when known, and outcome. Earlier ordinary threads remain inspectable
