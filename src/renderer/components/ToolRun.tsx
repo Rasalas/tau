@@ -6,7 +6,7 @@ import { useDisclosure, type WorkDisclosures } from "./work-disclosures";
 import type { ExtensionRegistry } from "../extension-system";
 import { ACTIVE_TOOL_OUTPUT_LIMIT, SETTLED_TOOL_OUTPUT_LIMIT, boundToolOutput } from "../tool-output";
 import { formatBytes } from "../format-bytes";
-import { WorkbenchContext } from "../workbench-context";
+import { OpenFileContext } from "../workbench-context";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";
 
 function seconds(from: number, to: number): string {
@@ -103,7 +103,7 @@ export const ToolRun = memo(function ToolRun({
   // A call that is still open — live, waiting on you, or left behind by a dead
   // turn — offers one way out, on hover, right where it sits.
   const stoppable = tool.status === "running" && Boolean(onStop);
-  const openFile = useContext(WorkbenchContext)?.openFile;
+  const openFile = useContext(OpenFileContext);
   // A settled call that names its file links to it; the stop button has the place while it runs.
   const linked = !stoppable && view.file && openFile ? view.file : undefined;
   const failure = failed ? toolFailureReason(shown.output) ?? (deferred ? "Failed; open the call for its output" : "Failed") : undefined;

@@ -2,7 +2,7 @@ import { FileText, ListEnd, Redo2, Sparkles } from "lucide-react";
 import { useContext, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { messageSkills } from "../../shared/prepared-prompt";
-import { WorkbenchContext, WorkbenchShellContext } from "../workbench-context";
+import { OpenFileContext, WorkbenchShellContext } from "../workbench-context";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { drawsBlocksFor, splitMessageBlocks } from "./message-blocks";
 import { Markdown } from "./LazyMarkdown";
@@ -92,7 +92,7 @@ export function UserMessage({
   const { text, blocks } = useUserBlocks(message);
   const visibleText = visibleUserMessageText(text);
   const attachedFiles = embeddedFileContexts(text);
-  const openFile = useContext(WorkbenchContext)?.openFile;
+  const openFile = useContext(OpenFileContext);
   const hasLocalImages = localImagePaths(message.text).length > 0;
   const persistedImages = message.images ?? [];
   const skills = messageSkills(message);

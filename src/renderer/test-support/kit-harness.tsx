@@ -10,7 +10,7 @@ import { createMemoryStorage } from "../../workbench/client-storage";
 import { ClientStorageProvider } from "../client-storage-context";
 import { PreferencesStore } from "../preferences";
 import { RendererServicesProvider } from "../renderer-services-context";
-import { ObservatoryContext, WorkbenchContext, WorkbenchShellContext } from "../workbench-context";
+import { ObservatoryContext, OpenFileContext, WorkbenchContext, WorkbenchShellContext } from "../workbench-context";
 import { useAppKeybindings as useWindowKeybindings } from "../use-app-keybindings";
 
 export const KIT_REGION_PLACEMENTS: RegionPlacement[] = ["title-bar", "thread-title", "thread-details", "thread-branch", "draft-actions", "stage-bar", "composer-above", "composer-controls", "composer-below", "transcript-header", "transcript-footer"];
@@ -60,10 +60,12 @@ export async function expectKitActivatesCleanly(
       <RendererServicesProvider services={{ preferences }}>
         <WorkbenchShellContext.Provider value={{ snapshot, registry }}>
           <WorkbenchContext.Provider value={workbench}>
-            <ObservatoryContext.Provider value={{ events: [], snapshot, tools: [], registry }}>
-              {KIT_REGION_PLACEMENTS.map((placement) => <Region key={placement} placement={placement} registry={registry} snapshot={snapshot} actions={actions} />)}
-              <StatusLine registry={registry} snapshot={snapshot} actions={actions} />
-            </ObservatoryContext.Provider>
+            <OpenFileContext.Provider value={workbench.openFile}>
+              <ObservatoryContext.Provider value={{ events: [], snapshot, tools: [], registry }}>
+                {KIT_REGION_PLACEMENTS.map((placement) => <Region key={placement} placement={placement} registry={registry} snapshot={snapshot} actions={actions} />)}
+                <StatusLine registry={registry} snapshot={snapshot} actions={actions} />
+              </ObservatoryContext.Provider>
+            </OpenFileContext.Provider>
           </WorkbenchContext.Provider>
         </WorkbenchShellContext.Provider>
       </RendererServicesProvider>

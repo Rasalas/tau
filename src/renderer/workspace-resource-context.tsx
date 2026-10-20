@@ -4,7 +4,7 @@ import { linkedFileLocation, linkedFilePath } from "../shared/linked-file-path";
 import type { WorkspaceResourceOrigin } from "../workbench/stage";
 import type { DocumentSourceContribution } from "./extension-system";
 import { useHostClient } from "./host-client-context";
-import { WorkbenchContext } from "./workbench-context";
+import { OpenFileContext, WorkbenchContext } from "./workbench-context";
 
 export type { WorkspaceResourceOrigin } from "../workbench/stage";
 
@@ -125,9 +125,15 @@ export function WorkspaceResourceProvider({ sessionId, workspace, displayPath, l
     resources.lease.active = true;
     return () => { resources.lease.active = false; };
   }, [resources]);
-  const context = useMemo(() => workbench ? { ...workbench, openFile: (path: string) => {
+  // Its own value: the workbench's changes with every flush of tool output.
+  const hasWorkbench = workbench !== undefined;
+  const openWorkspaceFile = workbench?.openWorkspaceFile;
+  const openFile = useMemo(() => hasWorkbench ? (path: string) => {
     try { resources.value.openFile(transcriptFilePath(path, displayPath)); }
-    catch { if (resources.lease.active) workbench.openWorkspaceFile?.(path, null); }
-  } } : undefined, [resources, workbench, displayPath]);
-  return <Context.Provider value={resources.value}><WorkbenchContext.Provider value={context}>{children}</WorkbenchContext.Provider></Context.Provider>;
+    catch { if (resources.lease.active) openWorkspaceFile?.(path, null); }
+  } : undefined, [resources, hasWorkbench, openWorkspaceFile, displayPath]);
+  const context = useMemo(() => workbench && openFile ? { ...workbench, openFile } : undefined, [openFile, workbench]);
+  return <Context.Provider value={resources.value}><WorkbenchContext.Provider value={context}>
+    <OpenFileContext.Provider value={openFile}>{children}</OpenFileContext.Provider>
+  </WorkbenchContext.Provider></Context.Provider>;
 }

@@ -21,6 +21,18 @@ export const FIND_DEBOUNCE_MS = 200;
 
 type Remote = { query: string; ids: readonly string[] } | "failed";
 
+/** A streamed delta replaces one message; every other one keeps its lowercased text. */
+const loweredText = new WeakMap<UiMessage, string>();
+function lowered(message: UiMessage): string {
+  let text = loweredText.get(message);
+  if (text === undefined) {
+    // The NUL keeps a query from matching across the end of the text into the thinking.
+    text = `${message.text?.toLowerCase() ?? ""}\0${message.thinking?.toLowerCase() ?? ""}`;
+    loweredText.set(message, text);
+  }
+  return text;
+}
+
 export function TranscriptSearch({ messages, find, onJump, onActive, onClose, focusToken }: TranscriptSearchProps) {
   const [query, setQuery] = useState("");
   const [remote, setRemote] = useState<Remote>();
@@ -33,7 +45,7 @@ export function TranscriptSearch({ messages, find, onJump, onActive, onClose, fo
   const loaded = useMemo(() => {
     const q = needle.toLowerCase();
     if (!q) return [];
-    return messages.filter((msg) => msg.text?.toLowerCase().includes(q) || msg.thinking?.toLowerCase().includes(q)).map((msg) => msg.id);
+    return messages.filter((msg) => lowered(msg).includes(q)).map((msg) => msg.id);
   }, [messages, needle]);
 
   // Newest first: the reader is at the end and walks back through the thread.

@@ -149,7 +149,6 @@ export default function App() {
   });
   const settings = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
-  const threadActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
 
   const hostSnapshot = useSyncExternalStore(viewStore.subscribeToSnapshot, viewStore.getSnapshot);
   const shownThreadId = hostSnapshot?.sessionId ?? "";
@@ -160,16 +159,19 @@ export default function App() {
   // whether there are any, which a stream of output never changes.
   const turnHasActivity = useSyncExternalStore(viewStore.subscribeToTools, () => hasActivityTools(viewStore));
   const uiPrompts = useSyncExternalStore(viewStore.subscribeToPrompts, viewStore.getUiPrompts);
-  const events = useSyncExternalStore(viewStore.subscribeToEvents, viewStore.getEvents);
   const setNotice = viewStore.setNotice;
   const addEvent = viewStore.addEvent;
   // A switch on any device reaches this one: the host's list is every client's.
   useEffect(() => safeMode ? undefined : followExtensionChoices(registry, preferences, addEvent), [registry, preferences, safeMode, addEvent]);
   // Run state lives in the thread store, fed by the host's per-thread status
   // events. Every other reading of "is this thread working" is this selector,
-  // so the composer, the live row and the rail cannot disagree.
-  const visibleStreaming = threadActivity.isStreaming;
-  const runStartedAt = threadActivity.runningStartedAt[threadActivity.activeThreadId];
+  // so the composer, the live row and the rail cannot disagree. App reads two
+  // values of it; a tool starting or ending elsewhere must not render it.
+  const visibleStreaming = useSyncExternalStore(threadStore.subscribeToActivity, () => threadStore.getActivity().isStreaming);
+  const runStartedAt = useSyncExternalStore(threadStore.subscribeToActivity, () => {
+    const activity = threadStore.getActivity();
+    return activity.runningStartedAt[activity.activeThreadId];
+  });
   const {
     paletteOpen, paletteMenu, openPalette, closePalette,
     newThreadPick, openNewThreadPicker, closeNewThreadPicker,
@@ -576,13 +578,13 @@ export default function App() {
     () => snapshot ? { ...snapshot, isStreaming: visibleStreaming } : undefined,
     [snapshot, visibleStreaming],
   );
-  // The workbench adds the tool runs to both contexts itself.
+  // The workbench adds the tool runs and the timeline events to both contexts itself.
   const contextValue = useMemo(
-    () => ({ snapshot: liveSnapshot, events, registry, activeDocumentPath: stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent }),
-    [liveSnapshot, events, registry, stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent],
+    () => ({ snapshot: liveSnapshot, registry, activeDocumentPath: stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent }),
+    [liveSnapshot, registry, stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent],
   );
   const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry, actions }), [actions, liveSnapshot, registry]);
-  const observatoryContextValue = useMemo(() => ({ events, snapshot: liveSnapshot, registry }), [events, liveSnapshot, registry]);
+  const observatoryContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry }), [liveSnapshot, registry]);
   const addDroppedFiles = useCallback((files: FileList | readonly File[]) => { void composerAttachmentRef.current?.addFiles(files); }, []);
   const composerScopeSubscribe = useCallback((onChange: () => void) => activeDraftKey
     ? composerScopeStore.subscribe(createDraftKey(activeDraftKey), onChange)

@@ -1,7 +1,8 @@
 import type { HostSnapshot, ThreadIndexSnapshot } from "../shared/contracts";
 import type { ThreadDetail } from "../shared/host-protocol";
 import { ThreadDetailStore } from "../shared/thread-detail-store";
-import { writeBootstrapCache } from "./bootstrap-cache";
+import { scheduleBootstrapCache, writeBootstrapCache } from "./bootstrap-cache";
+import { getClientStorage } from "./client-storage";
 
 /**
  * Persistence and bounded detail ownership, kept out of request coordination.
@@ -35,9 +36,10 @@ export class TranscriptHistoryCache {
     this.snapshot = snapshot;
   }
 
+  /** An index arrives with every thread's change; its write joins the coalesced one. */
   setThreadIndex(index: ThreadIndexSnapshot): void {
     this.index = index;
-    this.persist();
+    scheduleBootstrapCache(this.snapshot, this.index, getClientStorage());
   }
 
   persist(): void {

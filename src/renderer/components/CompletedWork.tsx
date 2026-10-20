@@ -1,5 +1,5 @@
 import { ChevronRight, Clock } from "lucide-react";
-import { createContext } from "react";
+import { createContext, memo } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import type { CompletedTurnWork } from "./completed-turn-work";
 import { Message } from "./Message";
@@ -8,7 +8,7 @@ import { useDisclosure, type WorkDisclosures } from "./work-disclosures";
 
 export const CompletedWorkContext = createContext(false);
 
-export function CompletedWork({ work, disclosures, onCopy }: {
+export const CompletedWork = memo(function CompletedWork({ work, disclosures, onCopy }: {
   work: CompletedTurnWork;
   disclosures: WorkDisclosures;
   onCopy?: (message: UiMessage) => void;
@@ -37,4 +37,4 @@ export function CompletedWork({ work, disclosures, onCopy }: {
       </div>)}
     </div></CompletedWorkContext.Provider> : null}
   </section>;
-}
+});

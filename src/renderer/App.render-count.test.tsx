@@ -245,6 +245,24 @@ describe("app render isolation", () => {
     }
   });
 
+  it("starts and ends tools in a running turn without rendering App or the workbench", async () => {
+    const view = await renderLoadedApp(client);
+    await screen.findByText("hello");
+    act(() => {
+      client.emit({ type: "agent-status", sessionId: "session", running: true });
+      client.emit({ type: "tool-start", sessionId: "session", tool: { id: "tool-1", name: "bash", args: {}, status: "running", startedAt: 1 } });
+    });
+    await waitFor(() => expect(view.container.querySelector(".send-button.stop")).not.toBeNull());
+    const appBefore = appRenders.count;
+    const workbenchBefore = workbenchRenders.count;
+    // Each changes the running tool's name and adds a timeline event; App reads neither.
+    act(() => client.emit({ type: "tool-start", sessionId: "session", tool: { id: "tool-2", name: "read", args: {}, status: "running", startedAt: 2 } }));
+    act(() => client.emit({ type: "tool-end", sessionId: "session", tool: { id: "tool-1", name: "bash", args: {}, status: "done", output: "done", startedAt: 1, endedAt: 3 } }));
+    await waitFor(() => expect(view.container.querySelector(".work-live-line")).not.toBeNull());
+    expect(appRenders.count).toBe(appBefore);
+    expect(workbenchRenders.count).toBe(workbenchBefore);
+  });
+
   it("still hands a kit reading the workbench context each tool output", async () => {
     const frames: FrameRequestCallback[] = [];
     const requestFrame = vi.spyOn(window, "requestAnimationFrame")

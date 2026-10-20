@@ -1,5 +1,5 @@
 import { useExtensionData } from "./use-extension-data";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ExtensionUiPrompt, HostSnapshot, UiToolOutputPreview, UiToolRun, UiTurnActivityEntry } from "../shared/contracts";
 import type { TranscriptDetail } from "../workbench/transcript-folding";
 import { ActivityMessageIndex, type ActivitySegment } from "../workbench/activity-message-index";
@@ -138,44 +138,64 @@ export function useConversationActivities(input: ConversationActivityInput) {
 
   // A yes-or-no question is an approval; the live line then says what it waits to do.
   const waitingFor = prompts[0] ? (prompts[0].kind === "confirm" ? "approval" : "question") : undefined;
-  const cardTools = useMemo(() => actions ? [...new Map([
-    ...conversationActivityHistory.flatMap((entry) => entry.tools), ...conversationActivityTools,
-  ].map((tool) => [tool.id, tool])).values()].filter((tool) => registry.toolCardFor(tool)?.transcriptRows) : NO_TOOLS,
-  [actions, conversationActivityHistory, conversationActivityTools, registry, registryVersion]);
+  // History changes per turn, the live tools per flush; only the live part is filtered again.
+  const historyCardTools = useMemo(() => actions ? [...new Map(conversationActivityHistory.flatMap((entry) => entry.tools)
+    .map((tool) => [tool.id, tool])).values()].filter((tool) => registry.toolCardFor(tool)?.transcriptRows) : NO_TOOLS,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [actions, conversationActivityHistory, registry, registryVersion]);
+  const liveCardTools = useMemo(() => actions ? conversationActivityTools.filter((tool) => registry.toolCardFor(tool)?.transcriptRows) : NO_TOOLS,
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [actions, conversationActivityTools, registry, registryVersion]);
+  const cardTools = useMemo(() => liveCardTools.length === 0 ? historyCardTools
+    : [...new Map([...historyCardTools, ...liveCardTools].map((tool) => [tool.id, tool])).values()], [historyCardTools, liveCardTools]);
+  // Cards read the loaded transcript, so their rows follow every delta; without a card nothing does.
+  const cardMessages = cardTools.length > 0 ? messages : undefined;
+  const cardRows = useMemo(() => cardMessages ? toolCardTranscriptRows(cardTools, cardMessages, registry, actions) : [],
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [actions, cardMessages, cardTools, registry, registryVersion, threadExtensionVersion]);
+  const taskHistory = conversationSnapshot?.taskHistory;
+  const taskRows = useMemo(() => (taskHistory ?? []).map((entry) => ({
+    id: entry.id,
+    afterMessageId: entry.anchorMessageId,
+    content: <TaskProgress progress={entry.progress} />,
+  })), [taskHistory]);
+  const onRecover = useCallback(() => void recoverThread(), [recoverThread]);
+  const onStop = useCallback(() => abort(abortSessionId), [abort, abortSessionId]);
+  const liveStreaming = conversationSnapshot?.isStreaming;
+  // The live rows' own inputs; a streamed delta changes none of them.
+  const liveRows = useMemo<readonly TranscriptActivity[]>(() => messageIndex.splitTools(conversationActivityTools, visibleToolAnchorId, (tool) => Boolean(registry.toolCardFor(tool))).map((segment, index, segments) => ({
+    id: index === 0 ? "turn-activity" : `turn-activity:${segment.tools[0].id}`,
+    afterMessageId: segment.anchorMessageId,
+    ...completedWorkMetadata(segment.tools, !liveStreaming && prompts.length === 0 ? "completed" : "running", (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(conversationActivityTools[0]!.id)),
+    fallbackToTail: true,
+    content: <WorkGroup
+      // Each batch keeps its disclosure when later messages or calls arrive.
+      id={`turn-activity:${segment.tools[0].id}`}
+      tools={segment.tools}
+      registry={registry}
+      detail={detail}
+      disclosures={disclosures}
+      status={liveStreaming ? "running" : "completed"}
+      streaming={liveStreaming && index === segments.length - 1 && !replied}
+      waiting={prompts.length > 0}
+      {...(waitingFor ? { waitingFor } : {})}
+      {...(actions ? { actions } : {})}
+      onRecover={onRecover}
+      onStop={onStop}
+      onCopyOutput={copyToolOutput}
+      onLoadOutput={loadToolOutput}
+    />,
+  })),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [actions, conversationActivityTools, copyToolOutput, detail, disclosures, liveStreaming, loadToolOutput, messageIndex, onRecover, onStop, prompts.length, registry, registryVersion, replied, visibleToolAnchorId, waitingFor]);
   const transcriptActivities = useMemo<readonly TranscriptActivity[]>(() => [
     ...historicalActivityRows,
-    ...((conversationSnapshot?.taskHistory ?? []).map((entry) => ({
-      id: entry.id,
-      afterMessageId: entry.anchorMessageId,
-      content: <TaskProgress progress={entry.progress} />,
-    }))),
+    ...taskRows,
     ...(liveTaskProgress ? [{ id: "live-task-progress", afterMessageId: visibleToolAnchorId, fallbackToTail: true, content: liveTaskProgress }] : []),
     ...extensionRows,
-    ...messageIndex.splitTools(conversationActivityTools, visibleToolAnchorId, (tool) => Boolean(registry.toolCardFor(tool))).map((segment, index, segments) => ({
-      id: index === 0 ? "turn-activity" : `turn-activity:${segment.tools[0].id}`,
-      afterMessageId: segment.anchorMessageId,
-      ...completedWorkMetadata(segment.tools, !conversationSnapshot?.isStreaming && prompts.length === 0 ? "completed" : "running", (tool) => Boolean(registry.toolCardFor(tool)), disclosures.openedInTurn(conversationActivityTools[0]!.id)),
-      fallbackToTail: true,
-      content: <WorkGroup
-        // Each batch keeps its disclosure when later messages or calls arrive.
-        id={`turn-activity:${segment.tools[0].id}`}
-        tools={segment.tools}
-        registry={registry}
-        detail={detail}
-        disclosures={disclosures}
-        status={conversationSnapshot?.isStreaming ? "running" : "completed"}
-        streaming={conversationSnapshot?.isStreaming && index === segments.length - 1 && !replied}
-        waiting={prompts.length > 0}
-        {...(waitingFor ? { waitingFor } : {})}
-        {...(actions ? { actions } : {})}
-        onRecover={() => void recoverThread()}
-        onStop={() => abort(abortSessionId)}
-        onCopyOutput={copyToolOutput}
-        onLoadOutput={loadToolOutput}
-      />,
-    })),
-    ...toolCardTranscriptRows(cardTools, messages, registry, actions),
-  ], [abort, abortSessionId, actions, cardTools, conversationActivityTools, prompts.length, replied, waitingFor, conversationSnapshot?.isStreaming, conversationSnapshot?.sessionId, conversationSnapshot?.taskHistory, copyToolOutput, detail, disclosures, historicalActivityRows, liveTaskProgress, loadToolOutput, recoverThread, registry, registryVersion, threadExtensionVersion, extensionRows, visibleToolAnchorId, messageIndex, messages]);
+    ...liveRows,
+    ...cardRows,
+  ], [cardRows, extensionRows, historicalActivityRows, liveRows, liveTaskProgress, taskRows, visibleToolAnchorId]);
 
   return { thinking, liveStatusLabel, transcriptActivities };
 }
