@@ -1,7 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { followWorkbenchBootstrap } from "./workbench-bootstrap";
-import type { HostBootstrap } from "../shared/contracts";
+import type { HostBootstrap, UiMessage } from "../shared/contracts";
+import { HOST_PROTOCOL_VERSION } from "../shared/host-protocol";
+import { createMemoryStorage } from "./client-storage";
 import type { HostConnectionState } from "./host-connection";
+import { WorkbenchSession } from "./workbench-session";
 
 afterEach(() => vi.useRealTimers());
 
@@ -162,7 +165,7 @@ it("reads the snapshot again when a navigation outranks it", async () => {
   const applyBootstrap = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
   const onLoaded = vi.fn();
   const stop = followWorkbenchBootstrap({
-    bootstrap, switchSession: vi.fn(), onConnectionState: () => () => {}, watchThread: () => () => {}, limitPushesToWatched: () => {},
+    bootstrap, loadTranscript: vi.fn(), onConnectionState: () => () => {}, watchThread: () => () => {}, limitPushesToWatched: () => {},
   }, {
     history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true, acceptsDetail: () => true } as never,
     threads: { getSnapshot: () => ({ activeThreadId: "" }), subscribe: () => () => {} } as never,
@@ -176,33 +179,37 @@ it("reads the snapshot again when a navigation outranks it", async () => {
   stop();
 });
 
-it("keeps the window's own thread through a reconnect and asks the host for it again", async () => {
+it("keeps the window's own thread through a reconnect and reads it without moving the host", async () => {
   let connection!: (state: HostConnectionState) => void;
-  const threadIndex = { projects: [], sessions: [] };
-  const bootstrap = vi.fn().mockResolvedValue({ threadIndex, detail: { sessionId: "host" } } as unknown as HostBootstrap);
-  const result = { updates: [] };
-  const switchSession = vi.fn().mockResolvedValue(result);
-  let active = "host";
-  const applyBootstrap = vi.fn(() => true);
-  const applyThreadIndex = vi.fn();
-  const applyActionResult = vi.fn(() => true);
+  const session = (id: string) => ({ id, path: `${id}.jsonl`, title: id, modifiedAt: 1, projectPath: "/w", projectName: "w", messageCount: 1 });
+  const hello: UiMessage = { id: "m1", role: "user", text: "hello", timestamp: 1 };
+  const missed: UiMessage = { id: "m2", role: "assistant", text: "sent while away", timestamp: 2 };
+  const bootstrapOf = (sessionId: string, runs: Record<string, number> = {}): HostBootstrap => ({
+    version: HOST_PROTOCOL_VERSION,
+    threadIndex: { projects: [], sessions: [session("mine"), session("other")], runs },
+    detail: { sessionId, messages: sessionId === "mine" ? [hello] : [], isStreaming: false, activeTools: [] },
+    catalog: { models: [], thinkingLevel: "off", thinkingLevels: [], allTools: [], extensionCount: 0 },
+    project: { cwd: "/w", label: "w" },
+  });
+  // Another client moved the host to "other" while this window was away.
+  const bootstrap = vi.fn().mockResolvedValueOnce(bootstrapOf("mine")).mockResolvedValue(bootstrapOf("other", { mine: 5 }));
+  const loadTranscript = vi.fn(async (sessionId: string) => ({ sessionId, messages: [hello, missed], hasMore: false }));
+  const switchSession = vi.fn();
+  const workbench = new WorkbenchSession({ storage: createMemoryStorage() });
   const onLoaded = vi.fn();
   const stop = followWorkbenchBootstrap({
-    bootstrap, switchSession, onConnectionState: (listener) => { connection = listener; return () => {}; },
+    bootstrap, loadTranscript, switchSession, onConnectionState: (listener) => { connection = listener; return () => {}; },
     watchThread: () => () => {}, limitPushesToWatched: () => {},
-  }, {
-    history: { beginBootstrap: () => ({}), isCurrentBootstrap: () => true, acceptsDetail: (id: string) => id === active } as never,
-    threads: { getSnapshot: () => ({ activeThreadId: active }), getThread: (id: string) => ({ id, path: `${id}.jsonl` }), subscribe: () => () => {} } as never,
-    applyBootstrap, applyThreadIndex, applyActionResult,
-  }, vi.fn(), onLoaded);
+  } as never, workbench, vi.fn(), onLoaded);
   await vi.waitFor(() => expect(onLoaded).toHaveBeenCalledOnce());
-  active = "mine";
   connection("reconnecting");
   connection("connected");
   await vi.waitFor(() => expect(onLoaded).toHaveBeenCalledTimes(2));
-  expect(applyBootstrap).toHaveBeenCalledOnce();
-  expect(applyThreadIndex).toHaveBeenCalledExactlyOnceWith(threadIndex);
-  expect(switchSession).toHaveBeenCalledExactlyOnceWith("mine.jsonl");
-  expect(applyActionResult).toHaveBeenCalledExactlyOnceWith(result);
+
+  expect(switchSession).not.toHaveBeenCalled();
+  expect(loadTranscript).toHaveBeenCalledExactlyOnceWith("mine");
+  expect(workbench.view.getSnapshot()?.sessionId).toBe("mine");
+  expect(workbench.view.getTranscript().messages.map((message) => message.id)).toEqual(["m1", "m2"]);
+  expect(workbench.threads.getSnapshot().runningThreadIds).toContain("mine");
   stop();
 });

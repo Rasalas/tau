@@ -1,6 +1,8 @@
 import { errorMessage } from "./error-message";
 import type { HostBootstrap } from "../shared/contracts";
+import { HOST_PROTOCOL_VERSION } from "../shared/host-protocol";
 import { HOST_ERROR } from "../shared/host-transport";
+import { threadDetailFromPage } from "./app-state";
 import { isConnectionDropped } from "../shared/connection-dropped-error";
 import type { HostClient } from "./host-client";
 import { followShownThread } from "./shown-thread";
@@ -12,11 +14,11 @@ import type { WorkbenchSession } from "./workbench-session";
  * never arrived. Disposing releases both subscriptions and ignores late replies.
  * A snapshot that loses to a navigation is read again. After the first one, the
  * host's thread (shared by every client) no longer replaces the window's own:
- * the bootstrap brings the index and the window asks for its thread again.
+ * the bootstrap brings the index and the window reads its thread's latest page.
  * `onLoaded` runs after an accepted initial or reconnect snapshot is on screen.
  */
 export function followWorkbenchBootstrap(
-  client: Pick<HostClient, "bootstrap" | "switchSession" | "onConnectionState" | "watchThread" | "limitPushesToWatched">,
+  client: Pick<HostClient, "bootstrap" | "loadTranscript" | "onConnectionState" | "watchThread" | "limitPushesToWatched">,
   workbench: Pick<WorkbenchSession, "history" | "threads" | "applyBootstrap" | "applyThreadIndex" | "applyActionResult">,
   onError: (message: string) => void,
   onLoaded?: (bootstrap: HostBootstrap) => void,
@@ -40,15 +42,18 @@ export function followWorkbenchBootstrap(
     const stale = () => disposed || !connected || generation !== connectionGeneration;
     client.bootstrap().then(async (bootstrap) => {
       if (stale()) return;
-      const shown = settled ? workbench.threads.getSnapshot().activeThreadId : "";
-      const path = shown && shown !== bootstrap.detail.sessionId ? workbench.threads.getThread(shown)?.path : undefined;
+      const active = settled ? workbench.threads.getSnapshot().activeThreadId : "";
+      const shown = active && active !== bootstrap.detail.sessionId ? active : "";
+      if (shown) workbench.applyThreadIndex(bootstrap.threadIndex);
+      const thread = shown ? workbench.threads.getThread(shown) : undefined;
       let applied: boolean;
-      if (path) {
-        workbench.applyThreadIndex(bootstrap.threadIndex);
-        // A navigation under way brings its own detail; only a window still on its thread asks again.
-        const result = workbench.history.acceptsDetail(shown) ? await client.switchSession(path) : undefined;
+      if (thread) {
+        // Read, never switched to: the host's active thread is every client's. A navigation under way brings its own detail.
+        const page = workbench.history.acceptsDetail(shown) ? await client.loadTranscript(shown) : undefined;
         if (stale()) return;
-        applied = Boolean(result && workbench.history.acceptsDetail(shown) && workbench.applyActionResult(result));
+        const detail = page && { ...threadDetailFromPage(page, thread), isStreaming: Boolean(bootstrap.threadIndex.runs?.[shown]) };
+        applied = Boolean(detail && workbench.history.acceptsDetail(shown)
+          && workbench.applyActionResult({ version: HOST_PROTOCOL_VERSION, updates: [{ version: HOST_PROTOCOL_VERSION, type: "thread-detail", detail }] }));
       } else {
         applied = workbench.applyBootstrap(bootstrap, request);
         settled = true;
