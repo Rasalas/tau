@@ -619,6 +619,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const pageSidebarFrame = (content: React.ReactNode) => <aside className="page-sidebar-frame">{content}</aside>;
   // A modal's card stands where the modal would; a closed one shows nothing.
   const dialogFrame = (open: boolean, close: () => void) => (content: React.ReactNode) => open ? <div className="palette-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><div className="lazy-feature-dialog">{content}</div></div> : null;
+  const modalBoundary = (label: string, close: () => void, content: React.ReactNode, fallback: React.ReactNode = null, open = true) => <LazyFeatureBoundary label={label} frame={dialogFrame(open, close)} onClose={close}><Suspense fallback={fallback}>{content}</Suspense></LazyFeatureBoundary>;
   const closePanelSheet = () => setPanelSheet(undefined);
   const closeSystemPrompt = () => setSystemPromptOpen(false);
   // On a phone the list is the home screen: its card keeps the bar, so the rest of the app stays in reach.
@@ -640,35 +641,33 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
       {/* Under a page or Settings the list stays mounted, keeping its scroll; the bar is the covering page's. */}
       <LazyTouchThreadBrowser variant="home" {...threadBrowserProps} nav={phoneHomeNav} />
     </Suspense></LazyFeatureBoundary> : null}
-    {sheetPanel ? <LazyFeatureBoundary label={sheetPanel.label} frame={dialogFrame(true, closePanelSheet)} onClose={closePanelSheet}><Suspense fallback={null}>
+    {sheetPanel ? modalBoundary(sheetPanel.label, closePanelSheet,
       <LazyPanelSheet label={sheetPanel.label} detail={conversationSnapshot?.sessionTitle} host={hostFor(sheetPanel.id)} onClose={closePanelSheet} />
-    </Suspense></LazyFeatureBoundary> : null}
-    {threadTreeModal ? <LazyFeatureBoundary label="thread tree" frame={dialogFrame(true, closeThreadTree)} onClose={closeThreadTree}><Suspense fallback={null}><LazyThreadTreeModal
+    ) : null}
+    {threadTreeModal ? modalBoundary("thread tree", closeThreadTree, <LazyThreadTreeModal
       tree={threadTreeModal.tree} mode={threadTreeModal.mode} busy={threadTreeModal.busy} error={threadTreeModal.error}
       onClose={closeThreadTree} onNavigate={(entryId, summarize) => void navigateThreadTree(entryId, summarize)} onFork={(entryId) => void forkFromTree(entryId)}
-    /></Suspense></LazyFeatureBoundary> : null}
-    {systemPromptOpen ? <LazyFeatureBoundary label="system prompt" frame={dialogFrame(true, closeSystemPrompt)} onClose={closeSystemPrompt}>
-      <Suspense fallback={<LazyFeatureFallback label="system prompt" />}>
-        <LazySystemPromptModal threadId={snapshot?.sessionId} onClose={closeSystemPrompt} />
-      </Suspense>
-    </LazyFeatureBoundary> : null}
-    <LazyFeatureBoundary label="command palette" frame={dialogFrame(paletteOpen, closePalette)} onClose={closePalette}>
-      <Suspense fallback={<LazyFeatureFallback label="command palette" />}>
-        <LazyCommandPalette
-          open={paletteOpen}
-          {...(paletteMenu ? { menu: paletteMenu } : {})}
-          shortcutFor={(commandId) => registry.keybindingLabel(commandId)}
-          commands={commands}
-          actions={actions}
-          registry={registry}
-          onClose={closePalette}
-        />
-      </Suspense>
-    </LazyFeatureBoundary>
-    {projectSourcesOpen ? <LazyFeatureBoundary label="project sources" frame={dialogFrame(true, closeProjectSources)} onClose={closeProjectSources}><Suspense fallback={null}>
+    />) : null}
+    {systemPromptOpen ? modalBoundary("system prompt", closeSystemPrompt,
+      <LazySystemPromptModal threadId={snapshot?.sessionId} onClose={closeSystemPrompt} />,
+      <LazyFeatureFallback label="system prompt" />,
+    ) : null}
+    {modalBoundary("command palette", closePalette,
+      <LazyCommandPalette
+        open={paletteOpen}
+        {...(paletteMenu ? { menu: paletteMenu } : {})}
+        shortcutFor={(commandId) => registry.keybindingLabel(commandId)}
+        commands={commands}
+        actions={actions}
+        registry={registry}
+        onClose={closePalette}
+      />,
+      <LazyFeatureFallback label="command palette" />, paletteOpen,
+    )}
+    {projectSourcesOpen ? modalBoundary("project sources", closeProjectSources,
       <LazyProjectSourcesModal actions={actions} onClose={closeProjectSources} sources={registry.getProjectSources()} {...(projectSource ? { initialSource: projectSource } : {})} />
-    </Suspense></LazyFeatureBoundary> : null}
-    <LazyFeatureBoundary label="project picker" frame={dialogFrame(newThreadPick !== undefined, closeNewThreadPicker)} onClose={closeNewThreadPicker}><Suspense fallback={null}>
+    ) : null}
+    {modalBoundary("project picker", closeNewThreadPicker,
       <LazyProjectPicker
         open={newThreadPick !== undefined}
         projects={projects}
@@ -685,8 +684,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onClose={closeNewThreadPicker}
         onRemove={removeProject}
         onSelect={chooseNewThreadProject}
-      />
-    </Suspense></LazyFeatureBoundary>
+      />, null, newThreadPick !== undefined,
+    )}
     {openPage && pageScreen ? appPage : null}
     {settingsPage ? <LazyFeatureBoundary label="settings" title="Settings failed to load." frame={settingsFrame} onClose={() => setSettingsPage(undefined)}>
       <Suspense fallback={settingsFrame(<LazyFeatureFallback label="settings" />)}>

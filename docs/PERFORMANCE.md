@@ -2361,3 +2361,21 @@ measured regression, so no budget changed.
 - **Lifecycle measurements** count IPC bytes only under
   `TAU_MEASURE_LIFECYCLE_IPC=1`, which the host benchmark sets, and keep the
   last 100 measurements.
+
+On October 20 the reliability and UX review fixes in PRs #445–#458 receive one
+size-budget allowance for the whole integration. Sharing the modal recovery
+wrapper saves 397 initial JavaScript bytes while keeping per-tab boundaries,
+retryable imports and the modal error frame. After integrating the project-group change from #459, the desktop build measures
+803,813 initial JavaScript bytes, 561,180 total gzipped JavaScript bytes,
+3,359,995 desktop kit bytes and 147,075 initial CSS bytes. Its budgets rise from
+803,000 to 810,000 initial JavaScript bytes, from 561,000 to 568,000 total gzip
+bytes, from 3,360,000 to 3,400,000 desktop kit bytes and from 148,000 to 151,000
+initial CSS bytes. The browser client measures 817,527 initial JavaScript bytes,
+252,945 initial gzip bytes, 573,482 total gzip bytes and 147,225 initial CSS
+bytes. Its budgets rise from 820,000 to 827,000 initial JavaScript bytes, from
+255,000 to 258,000 initial gzip bytes, from 573,000 to 580,000 total gzip bytes
+and from 148,000 to 151,000 initial CSS bytes. This allows the measured cost of
+the reliability and UX fixes plus a little headroom for the remaining transcript,
+accessibility, walkthrough and destructive-action fixes, rather than another
+increase per PR. Build-time and all timing budgets, including the build reference
+historyEpoch, stay unchanged.

@@ -1,11 +1,11 @@
 {
-  "initialJavascriptBytes": 803000,
+  "initialJavascriptBytes": 810000,
   "initialJavascriptGzipBytes": 275000,
-  "initialCssBytes": 148000,
+  "initialCssBytes": 151000,
   "initialCssGzipBytes": 30000,
   "totalJavascriptBytes": 1900000,
-  "totalJavascriptGzipBytes": 561000,
-  "kitDesktopJavascriptBytes": 3360000,
+  "totalJavascriptGzipBytes": 568000,
+  "kitDesktopJavascriptBytes": 3400000,
   "buildTimeMs": 30000,
   "buildTimeReference": {
     "referenceMs": 266,
@@ -90,12 +90,12 @@
     "app-tool-output-stream"
   ],
   "web": {
-    "initialJavascriptBytes": 820000,
-    "initialJavascriptGzipBytes": 255000,
-    "initialCssBytes": 148000,
+    "initialJavascriptBytes": 827000,
+    "initialJavascriptGzipBytes": 258000,
+    "initialCssBytes": 151000,
     "initialCssGzipBytes": 30000,
     "totalJavascriptBytes": 2000000,
-    "totalJavascriptGzipBytes": 573000,
+    "totalJavascriptGzipBytes": 580000,
     "buildTimeMs": 20000
   }
 }
