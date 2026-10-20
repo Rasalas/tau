@@ -89,7 +89,7 @@ const MARK_ON_FILL: ReadonlyArray<[string, string]> = [["stop-ink", "stop"], ["q
 const FIXED_TILE_TEXT = new Set([
   ".thread-project-icon", ".provider-icon", ".provider-icon-stack.stacked > .provider-icon-fallback",
   ".thread-row.compact .thread-project-icon", ".checkbox", ".sidebar-footer .page-badge", ".stage-tab-dirty",
-  ".rail-instance", ".project-filter-tile.thread-project-icon", ".project-switcher-pick > i",
+  ".rail-instance", ".project-filter-tile.thread-project-icon", ".rail-project-tile.thread-project-icon", ".project-switcher-pick > i",
   ".thread-card-icon > .thread-project-icon", ".agent-row-model .provider-icon-fallback", ".rv-tile",
   ".token-gate-help > summary::before",
 ]);

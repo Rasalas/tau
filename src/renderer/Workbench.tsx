@@ -348,10 +348,12 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
     renameThread, copyThreadValue, threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   } = thread;
   const startThreadId = pendingNewThread ? "" : conversationSnapshot?.sessionId ?? "";
-  const projectless = useSyncExternalStore(
+  const projectlessThread = useSyncExternalStore(
     useCallback((listener: () => void) => threadStore.subscribeToThread(startThreadId, listener), [startThreadId, threadStore]),
     useCallback(() => threadStore.getThread(startThreadId)?.projectless === true, [startThreadId, threadStore]),
   );
+  const projectlessDraft = useSyncExternalStore(threadStore.subscribeToDrafts, () => threadStore.getDrafts().some((draft) => draft.active && draft.projectless === true));
+  const projectless = projectlessDraft || projectlessThread;
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
   const hostCapabilities = useHostCapabilities();

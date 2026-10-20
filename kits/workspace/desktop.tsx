@@ -104,7 +104,7 @@ export const workspaceExtension: DesktopExtension = {
       id: "workspace.no-project", label: "No project", description: "Private scratch folder for this thread", glyph: "·", order: 0, profiles: ["desktop", "compact"],
       createThreadWorkspace: async () => {
         const workspace = await host.createScratch();
-        return { ...workspace, path: workspace.displayPath, name: "No project", lastOpenedAt: Date.now() };
+        return { ...workspace, path: workspace.displayPath, name: "No project", projectless: true, lastOpenedAt: Date.now() };
       },
       run: async (actions) => {
         const workspace = await host.createScratch();

@@ -6,6 +6,7 @@ import { draftKey, readKeptDrafts, readNewThreadDraft, writeKeptDrafts, type New
 export interface DraftThread {
   draftId: string;
   projectName: string;
+  projectless?: boolean;
   projectPath: string;
   workspaceId?: string;
   /** The first line of the text, chips still as tokens; empty for a draft nobody typed in. */
@@ -171,6 +172,7 @@ export class DraftThreads {
     return {
       draftId: draft.draftId,
       projectName: draft.projectName,
+      ...(draft.projectless ? { projectless: true } : {}),
       projectPath: draft.projectPath,
       ...(draft.workspaceId ? { workspaceId: draft.workspaceId } : {}),
       preview,
@@ -238,6 +240,6 @@ function sameRows(left: readonly DraftThread[], right: readonly DraftThread[]): 
     const other = right[index]!;
     return row.draftId === other.draftId && row.preview === other.preview && row.attachments === other.attachments
       && row.active === other.active && row.submitting === other.submitting && row.sessionId === other.sessionId && row.projectPath === other.projectPath
-      && row.projectName === other.projectName && row.workspaceId === other.workspaceId && row.createdAt === other.createdAt;
+      && row.projectName === other.projectName && row.workspaceId === other.workspaceId && row.projectless === other.projectless && row.createdAt === other.createdAt;
   });
 }

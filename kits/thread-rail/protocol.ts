@@ -154,9 +154,9 @@ export interface RailOrganizer {
 
 /** The slice of Workspace Kit's store (`tau.workspace/store`) this kit uses. */
 export interface WorkspaceStoreSlice {
-  getSnapshot(): { draftPending: boolean; workspace?: { isRepo: boolean }; railProjectFilter?: string };
+  getSnapshot(): { draftPending: boolean; workspace?: { isRepo: boolean }; railProjectFilter?: string | readonly string[] };
   /** Absent in a Workspace Kit before API 1.11.0; the row menu leaves the item out then. */
-  setRailProjectFilter?(projectName: string | undefined): void;
+  setRailProjectFilter?(project: string | readonly string[] | undefined): void;
   openProjectSettings?(thread: Pick<UiSession, "projectPath" | "projectName" | "workspaceId">): void;
   subscribe(listener: () => void): () => void;
   registerThreadRailOrganizer(organizer: RailOrganizer): () => void;

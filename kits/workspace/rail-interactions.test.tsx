@@ -184,7 +184,7 @@ describe("the rest of the rail", () => {
     expect(within(screen.getByRole("navigation", { name: "Threads" })).getByText("Thread a")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Filter threads by project" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Filter by project" })).getByText("other"));
-    expect(workspace.getSnapshot().railProjectFilter).toBe("other");
+    expect(workspace.getSnapshot().railProjectFilter).toEqual(["/other"]);
     expect(within(screen.getByRole("navigation", { name: "Threads" })).queryByText("Thread a")).toBeNull();
   });
 
@@ -202,7 +202,7 @@ describe("the rest of the rail", () => {
     expect(document.querySelector(".sidebar-closed-controls")).toBeNull();
   });
 
-  it("lists each project with the rail's thread count and its path, and manages projects in Settings", async () => {
+  it("lists project thread counts in the compact filter and manages projects in Settings", async () => {
     await renderRail([
       shell("a", 0),
       shell("c", 2, { messageCount: 0 }),
@@ -211,13 +211,14 @@ describe("the rest of the rail", () => {
     ]);
     fireEvent.click(screen.getByRole("button", { name: "Filter threads by project" }));
     const list = await screen.findByRole("dialog", { name: "Filter by project" });
-    expect(within(list).getByText("Show threads from")).toBeTruthy();
+    expect(within(list).queryByText("Show threads from")).toBeNull();
+    expect(within(list).queryByRole("checkbox")).toBeNull();
     // A draft and an agent's thread are not in the rail, so they are not counted.
     const detail = (name: string) => within(list).getByRole("option", { name }).querySelector("small")?.textContent;
-    expect(detail("All projects")).toBe("2 threads");
-    expect(detail("project")).toBe("1 thread ·\u00a0/project");
+    expect(within(list).getByRole("option", { name: "All projects" }).getAttribute("aria-selected")).toBe("true");
+    expect(detail("project")).toBe("1");
     await waitFor(() => expect(document.activeElement).toBe(within(list).getByRole("textbox", { name: "Search projects" })));
-    expect(within(list).getByRole("button", { name: /Open a project…/ }).querySelector("kbd")).toBeTruthy();
+    expect(within(list).getByRole("button", { name: /Open a project…/ })).toBeTruthy();
     fireEvent.click(within(list).getByRole("button", { name: "Manage projects" }));
     expect(screen.queryByRole("dialog", { name: "Filter by project" })).toBeNull();
     expect((await screen.findAllByRole("heading", { name: "Source control" })).length).toBeGreaterThan(0);

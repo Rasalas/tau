@@ -53,6 +53,7 @@ import {
   type DraftMachineSource,
 } from "./protocol.js";
 import { recordTurnStat } from "./turn-stats.js";
+import { readProjectFilter, sameProjects, writeProjectFilter, type RailProjectFilter } from "./project-filter.js";
 
 export const WORKSPACE_KIT_ID = WORKSPACE_HOST_EXTENSION_ID;
 
@@ -69,6 +70,7 @@ export class WorktreeDeclined extends Error {
 }
 
 const INITIAL: WorkspaceKitState = {
+  railProjectGroups: [],
   draftPending: false,
   changes: NO_CHANGES,
   workspaceBusy: false,
@@ -189,6 +191,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     readonly host: WorkspaceHostClient,
   ) {
     this.clones = new CloneToasts(host);
+    const saved = readProjectFilter(getClientStorage());
+    this.state = { ...INITIAL, railProjectFilter: saved.filter, railProjectGroups: saved.groups };
   }
 
   getSnapshot = (): WorkspaceKitState => this.state;
@@ -903,8 +907,31 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     return () => { if (this.state.draftMachine === source) this.update({ draftMachine: undefined }); };
   }
 
-  setRailProjectFilter(projectName: string | undefined): void {
-    if (this.state.railProjectFilter !== projectName) this.update({ railProjectFilter: projectName });
+  setRailProjectFilter(filter: RailProjectFilter): void {
+    if (this.state.railProjectFilter === filter) return;
+    const next = Array.isArray(filter) ? [...new Set(filter)] : filter;
+    try { writeProjectFilter(getClientStorage(), { filter: next, groups: this.state.railProjectGroups }); }
+    catch { this.notify("The project filter could not be saved on this device.", "error"); }
+    this.update({ railProjectFilter: next });
+  }
+
+  saveRailProjectGroup(name: string, projects: readonly string[], id?: string): boolean {
+    name = name.trim();
+    const others = this.state.railProjectGroups.filter((group) => group.id !== id);
+    if (!name || !projects.length || others.some((group) => group.name.toLocaleLowerCase() === name.toLocaleLowerCase() || sameProjects(group.projects, projects))) return false;
+    const group = { id: id ?? crypto.randomUUID(), name, projects: [...new Set(projects)] };
+    const groups = id ? this.state.railProjectGroups.map((entry) => entry.id === id ? group : entry) : [...others, group];
+    try { writeProjectFilter(getClientStorage(), { filter: this.state.railProjectFilter, groups }); }
+    catch { this.notify("The project group could not be saved on this device.", "error"); return false; }
+    this.update({ railProjectGroups: groups });
+    return true;
+  }
+
+  removeRailProjectGroup(id: string): void {
+    const groups = this.state.railProjectGroups.filter((group) => group.id !== id);
+    try { writeProjectFilter(getClientStorage(), { filter: this.state.railProjectFilter, groups }); }
+    catch { this.notify("The project group could not be removed on this device.", "error"); return; }
+    this.update({ railProjectGroups: groups });
   }
 
   /** The project a thread runs in, as the index lists it; a thread outside every project gets one of its own. */

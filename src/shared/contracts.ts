@@ -553,6 +553,8 @@ export interface UiThreadOrigin {
 }
 
 export interface UiProject {
+  /** A private scratch workspace offered for a projectless draft, never a project-list entry. */
+  projectless?: boolean;
   /** @deprecated Display only; address the project with `workspaceId`. */
   path: string;
   /** Opaque identity of this workspace on its host. */
