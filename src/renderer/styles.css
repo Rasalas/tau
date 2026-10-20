@@ -942,6 +942,11 @@ button.file-context-chip:hover { border-color: var(--line-strong); color: var(--
 .message-user-meta.marked > :not(.message-delivery) { opacity: 0; transition: opacity 100ms ease; }
 .message-shell.user:hover .message-user-meta.marked > *, .message-shell.user:focus-within .message-user-meta.marked > * { opacity: 1; }
 .message-delivery { display: inline-flex; align-items: center; color: var(--faint); }
+.message-send-state { gap: 5px; font: var(--text-2xs)/1.4 var(--sans); }
+.message-send-state.failed { color: var(--danger); }
+.message-send-state button { border: 0; padding: 2px 5px; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.message-send-state button:hover { background: var(--raised); }
+.message-send-state button:focus-visible { outline: 1px solid var(--focus); outline-offset: 2px; }
 .message.user time { font: var(--text-2xs) var(--mono); color: var(--faint); white-space: nowrap; }
 .message-user-meta .message-actions {
   position: static; padding: 0; opacity: 1; pointer-events: auto;

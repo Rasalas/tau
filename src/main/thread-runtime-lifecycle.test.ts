@@ -245,6 +245,25 @@ describe("ThreadRuntimeLifecycle", () => {
     expect(emitted).toEqual([{ threadId: "thread", event: "turn-started" }]);
   });
 
+  it("keeps events received while opening a remote runtime until it is adopted", async () => {
+    let adopted = false;
+    const seen: string[] = [];
+    const provider = {
+      open: async (_id: string, _cwd: string, _options: unknown, context: { onEvent(event: unknown): void }) => {
+        context.onEvent({ type: "turn-started" });
+        context.onEvent({ type: "assistant-start", id: "a", timestamp: 1 });
+        context.onEvent({ type: "assistant-thinking", id: "a", delta: "working" });
+        return externalBackend("thread", { streaming: true });
+      },
+    };
+    const { lifecycle } = makeLifecycle({
+      adopt: async () => { adopted = true; },
+      emitRuntimeEvent: (_id, event) => { expect(adopted).toBe(true); seen.push(event.type); },
+    }, { test: provider });
+    await lifecycle.openExternal("test", "thread", "/repo");
+    expect(seen).toEqual(["turn-started", "assistant-start", "assistant-thinking"]);
+  });
+
   it("ignores events and messages from a discarded runtime after its replacement opens", async () => {
     let report!: (event: { type: string }) => void;
     let deliver!: (message: unknown) => void;

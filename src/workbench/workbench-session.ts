@@ -18,7 +18,8 @@ import { ThreadStore } from "./thread-store";
 import { SEND_FAILED_NOTICE, ThreadViewStore } from "./thread-view-store";
 import { ToastStore } from "./toast-store";
 import { TranscriptHistoryController, type TranscriptBootstrapRequest, type TranscriptHistoryRequest, type TransitionToken } from "./transcript-history";
-import { reconcileOptimisticMessages, transcriptNavigationScopeKey } from "./app-state";
+import { reconcileOptimisticMessages, transcriptNavigationScopeKey, type OptimisticUserMessage } from "./app-state";
+import { readSubmittedMessages, writeSubmittedMessages } from "./submitted-messages";
 import { TurnScopeController } from "./turn-scope";
 import { WorkbenchStore, type WorkbenchDeliveryObservation } from "./workbench-store";
 import type { CachedBootstrap } from "./bootstrap-cache";
@@ -69,7 +70,15 @@ export class WorkbenchSession {
     this.options = options;
     const { cached, storage } = options;
     this.view = new ThreadViewStore(cached?.snapshot);
+    this.view.setOptimisticMessages(reconcileOptimisticMessages(readSubmittedMessages(storage), cached?.snapshot.messages ?? []));
+    this.view.subscribeToOptimistic(() => writeSubmittedMessages(storage, this.view.getOptimisticMessages()));
     this.threads = new ThreadStore();
+    this.threads.subscribe(() => {
+      const current = this.view.getOptimisticMessages();
+      const next = current.filter((row) => !row.scope.startsWith("session:")
+        || !this.threads.getThread(row.scope.slice("session:".length))?.queued?.some((queued) => queued.id === `queued-${row.message.clientMessageId}`));
+      if (next.length !== current.length) this.view.setOptimisticMessages(next);
+    });
     if (cached) {
       this.threads.applyThreadIndex(cached.threadIndex);
       this.threads.applyHostSnapshot(cached.snapshot);
@@ -82,6 +91,13 @@ export class WorkbenchSession {
       scopes: this.scopes,
       newThread: this.newThread,
       publish: (drafts) => this.threads.setDrafts(drafts),
+      submitted: {
+        list: () => this.view.getOptimisticMessages().flatMap((entry) => entry.scope.startsWith("new:") && entry.draft ? [{
+          draft: entry.draft, text: entry.message.text, sending: entry.message.submission?.state === "sending",
+        }] : []),
+        subscribe: this.view.subscribeToOptimistic,
+        discard: (draftId) => this.view.setOptimisticMessages((rows) => rows.filter((entry) => !entry.scope.startsWith("new:") || entry.draft?.draftId !== draftId)),
+      },
       threads: {
         listed: (sessionId) => (this.threads.getThread(sessionId)?.messageCount ?? 0) > 0,
         active: (sessionId) => this.threads.getSnapshot().activeThreadId === sessionId,
@@ -154,7 +170,7 @@ export class WorkbenchSession {
   }
 
   /** One submission operation; construction and delivery state stay in the session. */
-  submit = async (input: SubmissionInput): Promise<SubmissionResult> => {
+  submit = async (input: SubmissionInput, retry?: OptimisticUserMessage): Promise<SubmissionResult> => {
     const adapter = this.options.submission;
     if (!adapter) return { accepted: false, message: "The workbench is not ready yet." };
     if (!this.submission) {
@@ -181,10 +197,15 @@ export class WorkbenchSession {
         }).catch((error) => { this.submissionLoading = undefined; throw error; });
       await this.submissionLoading;
     }
-    const result = await this.submission!.submit(input);
+    const result = await this.submission!.submit(input, retry);
     // An earlier send's failure toast goes once a later send goes through.
     if (result.accepted) this.toasts.dismiss(SEND_FAILED_NOTICE);
     return result;
+  };
+
+  retryMessage = async (messageId: string): Promise<void> => {
+    const { retrySubmittedMessage } = await import("./submission-controller");
+    await retrySubmittedMessage(this, messageId);
   };
 
   /** Reconcile authoritative detail as well as live user events, before returning to the caller. */

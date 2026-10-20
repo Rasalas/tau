@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
-import type { UiPromptAttachment } from "../shared/contracts.js";
+import type { ClientTurnIdentity, UiPromptAttachment } from "../shared/contracts.js";
 import type { HostExtension, HostExtensionServices } from "./host-extensions.js";
 import { externalThreadPath } from "./pi-host-support.js";
 import { PiHost } from "./pi-host.js";
@@ -35,7 +35,7 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean; runtim
     await mkdir(join(local!, ".tau"));
     await writeFile(join(local!, ".tau", "config.json"), JSON.stringify({ runtimeEnabled: { fixture: options.runtimeEnabled } }));
   }
-  const calls = { opens: 0, model: [] as string[], titles: [] as string[], prompts: [] as Array<{ text: string; attachments: number }> };
+  const calls = { opens: 0, model: [] as string[], titles: [] as string[], prompts: [] as Array<{ text: string; attachments: number; identity?: ClientTurnIdentity }> };
   const open = (threadId: string, cwd: string): ThreadRuntimeBackend => {
     calls.opens += 1;
     let title = "Saved";
@@ -45,7 +45,7 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean; runtim
       start: async () => undefined, dispose: async () => undefined, waitForIdle: async () => undefined,
       state: () => ({ streaming: false, idle: true, hasMessages: true, title, activeTools: [], supportsImageInput: options.images !== false, extensionCount: 0 }),
       preparePrompt: async (text) => ({ tauThreadId: threadId, providerSessionId: threadId, sessionId: threadId, backendKind: "fixture", runtimeCapabilities: adapter.capabilities, visibleText: text, runtimeText: text, sourceFingerprint: clientMessageFingerprint(text, []) }),
-      prompt: async (input) => { calls.prompts.push({ text: input.text, attachments: input.attachments?.length ?? 0 }); input.onAdmitted?.(true); return {}; },
+      prompt: async (input) => { calls.prompts.push({ text: input.text, attachments: input.attachments?.length ?? 0, ...(input.identity ? { identity: input.identity } : {}) }); input.onAdmitted?.(true); return {}; },
       abort: async () => undefined, transcript: async () => [], persist: async () => undefined,
       setTitle: async (next) => { title = next; calls.titles.push(next); },
       catalogView: () => ({ thinkingLevel: "off", thinkingLevels: ["off"], allTools: [] }), models: async () => [], composerCommands: () => [],
@@ -148,6 +148,20 @@ describe("services that name a thread by id", () => {
     await expect(blind.services().sessions.send!("saved", "look", { attachments: [image] })).rejects.toThrow("does not support image input");
     await expect(blind.services().sessions.send!("saved", "look", { delivery: "queue", attachments: [image] })).rejects.toThrow("does not support image input");
     expect(blind.calls.prompts).toEqual([]);
+  });
+
+  it("keeps the composer identity through the extension service and the reopened runtime", async () => {
+    const b = await bench();
+    const identity = { clientTurnId: "turn-1", clientMessageId: "message-1" };
+    await b.services().sessions.send!("saved", "look", { attachments: [image], identity });
+    expect(b.calls.prompts).toEqual([{ text: "look", attachments: 1, identity }]);
+  });
+
+  it("keeps the sender's identity when a queued message reaches the runtime", async () => {
+    const b = await bench();
+    const identity = { clientTurnId: "queued-turn", clientMessageId: "queued-message" };
+    await b.services().sessions.send!("saved", "queued", { delivery: "queue", identity });
+    await expect.poll(() => b.calls.prompts).toEqual([{ text: "queued", attachments: 0, identity }]);
   });
 
   it("gives a runtime without file input the received host-local path, keeping images", async () => {

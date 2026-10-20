@@ -1,13 +1,34 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElectronPlatform } from "./platform-electron";
 import { createFakeHostClient } from "./test-support/fake-host-client";
 import { STORAGE_KEYS, threadStageKey } from "../workbench/storage-keys";
 import { createLocalStorageAdapter } from "./browser-storage";
+import { readSubmittedMessages, writeSubmittedMessages } from "../workbench/submitted-messages";
+import { buildOptimisticMessage } from "../workbench/submission-optimistic";
+import { createNewThreadRequestId } from "../shared/contracts";
 
-afterEach(() => localStorage.clear());
+class MemoryWebStorage {
+  [key: string]: unknown;
+  getItem(key: string): string | null { return typeof this[key] === "string" ? this[key] as string : null; }
+  setItem(key: string, value: string): void { this[key] = value; }
+  removeItem(key: string): void { delete this[key]; }
+  clear(): void { for (const key of Object.keys(this)) delete this[key]; }
+  key(index: number): string | null { return Object.keys(this)[index] ?? null; }
+  get length(): number { return Object.keys(this).length; }
+}
+beforeEach(() => vi.stubGlobal("localStorage", new MemoryWebStorage()));
+afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
 describe("client storage on a page that shows another machine", () => {
+  it("keeps unconfirmed messages with their own host", () => {
+    const own = createLocalStorageAdapter();
+    const remote = createLocalStorageAdapter("rex");
+    writeSubmittedMessages(remote, [{ scope: "session:one", message: buildOptimisticMessage({ text: "remote message" }).optimistic, input: { text: "remote message" }, requestId: createNewThreadRequestId("request-one") }]);
+    expect(readSubmittedMessages(remote)).toHaveLength(1);
+    expect(readSubmittedMessages(own)).toEqual([]);
+  });
+
   it("keeps that host's state apart and shares the window's own", () => {
     const own = createLocalStorageAdapter();
     const studio = createLocalStorageAdapter("studio");

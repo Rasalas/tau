@@ -87,6 +87,7 @@ import type { useThreadDropController } from "./use-thread-drop-controller";
 import {
   ObservatoryContext,
   OpenFileContext,
+  RetryMessageContext,
   ThreadStoreContext,
   WorkbenchContext,
   WorkbenchShellContext,
@@ -1097,9 +1098,11 @@ function WorkbenchProviders({ model, threadStore, children }: { model: Workbench
     <WorkbenchShellContext.Provider value={model.shellContext}>
       <WorkbenchContext.Provider value={context}>
         <OpenFileContext.Provider value={model.context.openFile}>
+          <RetryMessageContext.Provider value={model.context.retryMessage}>
           <AppPageContext.Provider value={model.layout.pages}>
             <ObservatoryContext.Provider value={observatory}>{children}</ObservatoryContext.Provider>
           </AppPageContext.Provider>
+          </RetryMessageContext.Provider>
         </OpenFileContext.Provider>
       </WorkbenchContext.Provider>
     </WorkbenchShellContext.Provider>

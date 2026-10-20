@@ -580,8 +580,8 @@ export default function App() {
   );
   // The workbench adds the tool runs and the timeline events to both contexts itself.
   const contextValue = useMemo(
-    () => ({ snapshot: liveSnapshot, registry, activeDocumentPath: stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent }),
-    [liveSnapshot, registry, stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent],
+    () => ({ snapshot: liveSnapshot, registry, activeDocumentPath: stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent, retryMessage: workbenchSession.retryMessage }),
+    [liveSnapshot, registry, stageFilePath, openFile, openWorkspaceFile, applySnapshot, handleHostEvent, workbenchSession],
   );
   const shellContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry, actions }), [actions, liveSnapshot, registry]);
   const observatoryContextValue = useMemo(() => ({ snapshot: liveSnapshot, registry }), [liveSnapshot, registry]);

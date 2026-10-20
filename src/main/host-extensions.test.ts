@@ -513,13 +513,13 @@ describe("HostExtensionRegistry", () => {
     await r.invoke("tau.push", "who");
     await r.invoke("tau.push", "ask");
     expect(calls).toEqual([
-      { device: "p1", owner: false },
+      { device: "p1", owner: false, fullAccess: true },
       { owner: true },
       // The host token through a network listener uses the host but manages nothing.
-      { owner: false },
+      { owner: false, fullAccess: true },
       { owner: true },
       { owner: true },
-      { owner: false, extension: "tau.push" },
+      { owner: false, extension: "tau.push", fullAccess: true },
     ]);
   });
 

@@ -6,6 +6,18 @@ import {
 } from "./composer-scope-store";
 
 describe("ComposerScopeStore", () => {
+  it("keeps a failed message retained by the chat out of the next draft", () => {
+    const store = new ComposerScopeStore();
+    const key = createDraftKey("session:one");
+    store.setDraft(key, "sent message");
+    const handle = store.beginSubmission(key);
+    if (!("settle" in handle)) throw new Error("expected a submission handle");
+    store.setDraft(key, "next message");
+    handle.settle({ accepted: false, retained: true, message: "Connection dropped" });
+    expect(store.getSnapshot(key)).toMatchObject({ draft: "next message", submissionPending: false });
+    expect(store.getSnapshot(key).error).toBeUndefined();
+  });
+
   it("does not let an older rejected submission hide a newer attachment error", () => {
     const store = new ComposerScopeStore();
     const key = createDraftKey("thread:errors");

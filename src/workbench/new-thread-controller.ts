@@ -58,6 +58,9 @@ export class NewThreadController {
 
   requestId = (): NewThreadRequestId => this.request;
 
+  /** An explicit retry continues the captured first send, including after reopening its draft. */
+  resumeRequest = (requestId: NewThreadRequestId): void => { this.request = requestId; };
+
   begin = (draft: NewThreadDraft): void => {
     this.request = newRequestIdentity();
     const carried = this.carried;

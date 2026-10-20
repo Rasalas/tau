@@ -1,8 +1,8 @@
-import { FileText, ListEnd, Redo2, Sparkles } from "lucide-react";
+import { Check, Clock3, FileText, ListEnd, Redo2, Sparkles, TriangleAlert } from "lucide-react";
 import { useContext, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { UiMessage } from "../../shared/contracts";
 import { messageSkills } from "../../shared/prepared-prompt";
-import { OpenFileContext, WorkbenchShellContext } from "../workbench-context";
+import { OpenFileContext, RetryMessageContext, WorkbenchShellContext } from "../workbench-context";
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { drawsBlocksFor, splitMessageBlocks } from "./message-blocks";
 import { Markdown } from "./LazyMarkdown";
@@ -93,6 +93,7 @@ export function UserMessage({
   const visibleText = visibleUserMessageText(text);
   const attachedFiles = embeddedFileContexts(text);
   const openFile = useContext(OpenFileContext);
+  const retryMessage = useContext(RetryMessageContext);
   const hasLocalImages = localImagePaths(message.text).length > 0;
   const persistedImages = message.images ?? [];
   const skills = messageSkills(message);
@@ -102,6 +103,9 @@ export function UserMessage({
   const expanded = controlledExpanded ?? localExpanded;
   const contentId = `message-content-${message.id}`;
   const mark = message.delivery ? DELIVERY_MARKS[message.delivery] : undefined;
+  const sendState = message.submission?.state ?? "sent";
+  const SendIcon = sendState === "sending" ? Clock3 : sendState === "failed" ? TriangleAlert : Check;
+  const sendLabel = sendState === "sending" ? "Sending…" : sendState === "failed" ? "Delivery not confirmed" : "Sent";
 
   const toggleExpanded = () => {
     const nextExpanded = !expanded;
@@ -154,7 +158,7 @@ export function UserMessage({
             {expanded ? "Show less" : "Show more"}
           </button>
         ) : null}
-        <div className={`message-user-meta${mark ? " marked" : ""}`}>
+        <div className="message-user-meta marked">
           {mark ? (
             <span className="message-delivery" role="img" aria-label={mark.label} title={mark.label} data-delivery={message.delivery}>
               <mark.Icon size={12} strokeWidth={2} aria-hidden="true" />
@@ -164,7 +168,7 @@ export function UserMessage({
           <time
             dateTime={new Date(message.timestamp).toISOString()}
             title={fullTimestamp(message.timestamp)}
-            aria-label={`Sent ${fullTimestamp(message.timestamp)}`}
+            aria-label={`${sendState === "sent" ? "Sent" : "Submitted"} ${fullTimestamp(message.timestamp)}`}
           >
             {compactTimestamp(message.timestamp)}
           </time>
@@ -173,6 +177,11 @@ export function UserMessage({
             onCopy={() => onCopy(copyableMessage(message))}
             onEdit={message.sourceEntryId && onEdit ? () => onEdit(message) : undefined}
           /> : null}
+          <span className={`message-delivery message-send-state ${sendState}`} title={message.submission?.error ?? sendLabel}>
+            <SendIcon size={12} strokeWidth={2} role="img" aria-label={sendLabel} />
+            {sendState !== "sent" ? <span role="status">{sendLabel}</span> : null}
+            {sendState === "failed" && retryMessage ? <button type="button" onClick={() => { void retryMessage(message.id); }}>Retry</button> : null}
+          </span>
         </div>
       </article>
     </div>

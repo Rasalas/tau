@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { getAgentDir, type SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
+  ClientTurnIdentity,
   HostEvent,
   HostSnapshot,
   UiToolRun,
@@ -172,7 +173,7 @@ export interface PiHostDeps {
   /** Sends a queued message as the prompt it stands for. */
   deliverQueued(sessionId: string, message: QueuedMessage): Promise<void>;
   /** An extension's message to a thread; a released runtime is reopened off screen first. */
-  sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments?: UiPromptAttachment[], wake?: UiWake): Promise<void>;
+  sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments?: UiPromptAttachment[], wake?: UiWake, identity?: ClientTurnIdentity): Promise<void>;
 }
 
 /** What PiHost currently assigns in its constructor, as one construction pass. */
@@ -572,7 +573,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       if (wake && wake.source !== "background" && sendOptions.delivery === "queue" && (defaultHostConfigManager.readSync(deps.getCwd()).threads?.wakeDelivery ?? "steer") === "steer" && deps.hostThread(sessionId)?.isIdle() === false && !queue.isHeld(sessionId)) {
         try { return await deps.sendToThread(sessionId, markWake(text, wake).text, "steer", sendOptions.from, sendOptions.attachments); } catch { /* the turn ended meanwhile: queue it */ }
       }
-      return deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments, wake);
+      return deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments, wake, sendOptions.identity);
     },
     setThreadModel: async (sessionId, provider, id) => {
       const thread = await runtimes.reopen(sessionId);

@@ -11,7 +11,7 @@ export const PREVIEW_HTML_PAGE_TOOL = "preview_html_page";
 
 export const HTML_PAGE_STAGE_TAB = "tau.html-pages.page";
 
-export const HTML_PAGE_COMMANDS = { open: "open", release: "release" } as const;
+export const HTML_PAGE_COMMANDS = { open: "open", release: "release", document: "document" } as const;
 
 /**
  * Preview Kit's public link-service contract. This protocol file stays

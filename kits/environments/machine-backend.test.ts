@@ -135,6 +135,16 @@ describe("machine runtime event translation", () => {
 const image = { kind: "image", data: "AA==", size: 1, mimeType: "image/png", name: "x.png" } as const;
 
 describe("a machine thread's home takes its renames, images and model changes", () => {
+  it("keeps client message identities across plain and attachment sends", async () => {
+    const f = fixture();
+    const backend = await f.open();
+    const identity = { clientTurnId: "turn-1", clientMessageId: "message-1" };
+    await backend.prompt({ text: "hello", delivery: "prompt", identity });
+    expect(f.services.request).toHaveBeenCalledWith(rex.id, "send-to-thread", ["t1", "hello", "prompt", identity]);
+    await backend.prompt({ text: "look", delivery: "steer", attachments: [image], identity });
+    expect(f.services.call).toHaveBeenCalledWith(rex.id, "tau.environments", "thread-send", { sessionId: "t1", text: "look", delivery: "steer", attachments: [image], identity }, { timeoutMs: 120_000 });
+  });
+
   it("sends images as content to the home machine's kit and never as a path", async () => {
     const f = fixture();
     const backend = await f.open();

@@ -260,7 +260,8 @@ export function useComposerSubmission({
       }
 
       handle.settle(result);
-      settleInlineSend(inline.asked, scope, result?.accepted === true);
+      const consumed = result?.accepted === true || result?.accepted === false && result.retained === true;
+      settleInlineSend(inline.asked, scope, consumed);
       try {
         // Settling empties an accepted draft in the scope store. The persisted
         // copy is written per keystroke and has to follow it, or the next start
@@ -268,7 +269,7 @@ export function useComposerSubmission({
         if (draftStorageKey !== undefined) {
           writeComposerDraft(clientStorage, scope, scopeStore.getSnapshot(scope).draft);
         }
-        if (result.accepted) {
+        if (consumed) {
           recordPrompt(submittedText);
           clearPreviewForScope(scope);
         }

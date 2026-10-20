@@ -251,8 +251,13 @@ export class ThreadIndex {
    * lifecycle hooks while one is still in flight.
    */
   async refresh(publish: "none" | "index" | "changes" | "changed-index", readFiles = false): Promise<ThreadIndexSnapshot> {
+    const wasComplete = this.scannedOnce;
+    const unavailable = this.unavailableBackends;
     if (!this.scan) {
-      this.scan = this.scanSessions(readFiles, publish === "none" ? "none" : publish === "changes" ? "shells" : "index").finally(() => { this.scan = undefined; });
+      // Automatic refreshes retain the last complete index. Only explicit
+      // discovery needs partial indexes; recovery can publish changed shells.
+      const progress = publish === "index" || publish !== "none" && !wasComplete ? "index" : publish === "changes" ? "shells" : "none";
+      this.scan = this.scanSessions(readFiles, progress).finally(() => { this.scan = undefined; });
       this.scan.then(() => this.firstScan.resolve(), (error: unknown) => this.firstScan.reject(error));
     }
     const { previous, published, next, projectsChanged, indexChanged } = await this.scan;
@@ -260,7 +265,9 @@ export class ThreadIndex {
     if (publish === "index" || publish !== "none" && projectsChanged || publish === "changed-index" && sessionIndexUpdates(previous, next).length > 0) this.port.emit({ type: "thread-index", threadIndex: this.snapshot() });
     else if (publish === "changes") this.publishShellChanges(sessionIndexUpdates(published, next));
     // A recovery scan that changed only shells has said everything in them.
-    if (publish !== "none" && (publish !== "changes" || projectsChanged || indexChanged)) this.port.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-index", index: this.snapshot() });
+    const metadataChanged = projectsChanged || indexChanged || wasComplete !== this.scannedOnce
+      || unavailable.length !== this.unavailableBackends.length || unavailable.some((kind, at) => kind !== this.unavailableBackends[at]);
+    if (publish === "index" || publish !== "none" && (metadataChanged || publish === "changed-index" && sessionIndexUpdates(previous, next).length > 0)) this.port.emitUpdate({ version: HOST_PROTOCOL_VERSION, type: "thread-index", index: this.snapshot() });
     return this.snapshot();
   }
 

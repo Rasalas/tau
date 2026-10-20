@@ -42,7 +42,10 @@ export function registerThreadCommands(context: HostExtensionContext): void {
     const delivery = fields(input).delivery;
     if (delivery !== undefined && delivery !== "prompt" && delivery !== "steer" && delivery !== "queue") throw new HostCommandError('delivery must be "prompt", "steer" or "queue".');
     const message = fields(input).text;
+    const rawIdentity = fields(input).identity;
+    const identity = rawIdentity === undefined ? undefined : fields(rawIdentity);
+    if (identity && (typeof identity.clientTurnId !== "string" || !identity.clientTurnId || typeof identity.clientMessageId !== "string" || !identity.clientMessageId)) throw new HostCommandError("The message has an invalid delivery identity.");
     await withReceivedPromptAttachments(services, fields(input).attachments, call, (attachments) =>
-      send(sessionId, typeof message === "string" ? message : "", { delivery: delivery ?? "prompt", attachments }));
+      send(sessionId, typeof message === "string" ? message : "", { delivery: delivery ?? "prompt", attachments, ...(identity ? { identity: { clientTurnId: identity.clientTurnId as string, clientMessageId: identity.clientMessageId as string } } : {}) }));
   }, { audit: { label: "sent a message with attachments from another machine" } });
 }

@@ -70,6 +70,38 @@ describe("the window's connection to a machine", () => {
     expect(opened).toEqual([url]);
   });
 
+  it("identifies a lost reply so a send can keep its unconfirmed message", async () => {
+    const world = fakeWorld();
+    const { monitor } = watch({ urls: () => ["wss://lan:7788/"], token: "t", bootstrap: false, onChange: () => undefined, ...world });
+    const socket = world.sockets[0]!;
+    socket.fire("open");
+    socket.reply(helloReply());
+    const result = monitor.call("send-to-thread", ["thread", "hello"]).catch((error: unknown) => error);
+    socket.fire("close", 1006);
+    await expect(result).resolves.toMatchObject({ code: "connection-dropped" });
+  });
+
+  it("learns already running threads from bootstrap before their next status push", async () => {
+    const { url } = await host({ bootstrap: async () => ({ threadIndex: { ...index(["a"]), runs: { a: 1000 } } }) });
+    const { last } = watch({ urls: () => [url], token: "host-secret", onChange: () => undefined });
+    await expect.poll(() => last().index?.sessions.length).toBe(1);
+    expect([...last().running]).toEqual(["a"]);
+  });
+
+  it("keeps status pushes newer than the pending bootstrap's run snapshot", async () => {
+    let finish!: (value: unknown) => void;
+    let requested = false;
+    const { url, push } = await host({ bootstrap: () => { requested = true; return new Promise((resolve) => { finish = resolve; }); } });
+    const { last } = watch({ urls: () => [url], token: "host-secret", onChange: () => undefined });
+    await expect.poll(() => requested).toBe(true);
+    push({ type: "agent-status", sessionId: "a", running: false });
+    push({ type: "agent-status", sessionId: "b", running: true });
+    await expect.poll(() => [...last().running]).toEqual(["b"]);
+    finish({ threadIndex: { ...index(["a", "b"]), runs: { a: 1000 } } });
+    await expect.poll(() => last().index?.sessions.length).toBe(2);
+    expect([...last().running]).toEqual(["b"]);
+  });
+
   it("says hello, reads the thread index and follows it, and knows which threads run", async () => {
     const { url, push } = await host();
     const reached: string[] = [];

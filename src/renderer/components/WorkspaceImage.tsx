@@ -69,6 +69,7 @@ export function WorkspaceImage({ src = "", alt = "", title, width, height }: { s
   const resourceImages = compact && !environment.mobileApp;
   const [result, setResult] = useState<ImageResult>();
   const [failedSource, setFailedSource] = useState<string>();
+  const [attempt, setAttempt] = useState(0);
   const external = /^https?:\/\//iu.test(src) || DATA_IMAGE.test(src);
   let path: string | undefined;
   if (src && !external && !/^[A-Za-z][A-Za-z0-9+.-]*:|^[/]{2}|^[?#]/u.test(src)) {
@@ -111,7 +112,7 @@ export function WorkspaceImage({ src = "", alt = "", title, width, height }: { s
       finish({ resources, path, error: reason });
     });
     return () => { cancelled = true; release?.(); };
-  }, [compact, path, resourceImages, resources]);
+  }, [attempt, compact, path, resourceImages, resources]);
 
   const name = alt || path?.split("/").pop() || "Image";
   // A changed URL, including its query, must not inherit a previous image's consent.
@@ -127,5 +128,6 @@ export function WorkspaceImage({ src = "", alt = "", title, width, height }: { s
   if (current?.url) {
     return <PreviewImage src={current.url} alt={alt} title={title} width={width} height={height} onError={() => setResult({ resources, path, error: "The workspace image could not be decoded." })} />;
   }
-  return <UnavailableImage name={name} reason={current?.error || "Loading workspace image…"} />;
+  return <span><UnavailableImage name={name} reason={current?.error || "Loading workspace image…"} />
+    {current?.error ? <> <button type="button" className="text-button" aria-label={`Retry ${name}`} onClick={() => { setResult(undefined); setAttempt((value) => value + 1); }}>Retry</button></> : null}</span>;
 }

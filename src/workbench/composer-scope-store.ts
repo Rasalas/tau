@@ -353,7 +353,7 @@ export class ComposerScopeStore {
     if (!pending) return;
     state.pendingSubmissions.delete(id);
     const sameTextRevision = state.textRevision === pending.textRevision;
-    if (result.accepted) {
+    if (result.accepted || result.retained) {
       if (state.attachmentRevision >= pending.attachmentRevision) {
         state.attachments = state.attachments.filter((attachment) => !pending.attachmentIds.has(attachment.id));
       }

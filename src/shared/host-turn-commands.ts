@@ -1,12 +1,12 @@
 import { HOST_TURN_COMMAND_METADATA } from "./host-command-metadata.js";
-import type { PreparedPrompt, PreparedThreadCapability, UiQueuedPrompt, ShellActionResult, UiComposerCommand, UiPromptAttachment, UiSkillDraft } from "./contracts.js";
+import type { ClientTurnIdentity, PreparedPrompt, PreparedThreadCapability, UiQueuedPrompt, ShellActionResult, UiComposerCommand, UiPromptAttachment, UiSkillDraft } from "./contracts.js";
 import type { HostActionResult, NewThreadResult } from "./host-protocol.js";
 import { attachCommandMetadata, command } from "./host-command-definition.js";
 import {
   decodeString, decodeText, decodeOptionalString, decodeOptionalText, decodeOptionalBoolean,
   decodeUiPromptAttachments, decodeUiSkillDraft, decodeStringOrClientTurnIdentity,
   decodePreparedPrompt, decodeNewThreadConfiguration, decodeThreadStartOptions,
-  decodeThreadDelivery, decodeCompactionPrompt,
+  decodeThreadDelivery, decodeCompactionPrompt, decodeClientTurnIdentity,
 } from "./host-command-input.js";
 
 function promptArgs(method: string, params: readonly unknown[]) {
@@ -44,9 +44,12 @@ export const HOST_TURN_COMMANDS = attachCommandMetadata(HOST_TURN_COMMAND_METADA
   "prompt": command<void>()({ audit: { label: "sent a prompt", thread: 2 }, decode: (p) => promptArgs("prompt", p) }),
   "steer": command<void>()({ audit: { label: "steered a run", thread: 2 }, decode: (p) => promptArgs("steer", p) }),
   "follow-up": command<void>()({ audit: { label: "sent a follow-up", thread: 2 }, decode: (p) => promptArgs("follow-up", p) }),
-  "queue-message": command<{ id: string }, [sessionId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft | null, deliverAt?: number]>()({
+  "queue-message": command<{ id: string }, [sessionId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft | null, deliverAt?: number, identity?: ClientTurnIdentity]>()({
     audit: { label: "queued a message", thread: 0 },
-    decode: (p) => [decodeString("queue-message", "sessionId", p[0]), decodeText("queue-message", "text", p[1]), decodeUiPromptAttachments("queue-message", "attachments", p[2]) ?? [], decodeUiSkillDraft("queue-message", "skillDraft", p[3] ?? undefined), decodeDeliverAt("queue-message", p[4])] as const,
+    decode: (p) => {
+      const args = [decodeString("queue-message", "sessionId", p[0]), decodeText("queue-message", "text", p[1]), decodeUiPromptAttachments("queue-message", "attachments", p[2]) ?? [], decodeUiSkillDraft("queue-message", "skillDraft", p[3] ?? undefined), decodeDeliverAt("queue-message", p[4])] as const;
+      return p[5] == null ? args : [...args, decodeClientTurnIdentity("queue-message", "identity", p[5])] as const;
+    },
   }),
   "take-queued": command<UiQueuedPrompt[]>()({ audit: { label: "took a queued message", thread: 0 }, decode: (p) => [decodeString("take-queued", "sessionId", p[0]), decodeOptionalString("take-queued", "id", p[1])] as const }),
   "move-queued": command<void>()({ audit: { label: "reordered queued messages", thread: 0 }, decode: (p) => [decodeString("move-queued", "sessionId", p[0]), decodeString("move-queued", "id", p[1]), decodeIndex("move-queued", p[2])] as const }),
@@ -60,7 +63,7 @@ export const HOST_TURN_COMMANDS = attachCommandMetadata(HOST_TURN_COMMAND_METADA
     decode: (p) => [decodeOptionalText("new-session", "initialPrompt", p[0]), decodeUiPromptAttachments("new-session", "attachments", p[1]), decodeOptionalString("new-session", "cwd", p[2]), decodeStringOrClientTurnIdentity("new-session", "clientMessageIdOrRequestId", p[3]), decodePreparedPrompt("new-session", "prepared", p[4]), decodeNewThreadConfiguration("new-session", "configuration", p[5])] as const,
   }),
   "start-thread": command<{ sessionId: string; cwd: string; title?: string; path: string }>()({ audit: { label: "started a thread" }, decode: (p) => [decodeThreadStartOptions("start-thread", p[0])] as const }),
-  "send-to-thread": command<null, [sessionId: string, text: string, delivery?: ReturnType<typeof decodeThreadDelivery>]>()({ audit: { label: "sent a message to a thread", thread: 0 }, decode: (p) => [decodeString("send-to-thread", "sessionId", p[0]), decodeString("send-to-thread", "text", p[1]), decodeThreadDelivery("send-to-thread", p[2])] as const }),
+  "send-to-thread": command<null, [sessionId: string, text: string, delivery?: ReturnType<typeof decodeThreadDelivery>, identity?: ReturnType<typeof decodeStringOrClientTurnIdentity>]>()({ audit: { label: "sent a message to a thread", thread: 0 }, decode: (p) => [decodeString("send-to-thread", "sessionId", p[0]), decodeString("send-to-thread", "text", p[1]), decodeThreadDelivery("send-to-thread", p[2]), decodeStringOrClientTurnIdentity("send-to-thread", "identity", p[3])] as const }),
   "prepared-thread-capability": command<PreparedThreadCapability>()({ decode: (p) => [decodeOptionalString("prepared-thread-capability", "cwd", p[0])] as const }),
   "run-shell-action": command<ShellActionResult>()({ audit: { label: "ran a shell command" }, decode: (p) => [decodeString("run-shell-action", "command", p[0]), decodeOptionalBoolean("run-shell-action", "includeInContext", p[1]), decodeOptionalString("run-shell-action", "expectedCwd", p[2])] as const }),
   "compact-and-send": command<HostActionResult>()({ audit: { label: "compacted the context and queued a message" }, decode: (p) => {

@@ -3,6 +3,7 @@ import { hostSnapshotFromThreadDetail, type HostActionResult, type ThreadDetail,
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import type { ComposerScopeReference, DraftKey, PendingAttachment } from "./composer-scope-store";
 import type { NewThreadDraft } from "./draft-store";
+import type { SubmissionInput } from "./submission-controller";
 import { transcriptNavigationScopesEqual, type TranscriptNavigationScope, type TranscriptTurnStart } from "./transcript-navigation";
 
 export function transcriptNavigationScopeKey(
@@ -144,6 +145,11 @@ export interface OptimisticUserMessage {
   message: UiMessage;
   /** What a thread's composer gets back when the runtime fails the prompt after taking it. */
   sent?: { text: string; attachments: readonly UiPromptAttachment[] };
+  /** Captured input for a deliberate retry, independent of the next composer draft. */
+  input?: SubmissionInput;
+  requestId?: NewThreadRequestId;
+  /** Keeps a first message reachable before the host has acknowledged its thread. */
+  draft?: NewThreadDraft;
 }
 
 /** How a sent skill selection reads before the host has answered: a chip each, the whole message as copy text. */

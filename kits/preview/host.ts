@@ -61,6 +61,7 @@ import { CookieImportHost, type CookieImportWindow } from "./cookie-import-host.
 import type { CookieJar } from "./cookie-import.js";
 import { pageInput, previewFocusKind, readPreviewInput, type PreviewPageInput } from "./remote-input.js";
 import { pinnedWindowCalls } from "../_host-window/pinned-calls.js";
+import { previewMachineRouting } from "./machine-routing.js";
 import { DeviceLayout, readPreviewViewer, type PreviewDeviceMetrics } from "./device-layout.js";
 import { clearHeadlessPreviewProfile, createHeadlessPreviewSurface, previewBrowserCommand } from "./headless-surface.js";
 
@@ -632,7 +633,7 @@ class PreviewController implements PreviewToolController {
     const encoded = JSON.stringify(state);
     if (encoded === this.lastPublished) return;
     this.lastPublished = encoded;
-    this.context.emit(PREVIEW_STATE_EVENT, state);
+    this.context.emit(PREVIEW_STATE_EVENT, state, { topic: PREVIEW_STATE_EVENT });
   }
 
   /** `typed` is the address bar; the agent's tools pass a URL and never search. */
@@ -1249,6 +1250,7 @@ export function createPreviewHostExtension(
     name: "Preview",
     permissions: ["runtime:extend", "process", "network", "sessions"],
     async activate(context: HostExtensionContext) {
+      context.registerMachineRouting(previewMachineRouting());
       const controller = new PreviewController(createSurface, clearPartition, context);
       // The defaults are the host's config for its workspace; no client sends them on load.
       let generation = 0;

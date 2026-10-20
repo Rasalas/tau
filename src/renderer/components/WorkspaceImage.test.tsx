@@ -39,6 +39,15 @@ async function hasImage(container: HTMLElement, expected = dataUrl) {
 }
 
 describe("workspace Markdown images", () => {
+  it("retries a result image after a connection failure without reopening the thread", async () => {
+    const { draw, load } = fixture(vi.fn().mockRejectedValueOnce(new Error("The machine disconnected.")).mockResolvedValue(image()));
+    const view = render(draw());
+    await view.findByRole("img", { name: /machine is offline/ });
+    fireEvent.click(view.getByRole("button", { name: "Retry Screenshot" }));
+    await hasImage(view.container);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenLastCalledWith("a.png", { workspace: "ws-A" });
+  });
   it("keeps native images on the pinned connection and reads them one at a time", async () => {
     const first = deferred();
     const second = deferred();

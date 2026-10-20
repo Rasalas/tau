@@ -3,6 +3,7 @@ import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 import { join } from "node:path";
 import { getAgentDir, loadSkills, ProjectTrustStore, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
+  ClientTurnIdentity,
   ExtensionUiPrompt,
   HostEvent,
   TauConfig,
@@ -172,7 +173,7 @@ export interface ExtensionServicesPort {
   removeThread(sessionId: string): Promise<void>;
   restoreThread(sessionId: string): Promise<void>;
   purgeThread(sessionId: string): Promise<void>;
-  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; from?: string; attachments?: UiPromptAttachment[]; wake?: UiWake }): Promise<void>;
+  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; identity?: ClientTurnIdentity; from?: string; attachments?: UiPromptAttachment[]; wake?: UiWake }): Promise<void>;
   /** Changes a thread's model by id, on or off screen. */
   setThreadModel(sessionId: string, provider: string, id: string): Promise<void>;
   /** Stops a thread's running turn; nothing happens to a thread without a runtime. */
@@ -426,6 +427,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
           delivery: sendOptions?.delivery ?? "prompt",
           ...(sendOptions?.from ? { from: sendOptions.from } : {}),
           ...(sendOptions?.attachments ? { attachments: [...sendOptions.attachments] } : {}),
+          ...(sendOptions?.identity ? { identity: sendOptions.identity } : {}),
           ...(sendOptions?.wake ? { wake: { source: sendOptions.wake.source, label: sendOptions.wake.label } } : {}),
         });
       },

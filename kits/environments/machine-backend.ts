@@ -143,6 +143,7 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
   private turnError?: string;
   private interrupted = false;
   private disposed = false;
+  private assistantId?: string;
 
   constructor(readonly threadId: string, readonly cwd: string, private readonly machines: HostMachineServices, private readonly context: HostBackendOpenContext, runtimeAdapter = adapter(machines)) {
     const parsed = parseMachineThreadId(threadId);
@@ -234,9 +235,9 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
     if (this.machines.list().find((entry) => entry.id === this.machine)?.status !== "connected") throw new Error(`${this.name} is not reachable right now.`);
     if (attachments.length) {
       const content = await transferPromptAttachments(this.machines, this.machine, attachments);
-      await this.command(THREAD_SEND_COMMAND, { sessionId: this.providerSessionId, text: input.text, delivery: delivery(input), attachments: content }, "take images from here", SEND_TIMEOUT_MS);
+      await this.command(THREAD_SEND_COMMAND, { sessionId: this.providerSessionId, text: input.text, delivery: delivery(input), attachments: content, ...(input.identity ? { identity: input.identity } : {}) }, "take images from here", SEND_TIMEOUT_MS);
     }
-    else try { await this.machines.request(this.machine, "send-to-thread", [this.providerSessionId, input.text, delivery(input)]); }
+    else try { await this.machines.request(this.machine, "send-to-thread", [this.providerSessionId, input.text, delivery(input), ...(input.identity ? [input.identity] : [])]); }
     catch (error) { throw machineMethodError(error, this.name, "take messages from here"); }
     input.onAdmitted?.(true);
     return {};
@@ -300,6 +301,14 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
       if (detail.usage) this.usage = detail.usage;
     }
     for (const event of toRuntimeEvents(push)) {
+      // Joining an answer mid-stream misses its assistant-start push. Core
+      // requires that start before it accepts text or thinking for the id.
+      if ((event.type === "assistant-delta" || event.type === "assistant-thinking") && this.assistantId !== event.id) {
+        this.assistantId = event.id;
+        this.context.onEvent({ type: "assistant-start", id: event.id, timestamp: Date.now() });
+      }
+      if (event.type === "assistant-start") this.assistantId = event.id;
+      if (event.type === "assistant-end" && this.assistantId === event.message.id) this.assistantId = undefined;
       if (event.type === "turn-started") {
         if (this.streaming) continue;
         this.streaming = true;
@@ -323,6 +332,7 @@ export class MachineThreadBackend implements ThreadRuntimeBackend {
           this.needsTranscriptRefresh = false;
         }
         this.streaming = false;
+        this.assistantId = undefined;
         this.activeTools.clear();
         event.status = this.turnError ? "error" : this.interrupted ? "interrupted" : event.status;
         if (this.turnError) event.error = this.turnError;

@@ -1,9 +1,9 @@
 import { HostCommandError, type HostExtension, type HostExtensionContext, type RuntimeExtensionFactory } from "tau/host-extension";
 import { join } from "node:path";
-import { preparePageDocument } from "./document.js";
-import { HTML_PAGES_EXTENSION_ID, HTML_PAGE_COMMANDS, type HtmlPageOpen } from "./protocol.js";
+import { preparePageDocument, readOrigins } from "./document.js";
+import { HTML_PAGES_EXTENSION_ID, HTML_PAGE_COMMANDS, HTML_PAGE_LIMITS, type HtmlPageOpen } from "./protocol.js";
 import { showPage } from "./show.js";
-import { PageStore } from "./store.js";
+import { PageStore, type StoredPage } from "./store.js";
 import { SHOW_PAGE_INSTRUCTIONS, previewHtmlPageTool, showHtmlPageTool } from "./tools.js";
 import { PagePreviewer } from "./preview.js";
 
@@ -28,7 +28,7 @@ export function createHtmlPagesHostExtension(): HostExtension {
   return {
     id: HTML_PAGES_EXTENSION_ID,
     name: "HTML Pages",
-    permissions: ["sessions", "runtime:extend", "network", "process"],
+    permissions: ["sessions", "runtime:extend", "network", "process", "machines"],
     activate(context: HostExtensionContext) {
       const { services } = context;
       const store = new PageStore({ directory: join(services.stateDir, "pages") });
@@ -39,12 +39,32 @@ export function createHtmlPagesHostExtension(): HostExtension {
       });
       const disposers: Array<() => void> = [];
 
+      context.registerCommand(HTML_PAGE_COMMANDS.document, (input) => {
+        const call = record(input);
+        return store.get(text(call.threadId, "thread"), text(call.id, "page")).then((page) => page ?? null);
+      }, { access: "read" });
+
+      const readPage = async (threadId: string, id: string): Promise<StoredPage | undefined> => {
+        const split = threadId.indexOf("~");
+        const machine = split > 0 && services.machines?.list().find((entry) => entry.id === threadId.slice(0, split));
+        if (!machine) return store.get(threadId, id);
+        const answer = await services.machines!.call(machine.id, HTML_PAGES_EXTENSION_ID, HTML_PAGE_COMMANDS.document, { threadId: threadId.slice(split + 1), id });
+        if (answer === null || answer === undefined) return undefined;
+        const page = record(answer);
+        const meta = record(page.meta);
+        if (page.id !== id || typeof page.html !== "string" || Buffer.byteLength(page.html, "utf8") > 5 * 1024 * 1024
+          || typeof meta.title !== "string" || typeof meta.maxHeight !== "number" || !Number.isFinite(meta.maxHeight) || meta.maxHeight <= 0) {
+          throw new HostCommandError("The machine returned an invalid HTML page.");
+        }
+        return { id, html: page.html, meta: { title: meta.title.slice(0, HTML_PAGE_LIMITS.titleLength), maxHeight: meta.maxHeight, origins: readOrigins(meta.origins), createdAt: 0 } };
+      };
+
       // Minting a frame and releasing it change nothing a device paired Read only could not see.
       context.registerCommand(HTML_PAGE_COMMANDS.open, async (input): Promise<HtmlPageOpen> => {
         const call = record(input);
         const resources = services.browserResources;
         if (!resources) throw new HostCommandError("This machine serves no sandboxed frames.");
-        const page = await store.get(text(call.threadId, "thread"), text(call.id, "page"));
+        const page = await readPage(text(call.threadId, "thread"), text(call.id, "page"));
         if (!page) return { state: "missing" };
         const colorScheme = call.colorScheme === "dark" ? "dark" : "light";
         const path = resources.publishFrame({

@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { HostThreadLifecycle, RuntimeExtensionContribution } from "tau/host-extension";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { HostExtensionServices, HostThreadLifecycle, RuntimeExtensionContribution } from "tau/host-extension";
 import { activateHostKit, kitMcpEndpoint } from "../../src/main/test-support/host-kit-harness.js";
 import { createHtmlPagesHostExtension } from "./host.js";
 import { HTML_PAGES_EXTENSION_ID, PREVIEW_HTML_PAGE_TOOL, SHOW_HTML_PAGE_TOOL, pageIdOf, type HtmlPageOpen } from "./protocol.js";
@@ -20,7 +20,7 @@ afterEach(async () => {
   await rm(project, { recursive: true, force: true });
 });
 
-async function world() {
+async function world(extra: Partial<HostExtensionServices> = {}) {
   const endpoint = kitMcpEndpoint(() => true);
   const lifecycles: HostThreadLifecycle[] = [];
   const runtime: RuntimeExtensionContribution[] = [];
@@ -32,6 +32,7 @@ async function world() {
     registerThreadLifecycle: (lifecycle: HostThreadLifecycle) => { lifecycles.push(lifecycle); return () => undefined; },
     registerRuntimeExtension: (name: string, factory: RuntimeExtensionContribution["factory"]) => { runtime.push({ name, factory }); return () => undefined; },
     browserResources: { publish: () => "/p", publishFrame: (document: unknown) => { published.push(document as never); return "/resources/frame-1"; }, release: (path: string) => { released.push(path); } },
+    ...extra,
   } as never);
   const invoke = (command: string, input?: unknown) => kit.invoke(HTML_PAGES_EXTENSION_ID, command, input);
   return { endpoint, lifecycles, runtime, published, released, invoke, close: async () => { await kit.dispose(); await endpoint.close(); } };
@@ -40,6 +41,30 @@ async function world() {
 const textOf = (result: unknown) => (result as { content: Array<{ text?: string }> }).content.map((part) => part.text ?? "").join("");
 
 describe("HTML Pages host extension", () => {
+  it("shows a remote thread's HTML through a local sandbox resource", async () => {
+    const call = vi.fn(async () => ({ id: "page123", html: "<h1>From rex</h1>", meta: { title: "Remote page", maxHeight: 400, origins: [], createdAt: 1 } }));
+    const w = await world({ machines: { list: () => [{ id: "rex", name: "rex", status: "connected" }], call } as never });
+    try {
+      await expect(w.invoke("open", { threadId: "rex~thread~one", id: "page123", colorScheme: "dark" })).resolves.toMatchObject({ state: "ready", path: "/resources/frame-1", title: "Remote page" });
+      expect(call).toHaveBeenCalledWith("rex", HTML_PAGES_EXTENSION_ID, "document", { threadId: "thread~one", id: "page123" });
+      expect(w.published[0]?.html).toContain("<h1>From rex</h1>");
+    } finally { await w.close(); }
+  });
+
+  it("checks remote page metadata before publishing it and handles missing pages", async () => {
+    const call = vi.fn(async (): Promise<unknown> => ({ id: "page123", html: "<p>Remote</p>", meta: { title: "Remote", maxHeight: 400, origins: ["https://localhost"] } }));
+    const w = await world({ machines: { list: () => [{ id: "rex" }], call } as never });
+    try {
+      await expect(w.invoke("open", { threadId: "rex~thread", id: "page123" })).rejects.toThrow("local and private addresses");
+      expect(w.published).toHaveLength(0);
+      call.mockResolvedValueOnce(null);
+      await expect(w.invoke("open", { threadId: "rex~thread", id: "page123" })).resolves.toEqual({ state: "missing" });
+      // A peer fetches this host's document without following another machine hop.
+      await expect(w.invoke("document", { threadId: "rex~thread", id: "page123" })).resolves.toBeNull();
+      expect(call).toHaveBeenCalledTimes(2);
+    } finally { await w.close(); }
+  });
+
   it("offers the tool over MCP and keeps what it was given for the calling thread", async () => {
     const w = await world();
     const client = new Client({ name: "fake-runtime", version: "1.0.0" });
