@@ -39,7 +39,7 @@
 .update-problem { margin: 8px 10px; color: var(--danger); font-size: var(--text-xs); }
 .update-segments { display: flex; gap: 2px; height: 3px; margin: 0 10px 8px; flex: none; }.update-segments i { flex: 1; background: var(--track); border-radius: 2px; }.update-segments i[data-done=true] { background: var(--done); }
 .sidebar-footer button.sidebar-update { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; min-width: var(--control-size-large); padding: 0 6px; }
-.sidebar-update > small { font: var(--text-xs) var(--mono); }.update-count { position: absolute; right: 0; top: 1px; background: var(--acid); color: var(--acid-ink); border-radius: var(--radius-pill); font: 600 9.5px/14px var(--sans); min-width: 14px; padding: 0 3px; text-align: center; box-shadow: 0 0 0 2px var(--rail); }
+.sidebar-update > small { font: var(--text-xs) var(--mono); }.update-count { position: absolute; right: 0; top: 1px; background: var(--acid); color: var(--acid-ink); border-radius: var(--radius-pill); font: 600 var(--text-2xs)/14px var(--sans); min-width: 14px; padding: 0 3px; text-align: center; box-shadow: 0 0 0 2px var(--rail); }
 .update-spin { animation: update-spin 1s linear infinite; }@keyframes update-spin { to { rotate: 1turn; } }
 @media (prefers-reduced-motion: reduce) { .update-spin { animation: none; } }
 @media (pointer: coarse) { .update-machine, .update-center .update-group, .update-center .update-primary, .update-center .update-quiet { min-height: 40px; } }

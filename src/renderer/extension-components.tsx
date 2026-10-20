@@ -33,3 +33,10 @@ const LazyDiffFindBar = lazy(() => import("./components/DiffFindBar").then((modu
 export function DiffFindBar(props: ComponentProps<typeof LazyDiffFindBar>) {
   return props.controller.open ? <Suspense fallback={null}><LazyDiffFindBar {...props} /></Suspense> : null;
 }
+
+const LazyUpdateCenter = lazy(() => import("./components/UpdateCenter").then((module) => ({ default: module.UpdateCenter })));
+
+/** The sidebar update entry and review, loaded with the workspace sidebar. */
+export function UpdateCenter(props: ComponentProps<typeof LazyUpdateCenter>) {
+  return <Suspense fallback={null}><LazyUpdateCenter {...props} /></Suspense>;
+}
