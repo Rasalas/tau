@@ -1,0 +1,751 @@
+<!-- Inline packaging of the Opus 5.5 design. Buttons replace native form submission in the chat sandbox. -->
+
+<!-- Throwaway UI study, not production code: Variante A des Projektfilters, verfeinert.
+     One design shown at three points of its interaction: ?state=normal|multiple|save, &theme=dark.
+     Standalone (tokens inlined from src/renderer/tokens.css), fixture data, memory-only state.
+     Delete once the filter ships in Workspace Kit. -->
+
+
+
+
+
+<style>
+/* Chat copy of the Claude Code design; system font, no external resources. */
+
+
+/* ---- Tau tokens, the subset this study draws with (src/renderer/tokens.css) ---- */
+:root {
+  color-scheme: light dark;
+  --shell: light-dark(#fbfaf8, #0f1116);
+  --rail: light-dark(#f0eeea, #171a1f);
+  --stage: light-dark(#fbfaf8, #0f1116);
+  --sunken: light-dark(#f4f2ef, #13161b);
+  --field: light-dark(#f0eeea, #171a1f);
+  --thread-active: light-dark(#fbfaf8, #0f1116);
+  --raised: light-dark(#e1dfdb, #24272c);
+  --float: light-dark(#fbfaf8, #191c21);
+  --hover: light-dark(#e8e6e2, #1f2226);
+  --hover-strong: light-dark(#e3e1dd, #23252a);
+  --chip: light-dark(#e8e5e0, #23252a);
+  --track: light-dark(#d8d4cd, #2e3136);
+  --code-bg: light-dark(#f0eeea, #171a1f);
+  --line: light-dark(#1c1b1917, #e3e6ec1a);
+  --line-soft: light-dark(#1c1b190f, #e3e6ec12);
+  --line-card: light-dark(#1c1b191a, #e3e6ec1c);
+  --line-field: light-dark(#1c1b1929, #e3e6ec29);
+  --line-strong: light-dark(#1c1b192e, #e3e6ec2e);
+  --line-float: light-dark(#1c1b191f, #e3e6ec21);
+  --edge-line: light-dark(#1c1b1914, #e3e6ec0f);
+  --wash-2: light-dark(#1c1b190f, #e3e6ec0c);
+  --ink: light-dark(#1c1b19, #e3e6ec);
+  --ink-prose: light-dark(#1c1b19, #e3e6ec);
+  --ink-2: light-dark(#35312c, #d0d4db);
+  --ink-3: light-dark(#504a43, #b3b8c1);
+  --muted: light-dark(#6d665d, #9197a1);
+  --faint: light-dark(#8f887e, #71767f);
+  --fainter: light-dark(#b7b1a8, #45484d);
+  --acid: light-dark(#4b75c5, #6b93e0);
+  --acid-text: light-dark(#2f4f8f, #a6bfee);
+  --acid-ink: light-dark(#ffffff, #10131a);
+  --acid-strong: light-dark(#3d63b0, #86a7e7);
+  --acid-bg: light-dark(#e9effa, #121d36);
+  --acid-line: light-dark(#b4c8ee, #2c4478);
+  --focus: light-dark(#4f79c9, #6b93e0);
+  --user-bubble: light-dark(#e9effa, #121d36);
+  --user-bubble-ink: light-dark(#182747, #e2eafa);
+  --info: light-dark(#4f79c9, #6b93e0);
+  --warn: light-dark(#82601a, #e8c67f);
+  --diff-add-edge: light-dark(#2f633c, #a4d0b1);
+  --diff-del-edge: light-dark(#8c352f, #eba9a2);
+  --shadow-soft: light-dark(#1c1b1914, #00000066);
+  --shadow: light-dark(#1c1b191a, #00000073);
+  --shadow-strong: light-dark(#1c1b192e, #0000008c);
+  --elevation-0: 0 1px 2px var(--shadow-soft);
+  --elevation-2: 0 12px 32px var(--shadow-strong);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sans: "Figtree", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --radius-sm: 6px; --radius-row: 8px; --radius-md: 10px; --radius-lg: 12px;
+  --motion-fast: 120ms; --ease: cubic-bezier(.4, 0, .2, 1);
+
+  /* Prototype only: the desk the window sits on, and a menu row's wash. */
+  --page: light-dark(#e6e3de, #08090c);
+  --row-hover: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 13px/1.4 var(--sans); -webkit-font-smoothing: antialiased; }
+button, input, textarea { font: inherit; color: inherit; }
+button { margin: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------------------------------------------------- prototype chrome (outside the app) */
+.desk { width: min(1240px, calc(100% - 40px)); height: 100%; margin: 0 auto; display: flex; flex-direction: column; }
+.proto { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 0 10px; color: var(--muted); font-size: 12px; }
+.proto-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.proto-title b { color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.proto-title span { padding: 1px 6px; border-radius: 4px; background: var(--wash-2); }
+.seg { flex: none; display: flex; gap: 2px; padding: 2px; border-radius: var(--radius-row); background: var(--wash-2); }
+.seg button { height: 24px; padding: 0 10px; border-radius: var(--radius-sm); color: var(--muted); white-space: nowrap; }
+.seg button:hover { color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--float); color: var(--ink); box-shadow: var(--elevation-0); }
+.proto-reset { flex: none; height: 28px; padding: 0 10px; border-radius: var(--radius-row); color: var(--muted); }
+.proto-reset:hover { background: var(--wash-2); color: var(--ink-2); }
+.status { flex: none; display: flex; flex-wrap: wrap; gap: 3px 16px; padding: 10px 2px 14px; color: var(--faint); font-size: 12px; }
+.status b { color: var(--ink-3); font-weight: 500; }
+
+/* ------------------------------------------------------------------------------ the app */
+.app {
+  position: relative; flex: 1 1 auto; min-height: 560px; max-height: 860px;
+  display: grid; grid-template-columns: 272px minmax(0, 1fr);
+  border-radius: var(--radius-lg); overflow: hidden; background: var(--shell);
+  box-shadow: 0 0 0 1px var(--line-card), 0 24px 60px -28px var(--shadow-strong);
+}
+.scrim { position: absolute; inset: 0; z-index: 20; cursor: default; }
+
+/* The rail, after kits/workspace/styles.css */
+.rail { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--rail); }
+.lights { flex: none; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--track); }
+.controls { flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 12px 8px; }
+.search {
+  flex: 1; min-width: 0; height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 10px;
+  border-radius: var(--radius-row); background: var(--stage); color: var(--muted); font-size: 12px; container-type: inline-size;
+}
+.search svg.i { width: 14px; height: 14px; }
+.search span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search kbd { font: 10.5px var(--mono); color: var(--muted); }
+@container (width < 120px) { .search kbd { display: none; } }
+.rbtn {
+  --bg: var(--stage);
+  flex: none; height: 30px; min-width: 30px; display: flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: var(--radius-row); background: var(--bg); color: var(--ink-2);
+}
+.rbtn:hover { --bg: var(--chip); color: var(--ink); }
+.rbtn svg.i { width: 15px; height: 15px; }
+.filter { max-width: 118px; padding: 0 9px 0 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.filter.bare { width: 30px; padding: 0; color: var(--ink-3); }
+.filter.bare:hover { color: var(--ink); }
+.filter.on { --bg: var(--acid-bg); color: var(--acid-text); }
+.filter.on:hover { --bg: color-mix(in srgb, var(--acid-bg) 70%, var(--acid-line)); }
+.filter[aria-expanded="true"] { --bg: var(--raised); color: var(--ink); }
+.filter .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.filter .n { flex: none; margin-left: -1px; font-weight: 500; opacity: .62; font-variant-numeric: tabular-nums; }
+.tiles { flex: none; display: inline-flex; }
+.tiles .tile { box-shadow: 0 0 0 1.5px var(--bg); }
+.tiles .tile + .tile { margin-left: -5px; }
+
+/* A project's mark: its hue, read as the theme says (tokens.css .thread-project-icon). */
+.tile {
+  --tint: light-dark(hsl(var(--h) 46% 88%), hsl(var(--h) 34% 15%));
+  --tink: light-dark(hsl(var(--h) 55% 27%), hsl(var(--h) 70% 66%));
+  width: 14px; height: 14px; flex: none; display: inline-grid; place-items: center; border-radius: 3.5px;
+  background: var(--tint); color: var(--tink); font: normal 700 8.5px/1 var(--sans);
+}
+.tile.none { background: var(--chip); color: var(--faint); }
+.tile.none::before { content: ""; width: 4px; height: 4px; border-radius: 50%; box-shadow: 0 0 0 1.25px currentColor; }
+
+.list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: 2px 10px 8px; }
+.glabel { display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; color: var(--faint); font-size: 12px; font-weight: 500; }
+.glabel::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.glabel:first-child { padding-top: 6px; }
+.thread {
+  width: 100%; height: 32px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px;
+  border: 1px solid transparent; border-radius: var(--radius-row); color: var(--ink-2); font-size: 13.5px;
+}
+.thread:hover { background: var(--hover); }
+.thread[aria-current="page"] { background: var(--thread-active); border-color: var(--edge-line); color: var(--ink); box-shadow: var(--elevation-0); }
+.thread .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread.draft .tt { color: var(--muted); }
+.thread time { flex: none; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.thread .live { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--info); }
+.shelf { margin-top: auto; padding-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+.shelf-toggle { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-radius: var(--radius-sm); color: var(--muted); font-size: 12px; }
+.shelf-toggle:hover { color: var(--ink-3); }
+.shelf-toggle i { flex: 1; height: 1px; background: var(--line-soft); }
+.shelf-toggle .ct { color: var(--faint); font-variant-numeric: tabular-nums; }
+.shelf-toggle svg.i { width: 12px; height: 12px; color: var(--faint); transition: transform var(--motion-fast) var(--ease); }
+.shelf-toggle[aria-expanded="false"] svg.i { transform: rotate(-90deg); }
+.empty { flex: 1; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; color: var(--muted); font-size: 12px; text-align: center; }
+.empty p { margin: 0; }
+.empty button { height: 26px; padding: 0 9px; border-radius: var(--radius-sm); color: var(--acid-text); font-weight: 500; }
+.empty button:hover { background: var(--acid-bg); }
+.foot { flex: none; display: flex; align-items: center; padding: 6px 10px 10px; }
+.foot .fbtn { width: 30px; height: 30px; display: grid; place-items: center; color: var(--ink-3); }
+.foot small { margin-left: auto; padding: 0 8px; color: var(--muted); font: 11.5px var(--mono); }
+
+/* ---- the filter popover: one quiet menu; checkboxes only while selecting several ---- */
+.pop {
+  position: absolute; z-index: 21; top: 76px; left: 10px; width: 282px; max-height: calc(100% - 88px);
+  display: flex; flex-direction: column; border: 1px solid var(--line-float); border-radius: var(--radius-md);
+  background: var(--float); box-shadow: var(--elevation-2); color: var(--ink-2); font-size: 13px;
+}
+.pop:focus { outline: none; }
+.pop.enter { animation: pop-in var(--motion-fast) var(--ease); }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .pop.enter { animation: none; } }
+.pop-search { flex: none; height: 38px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border-bottom: 1px solid var(--line-soft); color: var(--faint); }
+.pop-search:focus-within { color: var(--muted); }
+.pop-search svg.i { width: 14px; height: 14px; }
+.pop-search input { flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: none; color: var(--ink); font-size: 13px; }
+.pop-search input::placeholder { color: var(--faint); }
+.pop-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 5px; }
+.plabel { padding: 9px 9px 3px; color: var(--faint); font-size: 12px; font-weight: 500; }
+.row {
+  width: 100%; height: 30px; display: flex; align-items: center; gap: 9px; padding: 0 9px;
+  border-radius: 7px; color: var(--ink-2); white-space: nowrap;
+}
+.row:hover { background: var(--row-hover); }
+.row:focus-visible { outline: none; background: var(--row-hover); box-shadow: inset 0 0 0 1.5px var(--focus); }
+.row > svg.i { width: 14px; height: 14px; color: var(--muted); }
+.row .nm { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row .sum { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--faint); font-size: 12px; }
+.row .ct { margin-left: auto; padding-left: 8px; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.row > svg.ok { width: 14px; height: 14px; margin-left: auto; color: var(--acid-text); stroke-width: 1.7; }
+.row .sum + svg.ok { margin-left: 0; }
+.row[aria-current="true"] .nm { color: var(--ink); font-weight: 600; }
+.row .gap { width: 14px; flex: none; }
+.cb {
+  width: 14px; height: 14px; flex: none; display: grid; place-items: center; border-radius: 4px;
+  background: var(--stage); box-shadow: inset 0 0 0 1.25px var(--line-strong); color: var(--acid-ink);
+}
+.cb svg.i { width: 10px; height: 10px; stroke-width: 2.2; }
+.row:is([aria-checked="true"], [aria-checked="mixed"]) .cb { background: var(--acid); box-shadow: none; }
+.nomatch { margin: 0; padding: 10px 9px 12px; color: var(--faint); font-size: 12px; overflow-wrap: anywhere; }
+.pop-foot { flex: none; padding: 5px; border-top: 1px solid var(--line-soft); }
+.pop-foot > .row { color: var(--ink-3); }
+.kbd { margin-left: auto; padding-left: 8px; color: var(--faint); font-size: 11.5px; }
+.msbar { height: 30px; display: flex; align-items: center; gap: 2px; padding-left: 9px; }
+.msbar .count { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; overflow: hidden; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.msbar .count svg.i { width: 13px; height: 13px; }
+.msbar .count span { overflow: hidden; text-overflow: ellipsis; }
+.btn { flex: none; height: 26px; padding: 0 10px; border-radius: var(--radius-sm); color: var(--ink-2); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.btn:hover:not(:disabled) { background: var(--row-hover); color: var(--ink); }
+.btn:disabled { color: var(--fainter); cursor: default; }
+.btn.primary { background: var(--acid); color: var(--acid-ink); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: var(--acid-strong); color: var(--acid-ink); }
+.btn.primary:disabled { background: var(--chip); color: var(--faint); }
+.btn:focus-visible { outline-offset: 1px; }
+.namefield {
+  height: 30px; display: flex; align-items: center; gap: 9px; padding: 0 9px; border-radius: 7px;
+  background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line-field); color: var(--muted);
+}
+.namefield:focus-within { box-shadow: inset 0 0 0 1px var(--acid-line), 0 0 0 3px color-mix(in srgb, var(--focus) 16%, transparent); color: var(--acid-text); }
+.namefield svg.i { width: 14px; height: 14px; }
+.namefield input { flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: none; color: var(--ink); font-size: 13px; }
+.namefield input::placeholder { color: var(--faint); }
+.namer-row { display: flex; align-items: center; gap: 2px; margin-top: 5px; padding-left: 9px; }
+.namer-row .hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 12px; }
+.namer-row .hint.warn { color: var(--warn); }
+.pop.picker { left: auto; right: 10px; width: 224px; }
+.pop.picker .pop-body { padding-bottom: 5px; }
+.pop.picker .plabel { padding-top: 6px; }
+
+/* The conversation: the context the filter sits in, unchanged by it. */
+.conv { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--stage); }
+.thead { flex: none; height: 56px; display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 0 24px; border-bottom: 1px solid var(--line-soft); }
+.thead h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 14px; font-weight: 600; }
+.thead p { margin: 0; display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.thead code { font: 11.5px var(--mono); }
+.transcript { flex: 1; min-height: 0; overflow: auto; padding: 28px 24px 16px; }
+.col { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.bubble { align-self: flex-end; max-width: 82%; padding: 9px 13px; border-radius: var(--radius-lg); background: var(--user-bubble); color: var(--user-bubble-ink); font-size: 14px; line-height: 1.5; }
+.prose { color: var(--ink-prose); font-size: 14px; line-height: 1.62; }
+.prose p { margin: 0 0 12px; }
+.prose p:last-child { margin: 0; }
+.prose kbd { padding: 1px 4px; border-radius: 4px; background: var(--raised); font: 11.5px var(--mono); }
+.tool { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 7px 10px; border-radius: var(--radius-row); background: var(--code-bg); color: var(--ink-3); font: 12px var(--mono); }
+.tool span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool .add { color: var(--diff-add-edge); }
+.tool .del { color: var(--diff-del-edge); }
+.composer { flex: none; width: calc(100% - 48px); max-width: 680px; margin: 0 auto 18px; padding: 10px 10px 8px 14px; border-radius: var(--radius-lg); background: var(--field); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.composer textarea { display: block; width: 100%; height: 44px; padding: 2px 0; border: 0; outline: none; resize: none; background: none; color: var(--ink); font-size: 14px; line-height: 1.45; }
+.composer textarea::placeholder { color: var(--faint); }
+.cbar { display: flex; align-items: center; gap: 6px; }
+.cbar .glyph { width: 26px; height: 26px; display: grid; place-items: center; color: var(--muted); }
+.chip { height: 26px; min-width: 0; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border-radius: 7px; background: var(--raised); color: var(--ink-2); font-size: 12.5px; white-space: nowrap; }
+.chip.quiet { background: none; color: var(--muted); }
+.send { width: 28px; height: 28px; margin-left: auto; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--acid); color: var(--acid-ink); }
+.send svg.i { width: 15px; height: 15px; stroke-width: 1.8; }
+
+@media (max-width: 900px) {
+  .desk { width: calc(100% - 24px); }
+  .app { grid-template-columns: 256px minmax(0, 1fr); }
+  .proto-title span { display: none; }
+  .thead { padding: 0 16px; }
+  .transcript { padding: 20px 16px 12px; }
+  .composer { width: calc(100% - 32px); }
+}
+/* Narrow: the rail over the conversation, so both stay inspectable. */
+@media (max-width: 640px) {
+  .desk { width: calc(100% - 16px); height: auto; min-height: 100%; }
+  .proto { flex-wrap: wrap; row-gap: 8px; }
+  .proto-title { flex-basis: 100%; }
+  .seg button { padding: 0 8px; }
+  .app { flex: none; max-height: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: 600px 440px; }
+  .rail { border-bottom: 1px solid var(--line-soft); }
+  .pop { width: auto; right: 10px; }
+  .pop.picker { left: auto; width: 224px; }
+}
+</style>
+
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-stack" viewBox="0 0 16 16"><path d="M8 1.75 14.25 5 8 8.25 1.75 5Z"/><path d="M1.75 8 8 11.25 14.25 8"/><path d="M1.75 11 8 14.25 14.25 11"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1.2"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1.2"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1.2"/><rect x="9" y="9" width="4.5" height="4.5" rx="1.2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.4 10.4 3.1 3.1"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.25v9.5M3.25 8h9.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="m3.5 8.25 2.75 2.75 6.25-6.25"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 16 16"><path d="M4 8h8"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path d="m4.5 6.25 3.5 3.5 3.5-3.5"/></symbol>
+  <symbol id="i-multi" viewBox="0 0 16 16"><path d="m2.25 4.25 1.5 1.5 2.5-2.75M2.25 10.75l1.5 1.5 2.5-2.75M8.75 4.5h5M8.75 11h5"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 16 16"><path d="M2.5 5h6M11.5 5h2M2.5 11h2M7.5 11h6"/><circle cx="10" cy="5" r="1.5"/><circle cx="6" cy="11" r="1.5"/></symbol>
+  <symbol id="i-send" viewBox="0 0 16 16"><path d="M8 12.5v-9M4.25 7.25 8 3.5l3.75 3.75"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16"><path d="M10.5 3 13 5.5 6 12.5H3.5V10Z"/></symbol>
+</svg>
+
+<div class="desk">
+  <header class="proto" lang="de" aria-label="Prototyp-Steuerung">
+    <div class="proto-title"><b>Projektfilter</b><span>Wegwerf-Prototyp · Fixture-Daten, nur im Speicher</span></div>
+    <div class="seg" role="group" aria-label="Zustand der Interaktion">
+      <button type="button" data-state="normal">Normal</button>
+      <button type="button" data-state="multiple">Mehrfachauswahl</button>
+      <button type="button" data-state="save">Speichern</button>
+    </div>
+    <div class="seg" role="group" aria-label="Farbschema">
+      <button type="button" data-theme-set="light">Hell</button>
+      <button type="button" data-theme-set="dark">Dunkel</button>
+    </div>
+    <button type="button" class="proto-reset" data-reset>Zurücksetzen</button>
+  </header>
+  <main class="app" id="app" aria-label="Tau"></main>
+  <footer class="status" id="status" lang="de" aria-label="Zustand"></footer>
+</div>
+<div id="live" class="vh" aria-live="polite"></div>
+
+<script>
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const MOD = isMac ? '⌘' : 'Ctrl';
+
+// ---------------------------------------------------------------- fixtures (stable ids)
+const PROJECTS = [
+  { id: 'p-tau', name: 'Tau', mark: 'τ', hue: 220 },
+  { id: 'p-web', name: 'Website', mark: 'W', hue: 275 },
+  { id: 'p-docs', name: 'Docs', mark: 'D', hue: 40 },
+  { id: 'p-relay', name: 'Relay', mark: 'R', hue: 18 },
+  { id: 'p-pi', name: 'Pi extensions', mark: 'P', hue: 250 },
+  { id: 'p-nord', name: 'Nordlicht customer portal', mark: 'N', hue: 170 },
+  { id: 'p-lab', name: 'Homelab', mark: 'H', hue: 130 },
+];
+const NONE = 'none';
+const ALL_IDS = [...PROJECTS.map(p => p.id), NONE];
+const GROUPS = [
+  { id: 'g-product', name: 'Product', ids: ['p-tau', 'p-web', 'p-docs'] },
+  { id: 'g-clients', name: 'Client work', ids: ['p-relay', 'p-nord'] },
+  { id: 'g-runtime', name: 'Runtime', ids: ['p-tau', 'p-pi'] },
+];
+const THREADS = [
+  { id: 't-filter', p: 'p-tau', title: 'Project filter: saved combinations', age: 'now', live: true, branch: 'tau/project-filter' },
+  { id: 't-keys', p: 'p-tau', title: 'Unify keyboard shortcuts', age: '25m' },
+  { id: 't-notes', p: 'p-tau', title: 'Release notes for 0.42', age: '2h' },
+  { id: 't-hero', p: 'p-web', title: 'Rework the landing page hero', age: '12m' },
+  { id: 't-img', p: 'p-web', title: 'Responsive images in the docs pages', age: '1h' },
+  { id: 't-names', p: 'p-docs', title: 'Explain worktree names', age: '3h' },
+  { id: 't-standby', p: 'p-relay', title: 'Reconnect after standby', age: '40m', live: true },
+  { id: 't-typed', p: 'p-pi', title: 'Typed tool results', age: '5h' },
+  { id: 't-csv', p: 'p-nord', title: 'Invoice export as CSV', age: '1d' },
+  { id: 't-certs', p: 'p-lab', title: 'Renew certificates', age: '2d' },
+  { id: 't-weekend', p: NONE, title: 'Weekend ideas', age: '1h' },
+  { id: 't-laptops', p: NONE, title: 'Compare two laptops', age: '3d' },
+  { id: 't-toast', p: 'p-tau', title: 'Mobile toast height fallback', age: '1d', settled: true },
+  { id: 't-footer', p: 'p-web', title: 'Fix footer links', age: '2d', settled: true },
+  { id: 't-backoff', p: 'p-relay', title: 'Retry backoff', age: '4d', settled: true },
+  { id: 't-adr', p: 'p-docs', title: 'ADR index', age: '1w', settled: true },
+  { id: 't-recipe', p: NONE, title: 'Scale a recipe for eight', age: '5d', settled: true },
+];
+
+// ---------------------------------------------------------------- helpers
+const byId = Object.fromEntries(PROJECTS.map(p => [p.id, p]));
+const nameOf = id => id === NONE ? 'No project' : byId[id].name;
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const icon = (n, c = '') => `<svg class="i ${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const tile = id => id === NONE ? '<i class="tile none" aria-hidden="true"></i>'
+  : `<i class="tile" style="--h:${byId[id].hue}" aria-hidden="true">${byId[id].mark}</i>`;
+const ordered = ids => ALL_IDS.filter(id => ids.includes(id));
+const sameSet = (a, b) => a.length === b.length && a.every(x => b.includes(x));
+const summary = ids => ordered(ids).map(nameOf).join(', ');
+const countOf = id => THREADS.filter(t => t.p === id).length;
+
+// ---------------------------------------------------------------- state
+// sel: null = All projects, [] = nothing selected, otherwise project ids (NONE for projectless).
+const params = new URLSearchParams(location.search);
+const PRESETS = ['normal', 'multiple', 'save'];
+let preset = PRESETS.includes(params.get('state')) ? params.get('state') : 'normal';
+let theme = params.get('theme') === 'dark' ? 'dark' : 'light';
+let seq = 0, S, pendingFocus = null, pendingSelect = false, lastScope, lastCtx = 0, rendering = false;
+
+function fresh(p) {
+  const s = {
+    sel: ['p-tau'], mode: false, naming: false, name: '', menu: 'filter', query: '', opening: true,
+    groups: GROUPS.map(g => ({ ...g, ids: [...g.ids] })), drafts: [], open: 't-filter', settled: false, typed: {},
+  };
+  if (p !== 'normal') { s.sel = ['p-tau', 'p-web']; s.mode = true; }  // Tau, then Ctrl-click on Website
+  if (p === 'save') { s.naming = true; s.name = suggest(s.sel); }
+  return s;
+}
+function suggest(ids) {
+  const n = ordered(ids).map(nameOf);
+  return n.length < 2 ? n.join('') : n.length <= 3 ? n.slice(0, -1).join(', ') + ' & ' + n.at(-1) : '';
+}
+function setSel(ids) { const o = ordered(ids); S.sel = o.length === ALL_IDS.length ? null : o; }
+const matchGroup = () => S.sel && S.sel.length ? S.groups.find(g => sameSet(g.ids, S.sel)) : null;
+const visible = t => S.sel === null || S.sel.includes(t.p);
+const newTargets = () => S.sel === null || !S.sel.length ? ALL_IDS : S.sel;
+const isDup = n => S.groups.some(g => g.name.trim().toLowerCase() === n.trim().toLowerCase());
+// Saving only ever adds a group: never a second name for the same projects, never a reused name.
+function namerProblem() {
+  const g = matchGroup();
+  return !S.sel || !S.sel.length ? 'Choose projects to save' : g ? `Already saved as ${g.name}` : isDup(S.name) ? 'A group with this name already exists' : '';
+}
+function scopeName() {
+  if (S.sel === null) return 'All projects';
+  if (!S.sel.length) return 'no projects';
+  const g = matchGroup();
+  return g ? g.name : S.sel.map(nameOf).join(', ');
+}
+
+// ---------------------------------------------------------------- rail
+function filterButton() {
+  const g = matchGroup(), sel = S.sel;
+  let cls = 'rbtn filter on', inner, label;
+  if (sel === null) { cls = 'rbtn filter bare'; inner = icon('stack'); label = 'All projects'; }
+  else if (!sel.length) { inner = icon('stack') + '<span class="lbl">None selected</span>'; label = 'No projects selected'; }
+  else if (g) { inner = `${icon('stack')}<span class="lbl">${esc(g.name)}</span><span class="n">${g.ids.length}</span>`; label = `${g.name}, saved group of ${g.ids.length}: ${summary(g.ids)}`; }
+  else if (sel.length === 1) { inner = `${tile(sel[0])}<span class="lbl">${esc(nameOf(sel[0]))}</span>`; label = nameOf(sel[0]); }
+  else { inner = `<span class="tiles">${sel.slice(0, 2).map(tile).join('')}</span><span class="lbl">${sel.length} projects</span>`; label = summary(sel); }
+  return `<button type="button" class="${cls}" data-act="filter" data-k="filter" aria-haspopup="dialog" aria-expanded="${S.menu === 'filter'}"
+    aria-label="Project filter: ${esc(label)}" title="Filter by project or saved group">${inner}</button>`;
+}
+function newButton() {
+  const picks = newTargets().length > 1;
+  return `<button type="button" class="rbtn" data-act="new" data-k="new" aria-label="New thread" title="New thread"
+    ${picks ? `aria-haspopup="dialog" aria-expanded="${S.menu === 'new'}"` : ''}>${icon('plus')}</button>`;
+}
+const threadRow = t => `<button type="button" class="thread" data-act="open" data-id="${t.id}" data-k="t:${t.id}" ${S.open === t.id ? 'aria-current="page"' : ''}>
+  <span class="tt">${esc(t.title)}</span>${t.live ? '<i class="live" title="Working"></i><span class="vh">working</span>' : ''}<time>${t.age}</time></button>`;
+const draftRow = d => `<button type="button" class="thread draft" data-act="open" data-id="${d.id}" data-k="t:${d.id}" ${S.open === d.id ? 'aria-current="page"' : ''}>
+  <span class="tt">New thread</span><time>Draft</time></button>`;
+
+function list() {
+  if (S.sel && !S.sel.length) return `<div class="empty"><p>No projects selected</p>
+    <button type="button" data-act="show-all" data-k="show-all">Show all projects</button></div>`;
+  const drafts = S.drafts.filter(visible), active = THREADS.filter(t => !t.settled && visible(t)), settled = THREADS.filter(t => t.settled && visible(t));
+  const ids = ALL_IDS.filter(id => drafts.some(d => d.p === id) || active.some(t => t.p === id));
+  let h = ids.map(id => `<div class="glabel">${esc(nameOf(id))}</div>`
+    + drafts.filter(d => d.p === id).map(draftRow).join('') + active.filter(t => t.p === id).map(threadRow).join('')).join('');
+  if (!ids.length) h = `<div class="empty"><p>No active threads in ${esc(scopeName())}</p></div>`;
+  if (settled.length) h += `<div class="shelf"><button type="button" class="shelf-toggle" data-act="shelf" data-k="shelf" aria-expanded="${S.settled}">
+    Settled <span class="ct">${settled.length}</span><i></i>${icon('chev')}</button>${S.settled ? settled.map(threadRow).join('') : ''}</div>`;
+  return h;
+}
+
+function rail() {
+  return `<aside class="rail" aria-label="Sidebar">
+    <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="controls">
+      <div class="search" aria-hidden="true">${icon('search')}<span>Search threads</span><kbd>${isMac ? '⌘K' : 'Ctrl K'}</kbd></div>
+      ${filterButton()}${newButton()}
+    </div>
+    <nav class="list" data-scroll="list" aria-label="Threads">${list()}</nav>
+    <div class="foot" aria-hidden="true"><span class="fbtn">${icon('sliders')}</span><small>MacBook Pro</small></div>
+    ${S.menu === 'filter' ? filterPop() : S.menu === 'new' ? pickerPop() : ''}
+  </aside>`;
+}
+
+// ---------------------------------------------------------------- the popover
+const cb = st => `<span class="cb" aria-hidden="true">${st === 'true' ? icon('check') : st === 'mixed' ? icon('minus') : ''}</span>`;
+const ok = () => icon('check', 'ok');
+
+function allRow() {
+  if (S.mode) {
+    const st = S.sel === null ? 'true' : S.sel.length ? 'mixed' : 'false';
+    return `<button type="button" class="row" data-act="all" data-k="row:all" data-nav role="checkbox" aria-checked="${st}">${cb(st)}${icon('grid')}<span class="nm">All projects</span></button>`;
+  }
+  const cur = S.sel === null;
+  return `<button type="button" class="row" data-act="all" data-k="row:all" data-nav ${cur ? 'aria-current="true"' : ''}>${icon('grid')}<span class="nm">All projects</span>${cur ? ok() : ''}</button>`;
+}
+function groupRow(g) {
+  const cur = matchGroup() === g, sum = summary(g.ids);
+  return `<button type="button" class="row" data-act="group" data-id="${g.id}" data-k="row:${g.id}" data-nav title="${esc(g.name)}: ${esc(sum)}" ${cur ? 'aria-current="true"' : ''}>
+    ${S.mode ? '<span class="gap"></span>' : ''}${icon('stack')}<span class="nm">${esc(g.name)}</span><span class="sum">${esc(sum)}</span>${cur ? ok() : ''}</button>`;
+}
+function projectRow(id) {
+  const name = esc(nameOf(id)), ct = `<span class="ct">${countOf(id)}</span>`;
+  if (S.mode) {
+    const on = S.sel === null || S.sel.includes(id);
+    return `<button type="button" class="row" data-act="project" data-id="${id}" data-k="row:${id}" data-nav role="checkbox" aria-checked="${on}">${cb(String(on))}${tile(id)}<span class="nm">${name}</span>${ct}</button>`;
+  }
+  const cur = S.sel && S.sel.length === 1 && S.sel[0] === id;
+  return `<button type="button" class="row" data-act="project" data-id="${id}" data-k="row:${id}" data-nav title="${MOD}-click to select several" ${cur ? 'aria-current="true"' : ''}>
+    ${tile(id)}<span class="nm">${name}</span>${cur ? ok() : ct}</button>`;
+}
+function popBody() {
+  const q = S.query.trim().toLowerCase(), m = s => !q || s.toLowerCase().includes(q);
+  const groups = S.groups.filter(g => m(g.name) || g.ids.some(id => m(nameOf(id))));
+  const projects = ALL_IDS.filter(id => m(nameOf(id)));
+  let h = m('All projects') ? allRow() : '';
+  if (groups.length) h += `<div role="group" aria-labelledby="lbl-saved"><div class="plabel" id="lbl-saved">Saved</div>${groups.map(groupRow).join('')}</div>`;
+  if (projects.length) h += `<div role="group" aria-labelledby="lbl-projects"><div class="plabel" id="lbl-projects">Projects</div>${projects.map(projectRow).join('')}</div>`;
+  return h || `<p class="nomatch">No project or group matches “${esc(S.query.trim())}”</p>`;
+}
+function popFoot() {
+  if (!S.mode) return `<button type="button" class="row" data-act="multi" data-k="multi" data-nav>${icon('multi')}<span class="nm">Select multiple…</span><span class="kbd">${MOD}-click</span></button>`;
+  if (S.naming) {
+    const problem = namerProblem();
+    return `<div class="namer">
+      <label class="namefield">${icon('stack')}<input data-k="name" type="text" value="${esc(S.name)}" placeholder="Group name" maxlength="40"
+        autocomplete="off" spellcheck="false" aria-label="Name for the new saved group" aria-describedby="namer-hint"></label>
+      <div class="namer-row"><span class="hint ${problem ? 'warn' : ''}" id="namer-hint" aria-live="polite">${esc(problem || summary(S.sel))}</span>
+        <button type="button" class="btn" data-act="save-cancel" data-k="cancel" data-nav>Cancel</button>
+        <button type="button" class="btn primary" data-act="commit" data-k="commit" data-nav ${problem || !S.name.trim() ? 'disabled' : ''}>Save</button></div>
+    </div>`;
+  }
+  const g = matchGroup(), n = S.sel === null ? 'All projects' : S.sel.length ? `${S.sel.length} selected` : 'None selected';
+  const canSave = S.sel && S.sel.length > 0;
+  return `<div class="msbar">
+    <span class="count">${g ? `${icon('stack')}<span>${esc(g.name)} · ${g.ids.length}</span>` : `<span>${n}</span>`}</span>
+    ${g ? '' : `<button type="button" class="btn" data-act="save" data-k="save" data-nav ${canSave ? '' : 'disabled'} title="${canSave ? 'Save this selection as a group' : 'Choose projects to save them as a group'}">Save…</button>`}
+    <button type="button" class="btn primary" data-act="done" data-k="done" data-nav>Done</button></div>`;
+}
+const filterPop = () => `<div class="pop ${S.opening ? 'enter' : ''}" role="dialog" aria-label="Project filter" tabindex="-1" data-k="pop">
+  <label class="pop-search">${icon('search')}<input data-k="search" data-nav type="text" value="${esc(S.query)}" placeholder="Find a project or group"
+    aria-label="Find a project or saved group" autocomplete="off" spellcheck="false"></label>
+  <div class="pop-body" data-scroll="pop">${popBody()}</div>
+  <div class="pop-foot">${popFoot()}</div></div>`;
+const pickerPop = () => `<div class="pop picker ${S.opening ? 'enter' : ''}" role="dialog" aria-labelledby="lbl-new" tabindex="-1" data-k="picker">
+  <div class="pop-body"><div class="plabel" id="lbl-new">New thread in</div>
+  ${newTargets().map(id => `<button type="button" class="row" data-act="new-in" data-id="${id}" data-k="pick:${id}" data-nav>${tile(id)}<span class="nm">${esc(nameOf(id))}</span></button>`).join('')}
+  </div></div>`;
+
+// ---------------------------------------------------------------- conversation
+function conv() {
+  const draft = S.drafts.find(d => d.id === S.open);
+  const t = draft || THREADS.find(x => x.id === S.open);
+  const where = t.p === NONE ? `${tile(NONE)}<span>No project · private workspace</span>`
+    : `${tile(t.p)}<span>${esc(nameOf(t.p))}</span><span>·</span><code>${esc(t.branch || 'main')}</code>`;
+  let body = '';
+  if (!draft && t.id === 't-filter') body = `<div class="bubble">Make saved project combinations reachable from the stack button, without permanent checkboxes.</div>
+    <div class="prose"><p>Choosing a project still selects just that project. Several appear only after a ${MOD}-click, <kbd>${MOD} Enter</kbd> or <em>Select multiple…</em>, and a saved group applies like any other filter.</p>
+    <div class="tool"><span>Edited kits/workspace/project-filter.ts</span><span class="add">+84</span><span class="del">−19</span></div>
+    <p>A changed selection stays unsaved until you name it, so an existing group is never rewritten.</p></div>`;
+  else if (!draft) body = `<div class="bubble">Let’s continue with “${esc(t.title)}”.</div>
+    <div class="prose"><p>Picking up from the last turn. The working tree is clean, and the open questions are at the end of my previous reply.</p></div>`;
+  const ph = draft ? (t.p === NONE ? 'What should we work on?' : `What should we do in ${esc(nameOf(t.p))}?`) : 'Ask for follow-up changes';
+  return `<section class="conv" aria-label="Conversation">
+    <header class="thead"><h1>${draft ? 'New thread' : esc(t.title)}</h1><p>${where}</p></header>
+    <div class="transcript" data-scroll="tr"><div class="col">${body}</div></div>
+    <form class="composer" onsubmit="return false">
+      <textarea data-k="composer" aria-label="Message" placeholder="${ph}">${esc(S.typed[S.open] || '')}</textarea>
+      <div class="cbar"><span class="glyph" aria-hidden="true">${icon('plus')}</span>
+        ${draft ? `<span class="chip">${tile(t.p)}${esc(nameOf(t.p))}</span>` : ''}<span class="chip quiet">Opus 5.5</span>
+        <span class="send" aria-hidden="true">${icon('send')}</span></div>
+    </div></section>`;
+}
+
+// ---------------------------------------------------------------- render, keeping focus
+const app = document.getElementById('app');
+function render() {
+  rendering = true;
+  const a = document.activeElement, k = app.contains(a) ? a.dataset.k : null;
+  const range = k && a.setSelectionRange ? [a.selectionStart, a.selectionEnd] : null;
+  const scroll = {}; app.querySelectorAll('[data-scroll]').forEach(el => scroll[el.dataset.scroll] = el.scrollTop);
+  app.innerHTML = rail() + conv() + (S.menu ? '<div class="scrim" data-act="dismiss"></div>' : '');
+  app.querySelectorAll('[data-scroll]').forEach(el => { if (scroll[el.dataset.scroll]) el.scrollTop = scroll[el.dataset.scroll]; });
+  const target = pendingFocus || k;
+  const el = (target && app.querySelector(`[data-k="${target}"]`)) || (target && S.menu ? app.querySelector('.pop') : null);
+  if (el) {
+    el.focus({ preventScroll: true });
+    if (pendingSelect && el.select) el.select();
+    else if (range && target === k) try { el.setSelectionRange(...range); } catch {}
+    if (pendingFocus) el.scrollIntoView({ block: 'nearest' });
+  }
+  pendingFocus = null; pendingSelect = false; S.opening = false; rendering = false;
+  chrome();
+}
+function chrome() {
+  const phase = S.naming ? 'save' : S.mode ? 'multiple' : 'normal';
+  document.querySelectorAll('[data-state]').forEach(b => b.setAttribute('aria-pressed', b.dataset.state === phase));
+  document.querySelectorAll('[data-theme-set]').forEach(b => b.setAttribute('aria-pressed', b.dataset.themeSet === theme));
+  document.getElementById('status').innerHTML = status();
+  const scope = JSON.stringify(S.sel);
+  if (lastScope !== undefined && scope !== lastScope) announce(`Showing ${scopeName()}, ${THREADS.filter(visible).length} threads`);
+  lastScope = scope;
+}
+function announce(msg) { const live = document.getElementById('live'); live.textContent = ''; requestAnimationFrame(() => live.textContent = msg); }
+function status() {
+  const g = matchGroup();
+  const f = S.sel === null ? 'Alle Projekte' : !S.sel.length ? 'leer – nichts ausgewählt' : g ? `Gruppe „${g.name}“ (${summary(g.ids)})`
+    : S.sel.length === 1 ? nameOf(S.sel[0]) : `${summary(S.sel)} · ungespeichert`;
+  const o = S.drafts.find(d => d.id === S.open) || THREADS.find(t => t.id === S.open);
+  const open = o.title ? `${o.title} · ${nameOf(o.p)}` : `Entwurf · ${nameOf(o.p)}`;
+  const nt = newTargets(), next = nt.length > 1 ? `fragt nach dem Projekt (${nt.length} zur Wahl)` : nt[0] === NONE ? 'Entwurf ohne Projekt' : `Entwurf direkt in ${nameOf(nt[0])}`;
+  return `<span>Filter <b>${esc(f)}</b></span>
+    <span>Auswahlmodus <b>${S.naming ? 'an · Name wird vergeben' : S.mode ? 'an' : 'aus'}</b></span>
+    <span>Liste <b>${THREADS.filter(visible).length} von ${THREADS.length}</b> Threads</span>
+    <span>Offen <b>${esc(open)}</b>${visible(o) ? '' : ' (in der Liste ausgeblendet)'}</span>
+    <span>Neuer Thread <b>${esc(next)}</b></span>
+    <span>Gespeichert <b>${esc(S.groups.map(x => x.name).join(', '))}</b></span>`;
+}
+
+// ---------------------------------------------------------------- actions
+function openMenu(which) {
+  Object.assign(S, { menu: which, mode: false, naming: false, query: '', opening: true });
+  pendingFocus = which === 'filter' ? 'search' : 'picker';
+}
+function closeMenu() {
+  if (!S.menu) return;
+  pendingFocus = S.menu === 'new' ? 'new' : 'filter';
+  Object.assign(S, { menu: null, mode: false, naming: false, query: '' });
+}
+function pickProject(id, additive) {
+  if (S.mode || additive) {
+    const base = S.sel === null ? (S.mode ? ALL_IDS : []) : S.sel;  // Ctrl-click from All starts with just that project
+    setSel(base.includes(id) ? base.filter(x => x !== id) : [...base, id]);
+    if (!S.mode) { S.mode = true; pendingFocus = `row:${id}`; }
+  } else { setSel([id]); closeMenu(); }
+  render();
+}
+function createDraft(p) {
+  const d = { id: `d-${++seq}`, p };
+  S.drafts.unshift(d); S.open = d.id; S.menu = null; pendingFocus = 'composer';
+}
+function commitSave() {
+  const name = S.name.trim();
+  if (!name || namerProblem()) return;
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'group';
+  S.groups.push({ id: `g-${slug}-${++seq}`, name, ids: [...S.sel] });
+  closeMenu(); render(); announce(`Saved group ${name}`);
+}
+function act(name, id, e) {
+  switch (name) {
+    case 'commit': commitSave(); return;
+    case 'filter': S.menu === 'filter' ? closeMenu() : openMenu('filter'); break;
+    case 'new': if (S.menu === 'new') closeMenu(); else if (newTargets().length === 1) createDraft(newTargets()[0]); else openMenu('new'); break;
+    case 'dismiss': case 'done': closeMenu(); break;
+    case 'all': if (S.mode) setSel(S.sel === null ? [] : ALL_IDS); else { setSel(ALL_IDS); closeMenu(); } break;
+    case 'group': setSel(S.groups.find(g => g.id === id).ids); closeMenu(); break;
+    case 'project': if (e.ctrlKey && Date.now() - lastCtx < 400) return; pickProject(id, e.metaKey || e.ctrlKey); return;
+    case 'multi': S.mode = true; pendingFocus = `row:${(S.sel && S.sel[0]) || ALL_IDS[0]}`; break;
+    case 'save': S.naming = true; S.name = suggest(S.sel); pendingFocus = 'name'; pendingSelect = true; break;
+    case 'save-cancel': S.naming = false; pendingFocus = 'save'; break;
+    case 'new-in': createDraft(id); break;
+    case 'open': S.open = id; break;
+    case 'show-all': S.sel = null; pendingFocus = 'filter'; break;
+    case 'shelf': S.settled = !S.settled; break;
+  }
+  render();
+}
+
+app.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (b && !b.disabled) act(b.dataset.act, b.dataset.id, e);
+});
+// macOS turns Ctrl-click into a context menu; treat it as the additive click it means here.
+app.addEventListener('contextmenu', e => {
+  const b = e.target.closest('[data-act="project"]');
+  if (b && e.ctrlKey) { e.preventDefault(); lastCtx = Date.now(); pickProject(b.dataset.id, true); }
+});
+app.addEventListener('submit', e => { e.preventDefault(); if (e.target.matches('.namer')) commitSave(); });
+app.addEventListener('input', e => {
+  const k = e.target.dataset.k;
+  if (k === 'search') {
+    S.query = e.target.value;
+    const body = app.querySelector('.pop-body'); body.innerHTML = popBody(); body.scrollTop = 0;
+  } else if (k === 'name') {
+    S.name = e.target.value;
+    const problem = namerProblem(), hint = app.querySelector('#namer-hint');
+    hint.textContent = problem || summary(S.sel);
+    hint.classList.toggle('warn', !!problem);
+    app.querySelector('[data-k="commit"]').disabled = !!problem || !S.name.trim();
+  } else if (k === 'composer') S.typed[S.open] = e.target.value;
+});
+// Tabbing out of a popover dismisses it, like a click outside.
+app.addEventListener('focusout', e => {
+  const pop = app.querySelector('.pop'), to = e.relatedTarget;
+  if (rendering || !pop || !pop.contains(e.target) || !to || pop.contains(to) || !app.contains(to)) return;
+  setTimeout(() => { if (S.menu) { closeMenu(); pendingFocus = null; render(); } });
+});
+document.addEventListener('keydown', e => {
+  if (!S.menu) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (S.naming) { S.naming = false; pendingFocus = 'save'; } else closeMenu();
+    render(); return;
+  }
+  const pop = app.querySelector('.pop');
+  if (!pop || !pop.contains(e.target)) return;
+  const row = e.target.closest('.row'), mod = e.metaKey || e.ctrlKey, k = e.target.dataset.k;
+  if (e.key === 'Enter' && k === 'name') { e.preventDefault(); commitSave(); return; }
+  if (e.key === 'Enter' && mod && row && row.dataset.act === 'project') { e.preventDefault(); pickProject(row.dataset.id, true); return; }
+  if (e.key === 'Enter' && k === 'search') {
+    e.preventDefault();
+    const first = S.query.trim() && pop.querySelector(mod ? '.pop-body [data-act="project"]' : '.pop-body .row');
+    if (first) mod ? pickProject(first.dataset.id, true) : first.click();
+    return;
+  }
+  const typing = e.target.matches('input');
+  if (['ArrowDown', 'ArrowUp'].includes(e.key) || (!typing && ['Home', 'End'].includes(e.key))) {
+    if (k === 'name') return;
+    const items = [...pop.querySelectorAll('[data-nav]')].filter(el => !el.disabled);
+    let i = items.indexOf(e.target);
+    i = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : e.key === 'ArrowDown' ? Math.min(i + 1, items.length - 1) : Math.max(i - 1, 0);
+    e.preventDefault(); items[i].focus(); items[i].scrollIntoView({ block: 'nearest' });
+    return;
+  }
+  // Typing on a row keeps filtering, as in a native menu.
+  if (row && S.menu === 'filter' && e.key.length === 1 && e.key !== ' ' && !mod && !e.altKey) {
+    const input = pop.querySelector('[data-k="search"]');
+    e.preventDefault(); input.focus(); input.value += e.key;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+});
+
+// ---------------------------------------------------------------- prototype toolbar
+function writeUrl() {
+  const u = new URL(location.href);
+  u.searchParams.set('state', preset);
+  theme === 'dark' ? u.searchParams.set('theme', 'dark') : u.searchParams.delete('theme');
+  try { history.replaceState(null, '', u); } catch {}
+}
+function start() {
+  S = fresh(preset); lastScope = undefined;
+  pendingFocus = S.naming ? 'name' : 'search'; pendingSelect = S.naming;
+  render();
+}
+document.querySelector('.proto').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.state) { preset = b.dataset.state; writeUrl(); start(); }
+  else if (b.dataset.themeSet) { theme = b.dataset.themeSet; document.documentElement.dataset.theme = theme; writeUrl(); chrome(); }
+  else if ('reset' in b.dataset) start();
+});
+
+document.documentElement.dataset.theme = theme;
+start();
+</script>
+
+
+
+<style>
+/* Fit the same design into Tau's isolated inline visualization. */
+html, body { height: auto; min-height: 0; }
+.desk { height: auto; min-height: 0; width: 100%; }
+.proto { padding-inline: 6px; }
+.status { padding-inline: 6px; }
+.app { flex: none; height: 640px; box-shadow: 0 0 0 1px var(--line-card); }
+@media (max-width: 640px) { .app { height: auto; grid-template-rows: 560px 330px; } }
+</style>
