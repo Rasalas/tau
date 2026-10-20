@@ -212,9 +212,22 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           : command)
         : claudeComposerCommands([...projectSkills(cwd, settings.args(instance)), ...services.skills(cwd)], adapter);
 
+      /** `claude --version` once per program: an update gives the file another fingerprint. */
+      const versions = new Map<string, { key: string; version: Promise<string | undefined> }>();
+      const installedVersion = async (path: string): Promise<string | undefined> => {
+        const key = await executableFingerprint(path);
+        const held = versions.get(path);
+        if (key && held?.key === key) return held.version;
+        const version = readVersion(path);
+        if (!key) { versions.delete(path); return version; }
+        versions.set(path, { key, version });
+        // An answer the CLI could not give is asked again.
+        void version.then((answer) => { if (!answer && versions.get(path)?.version === version) versions.delete(path); }, () => versions.delete(path));
+        return version;
+      };
       /** How the instance's CLI is installed and what updates it; the maintenance and the version share one read. */
       const maintenanceOf = async (id: string, path: string): Promise<RuntimeToolMaintenance> => {
-        const installed = await readVersion(path);
+        const installed = await installedVersion(path);
         const added = Object.fromEntries(Object.entries(settings.environment(id, {})).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
         return cliMaintenance({
           tool: "claude",
@@ -312,7 +325,8 @@ export function createClaudeCodeHostExtension(options: ClaudeCodeHostExtensionOp
           restrictsTools: true,
           open: async (threadId, cwd, { resume, tools }, thread) => {
             assertCommandInstalled(services.findCommand, claudeCommand(id));
-            const verdict = versionCompatibility(policy, await versionOf(id).then((version) => version?.installed).catch(() => undefined));
+            const path = services.findCommand(claudeCommand(id));
+            const verdict = versionCompatibility(policy, path ? await installedVersion(path).catch(() => undefined) : undefined);
             if (verdict?.status === "broken") throw new Error(`${verdict.message ?? "This Claude Code release does not work with Tau."}${verdict.recommendedVersion ? ` Install ${verdict.recommendedVersion}.` : ""}`);
             const backend = new ClaudeThreadRuntimeBackend(threadId, cwd, {
               adapter,

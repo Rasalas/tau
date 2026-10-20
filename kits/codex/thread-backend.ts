@@ -140,6 +140,8 @@ export interface CodexThreadBackendOptions {
   onMcpApp?(capture: McpAppCapture, reader: McpAppReader): void;
   /** What apps told the model since the last turn, as one text; `commit` marks it sent. */
   appContext?(): Promise<{ text: string; commit(): Promise<void> } | undefined>;
+  /** The owner disposed the backend; an account switch or a restart keeps it. */
+  onDisposed?(): void;
 }
 
 /** A ChatGPT login is the subscription; an API key is billed per token. */
@@ -334,7 +336,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
         this.switchingAccount = true;
         this.restartingSession = true;
         this.strictResume = Boolean(this.codexThreadId);
-        try { await this.dispose(); await this.ensureSession(); }
+        try { await this.closeSession(); await this.ensureSession(); }
         finally { this.strictResume = false; this.restartingSession = false; this.switchingAccount = false; }
       } },
       catalogWrite: {
@@ -500,14 +502,14 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     const oldTier = this.chosenServiceTier;
     const oldModels = this.modelList;
     try {
-      await this.dispose();
+      await this.closeSession();
       change(account);
       this.chosenServiceTier = undefined;
       await this.ensureSession();
       await this.store.setAccount(this.threadId, this.cwd, account);
       this.protectContinuation = true;
     } catch (error) {
-      await this.dispose();
+      await this.closeSession();
       change(previous);
       this.chosenServiceTier = oldTier;
       this.modelList = oldModels;
@@ -1234,6 +1236,10 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   }
 
   async dispose(): Promise<void> {
+    try { await this.closeSession(); } finally { this.options.onDisposed?.(); }
+  }
+
+  private async closeSession(): Promise<void> {
     const live = this.live;
     this.live = undefined;
     this.allowance.clear();

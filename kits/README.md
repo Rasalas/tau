@@ -53,6 +53,9 @@ Runtime session stores retain their paths beside Pi's sessions. Their shared
 before writing and merges only locally changed thread IDs and model catalogs.
 Unchanged cached records cannot revert another host's edits or deletions.
 Concurrent edits to the same ID use the last writer's record.
+A failed write affects only the threads that had writes in flight: the next
+write saves such a thread's whole record over the revision last on disk, and a
+thread another host changed meanwhile is read back from the database.
 
 The store's SQLite file gives deleted space back by itself: it is created with
 `auto_vacuum = INCREMENTAL`, and a file from before is converted with one

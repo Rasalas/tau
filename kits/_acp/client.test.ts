@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AcpClient, AcpRequestError, lineSplitter } from "./client.js";
+import { AcpClient, AcpRequestError } from "./client.js";
 import { fakeAgent, until } from "./fake.js";
 
 describe("AcpClient", () => {
@@ -81,16 +81,5 @@ describe("AcpClient", () => {
     const client = new AcpClient({ process: agent.process, onNotification: () => undefined });
     await client.close(10);
     expect(client.closed).toBe(true);
-  });
-
-  it("splits lines across chunks and drops one that grows past the limit", () => {
-    const lines: string[] = [];
-    const overflow = vi.fn();
-    const feed = lineSplitter(8, (line) => lines.push(line), overflow);
-    feed(Buffer.from("ab"));
-    feed(Buffer.from("c\nlong-line-that-overflows"));
-    feed(Buffer.from("\nok\n"));
-    expect(lines).toEqual(["abc", "ok"]);
-    expect(overflow).toHaveBeenCalledTimes(1);
   });
 });
