@@ -12,7 +12,7 @@ export interface FooterMeasurement {
   gap: number;
   /** Items that always stay; `icon` is their width with the lead controls collapsed. */
   fixed: readonly FooterBlockWidths[];
-  /** Lead controls that shrink to their icons and status controls that leave the row (`icon` 0), all at once and before anything else folds. */
+  /** Lead controls and status controls that shrink to their icons, all at once and before anything else folds. */
   lead?: readonly FooterBlockWidths[];
   /** The blocks that may shrink, in row order; the last one shrinks first. */
   blocks: readonly FooterBlockWidths[];
@@ -23,7 +23,7 @@ export interface FooterMeasurement {
 }
 
 export interface FooterLayout {
-  /** The lead controls drawn as icons only, the status controls out of the row. */
+  /** The lead and status controls drawn as icons only. */
   leadIcons: boolean;
   /** Trailing blocks drawn as icons only. */
   iconOnly: number;

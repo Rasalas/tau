@@ -81,9 +81,11 @@ export function ReviewCommitBar({
     if (reason) setPressed(true);
     else onCommit(message, primaryPush);
   };
+  // With nothing staged a commit takes every changed file; the label says so, as the Changes panel's does.
+  const verb = stagedCount === 0 && fileCount > 0 ? "Commit all" : "Commit";
   const entries: MenuItem[] = [
-    ...primaryPush ? [{ id: "push", label: "Commit & push", description: `Then push ${branch ?? "the branch"}` }] : [],
-    ...primaryPush ? [{ id: "commit", label: "Commit", description: "Keep it on this machine; nothing is pushed" }] : [],
+    ...primaryPush ? [{ id: "push", label: `${verb} & push`, description: `Then push ${branch ?? "the branch"}` }] : [],
+    ...primaryPush ? [{ id: "commit", label: verb, description: "Keep it on this machine; nothing is pushed" }] : [],
     ...actions.map((action): MenuItem => ({
       id: `action:${action.id}`,
       label: action.label,
@@ -108,7 +110,7 @@ export function ReviewCommitBar({
         disabled={reason !== undefined}
         onClick={submit}
       >
-        <GitCommitHorizontal size={14} aria-hidden="true" /> {busy ? "Working…" : primaryPush ? "Commit & push" : "Commit"}
+        <GitCommitHorizontal size={14} aria-hidden="true" /> {busy ? "Working…" : primaryPush ? `${verb} & push` : verb}
       </button>
       {entries.length > 0 ? <button
         className="review-commit-more"

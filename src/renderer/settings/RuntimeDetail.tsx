@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useCallback, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useId, useState } from "react";
 import { ChevronLeft, Plus, Star, Undo2 } from "lucide-react";
 import type { HostSnapshot, UiRuntimeBackend } from "../../shared/contracts";
 import type { SettingsPageContribution } from "../extension-system";
@@ -31,16 +31,21 @@ function inertReason(setting: { lock?: string | undefined; readOnly?: boolean | 
   return setting.readOnly ? "This device is paired Read only: it can see settings, not change them." : setting.lock ?? "This setting cannot be changed here.";
 }
 
-/** The "Use <runtime>" switch; `detailed` adds where its value comes from and the way back to the inherited one. */
-export function RuntimeEnabledSwitch({ setting, label, detailed = false }: { setting: SettingHandle<boolean>; label: string; detailed?: boolean }) {
-  const resettable = detailed && setting.writable && setting.origin === setting.editing;
+/**
+ * The "Use <runtime>" switch; `detailed` adds where its value comes from and the way back to the inherited one.
+ * `missing` names the visible "Not installed" text: the switch is drawn off and inert, and the stored
+ * choice stays as it was, so the runtime comes back as the user left it once it is installed.
+ */
+export function RuntimeEnabledSwitch({ setting, label, detailed = false, missing }: { setting: SettingHandle<boolean>; label: string; detailed?: boolean; missing?: { describedBy: string } | undefined }) {
+  const resettable = detailed && !missing && setting.writable && setting.origin === setting.editing;
+  const why = missing ? `Install ${label} to use it.` : setting.writable ? undefined : inertReason(setting);
   return (
-    <span className="runtime-switch" {...tooltipProps(setting.writable ? undefined : inertReason(setting), { side: "top" })}>
-      {detailed ? <SettingOrigin setting={setting} /> : null}
+    <span className="runtime-switch" {...tooltipProps(why, { side: "top" })}>
+      {detailed && !missing ? <SettingOrigin setting={setting} /> : null}
       {resettable ? (
         <button type="button" className="setting-reset" aria-label={`Reset ${label} to ${setting.editing === "project" ? "inherited value" : "default"}`} title={setting.editing === "project" ? "Reset to inherited value" : "Reset to default"} onClick={() => setting.reset()}><Undo2 size={12} /></button>
       ) : null}
-      <Switch label={`Use ${label}`} checked={setting.value} disabled={!setting.writable} onChange={setting.set} />
+      <Switch label={`Use ${label}`} checked={missing ? false : setting.value} disabled={Boolean(missing) || !setting.writable} describedBy={missing?.describedBy} onChange={setting.set} />
     </span>
   );
 }
@@ -114,7 +119,9 @@ export function RuntimeDetail({ backend, row, card, snapshot, onBack, onMakeDefa
       return next;
     });
   }, []);
-  const off = !enabled.value;
+  const missing = row.state === "missing";
+  const stateId = useId();
+  const off = !enabled.value && !missing;
   const builtIn = row.state === "built-in";
   const action = row.actions[0];
   const starLabel = row.isDefault ? `New threads start on ${backend.label}` : `Start new threads on ${backend.label}`;
@@ -126,7 +133,7 @@ export function RuntimeDetail({ backend, row, card, snapshot, onBack, onMakeDefa
         <span className="runtimes-detail-mark" aria-hidden><ProviderIconStack runtimeProvider={backend.kind} className="runtimes-detail-icon" hint={false} /></span>
         <div className="runtimes-detail-title">
           <h2>{backend.label}</h2>
-          <small {...tooltipProps(row.note, { side: "top" })}>
+          <small id={stateId} {...tooltipProps(row.note, { side: "top" })}>
             <StateLine row={row} />
           </small>
         </div>
@@ -151,7 +158,7 @@ export function RuntimeDetail({ backend, row, card, snapshot, onBack, onMakeDefa
             {...tooltipProps(readOnly && !row.isDefault ? READ_ONLY_REASON : starLabel, { side: "top" })}
             onClick={onMakeDefault}
           ><Star size={15} aria-hidden fill={row.isDefault ? "currentColor" : "none"} /></button>
-          <RuntimeEnabledSwitch setting={enabled} label={backend.label} detailed />
+          <RuntimeEnabledSwitch setting={enabled} label={backend.label} detailed missing={missing ? { describedBy: stateId } : undefined} />
         </div>
       </header>
 

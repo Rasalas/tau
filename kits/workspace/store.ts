@@ -58,6 +58,8 @@ import { readProjectFilter, sameProjects, writeProjectFilter, type RailProjectFi
 export const WORKSPACE_KIT_ID = WORKSPACE_HOST_EXTENSION_ID;
 
 export const NO_CHANGES: UiWorkspaceChanges = { files: [], added: 0, removed: 0 };
+/** How often an open changes view reads the worktree again: an edit outside Tau (an editor, a terminal) tells it nothing. */
+export const CHANGES_POLL_MS = 5_000;
 /** The kit's own key; core stopped listing it when the kit moved out. */
 const BASELINE_CACHE_KEY = "tau.workspace.turn-baseline.v1";
 
@@ -141,6 +143,11 @@ function writeBaseline(sessionId: string, baseline: UiWorkspaceChanges | undefin
   } catch { /* cache only */ }
 }
 
+/** Two readings of the worktree that list the same files, counts and state. */
+export function sameChanges(left: UiWorkspaceChanges, right: UiWorkspaceChanges): boolean {
+  return left === right || JSON.stringify(left) === JSON.stringify(right);
+}
+
 /** Review Kit's `review.diff` panel claims the desktop alone; a browser tab and a phone have the Changes panel and Files. */
 export function clientDrawsReview(profile: string): boolean {
   return profile === "desktop";
@@ -161,6 +168,10 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private reviewDrawn = true;
   private rowStatuses = new Map<string, Readonly<Record<string, ThreadRowStatusMark>>>();
   private changesRequest = 0;
+  /** The changes views drawn now (`watchChanges`), and what keeps them current while there are any. */
+  private changesWatchers = 0;
+  private stopWatchingChanges?: () => void;
+  private changesInFlight = false;
   private workspaceRequest = 0;
   private filesRequest = 0;
   private sessionId?: string;
@@ -480,17 +491,51 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     catch (error) { this.notify(errorMessage(error), "error"); }
   }
 
-  async refreshChanges(): Promise<void> {
+  /** `polled`: a background read, which leaves an unchanged list as it was. */
+  async refreshChanges(polled = false): Promise<void> {
     if (!hostAvailable()) return;
     const request = ++this.changesRequest;
     const cwd = this.state.cwd;
+    this.changesInFlight = true;
     try {
       // The project on screen, a draft's too; acting on the changes waits until the draft is a thread.
       const next = await this.host.getChanges(undefined, this.workspace());
-      if (request === this.changesRequest && cwd === this.state.cwd) this.update({ changes: next });
+      // A poll that reads the same list keeps its object, so the review does not load every diff again.
+      if (request === this.changesRequest && cwd === this.state.cwd && !(polled && sameChanges(this.state.changes, next))) this.update({ changes: next });
     } catch (error) {
       if (request === this.changesRequest) this.notify(errorMessage(error), "error");
+    } finally {
+      if (request === this.changesRequest) this.changesInFlight = false;
     }
+  }
+
+  /**
+   * Keeps the changes current while a view shows them, until the returned
+   * function: read again when the window comes back into view or focus, and
+   * every `CHANGES_POLL_MS` while it is visible. One schedule serves every view.
+   */
+  watchChanges(): () => void {
+    this.changesWatchers += 1;
+    if (this.changesWatchers === 1 && typeof window !== "undefined") {
+      const visible = () => document.visibilityState !== "hidden";
+      const shown = () => { if (visible()) void this.refreshChanges(); };
+      const poll = () => { if (visible() && !this.changesInFlight) void this.refreshChanges(true); };
+      window.addEventListener("focus", shown);
+      document.addEventListener("visibilitychange", shown);
+      const timer = setInterval(poll, CHANGES_POLL_MS);
+      this.stopWatchingChanges = () => {
+        window.removeEventListener("focus", shown);
+        document.removeEventListener("visibilitychange", shown);
+        clearInterval(timer);
+      };
+    }
+    let watching = true;
+    return () => {
+      if (!watching) return;
+      watching = false;
+      this.changesWatchers -= 1;
+      if (this.changesWatchers === 0) { this.stopWatchingChanges?.(); this.stopWatchingChanges = undefined; }
+    };
   }
 
   async refreshWorkspace(): Promise<void> {

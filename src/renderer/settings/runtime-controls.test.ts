@@ -36,6 +36,14 @@ describe("runtime controls theme commands", () => {
     });
   });
 
+  it("lists them after the other Runtime commands, so an empty palette does not open on five theme rows", () => {
+    const registry = new ExtensionRegistry();
+    registry.activate(runtimeControls);
+    const runtime = registry.getCommands().filter((item) => item.group === "Runtime").map((item) => item.id);
+    const firstTheme = runtime.findIndex((id) => id.startsWith("runtime.theme"));
+    expect(runtime.slice(firstTheme).every((id) => id.startsWith("runtime.theme"))).toBe(true);
+  });
+
   it("cycles the stored preference and says which one it landed on", async () => {
     const preferences = new PreferencesStore();
     const registry = new ExtensionRegistry(undefined, { preferences });

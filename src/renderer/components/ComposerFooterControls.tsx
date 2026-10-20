@@ -21,6 +21,8 @@ export interface FooterBlock {
 interface Measured extends FooterBlockWidths {
   /** `data-composer-shortcut` names inside the block, for the menu trigger to answer to. */
   shortcuts: readonly string[];
+  /** Width of the block's `data-composer-lead-label` parts, which drop with the lead controls. */
+  leadLabel: number;
 }
 
 const NO_LAYOUT: FooterLayout = { leadIcons: false, iconOnly: 0, hidden: 0, trailingIcons: false };
@@ -63,8 +65,9 @@ function iconWidth(block: HTMLElement, natural: number): number {
  * The composer's footer row: the model, then the blocks, then `status`, then one menu ("…")
  * that holds `menu`, the `menuOnly` blocks and every block the row has no room for. As the
  * composer narrows the lead controls that mark themselves `data-composer-collapsible`
- * shrink to their icons and `status` leaves the row (the row says so with
- * `data-lead-icons`), then the blocks
+ * and the `status` chips shrink to their icons (the row says so with
+ * `data-lead-icons`; a block's `data-composer-lead-label` parts, such as the
+ * context meter's percentage, drop at that step too), then the blocks
  * drop their labels and move into the menu, lowest rank first. Last, a control
  * beside the row that marks itself `data-composer-trailing` (the send button's
  * words) drops its label: the row says so with `data-trailing-icons`.
@@ -72,7 +75,7 @@ function iconWidth(block: HTMLElement, natural: number): number {
 export function ComposerFooterControls({ leading, blocks, status, menu, menuShortcuts = NO_SHORTCUTS, revision = "" }: {
   leading: ReactNode;
   blocks: readonly FooterBlock[];
-  /** After the blocks, before the menu: what the row can do without, so it is the first to go. */
+  /** After the blocks, before the menu: worth seeing at any width, so short of room it keeps its icons, first of all. */
   status?: ReactNode;
   /** Entries that always live in the menu. */
   menu?: ReactNode;
@@ -143,7 +146,9 @@ export function ComposerFooterControls({ leading, blocks, status, menu, menuShor
           const natural = item.dataset.iconOnly !== undefined && previous ? previous.natural : width;
           const icon = item.dataset.iconOnly !== undefined ? width : iconWidth(item, width);
           const shortcuts = [...item.querySelectorAll<HTMLElement>("[data-composer-shortcut]")].flatMap((node) => node.dataset.composerShortcut?.split(/\s+/u) ?? []);
-          measured.current.set(id, { natural, icon: Math.min(icon, natural), shortcuts });
+          // Measured with the lead expanded, so the label is drawn.
+          const leadLabel = [...item.querySelectorAll<HTMLElement>("[data-composer-lead-label]")].reduce((sum, node) => sum + node.getBoundingClientRect().width, 0);
+          measured.current.set(id, { natural, icon: Math.min(icon, natural), shortcuts, leadLabel });
         } else if (item.dataset.composerOverflow !== undefined) {
           triggerWidth.current = item.getBoundingClientRect().width;
           if (menuAlways.current) fixedItems.push(item);
@@ -163,10 +168,16 @@ export function ComposerFooterControls({ leading, blocks, status, menu, menuShor
     } finally {
       element.toggleAttribute("data-lead-icons", leadCollapsed);
     }
+    let leadLabels = 0;
     const widths = order.current.flatMap((block) => {
       const entry = measured.current.get(block.id);
-      return entry && entry.natural > 0 ? [entry] : [];
+      if (!entry || entry.natural <= 0) return [];
+      // A block's lead label leaves with the lead controls, so the fitter counts it there.
+      leadLabels += entry.leadLabel;
+      return [{ natural: entry.natural - entry.leadLabel, icon: Math.max(0, entry.icon - entry.leadLabel) }];
     });
+    // It stands inside its block, not as a row item: the gap the fitter adds for an item is not drawn.
+    if (leadLabels > 0) lead.push({ natural: Math.max(0, leadLabels - gap), icon: 0 });
     setLayout((current) => {
       const next = fitFooterControls({
         available,

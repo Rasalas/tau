@@ -231,7 +231,7 @@ describe("a fresh install (2a)", () => {
 
   it("stays out of a repository and of a window that already has a thread", async () => {
     start({ isRepo: true, messageCount: 0 });
-    expect(await screen.findByRole("heading", { name: /What should .+ do next\?/u })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /[Ww]hat should we do next\?/u })).toBeTruthy();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(document.querySelector(".fresh-start")).toBeNull();
     cleanup();

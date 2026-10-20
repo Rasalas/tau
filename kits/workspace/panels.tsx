@@ -430,6 +430,7 @@ export function ChangesPanel({ active, actions }: PanelProps) {
   const revertFile = (path: string) => workspaceStore.revertFile(path);
   const commit = (message: string, push: boolean) => workspaceStore.commit(message, push);
   useEffect(() => { if (active) void workspaceStore.refreshChanges(); }, [active, cwd, workspaceStore]);
+  useEffect(() => active ? workspaceStore.watchChanges() : undefined, [active, workspaceStore]);
   const [message, setMessage] = useState(changes.proposedMessage ?? "");
   const [dirty, setDirty] = useState(false);
   // Follow the host's proposal until the user types; a commit resets to following.

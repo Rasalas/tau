@@ -36,7 +36,9 @@ export function createReviewOverlay(
     ...(stageAll ? { stageAll: () => stageAll.call(store) } : {}),
   } : undefined;
   const option = (id: string) => plugin.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, id, false);
-  return function ReviewOverlay({ actions, onClose }: OverlayProps) {
+  return function ReviewOverlay({ actions, onClose, active = true }: OverlayProps & { active?: boolean }) {
+    // Files edited in an editor or a terminal tell the host nothing; the review reads them while it is in front.
+    useEffect(() => active ? store.watchChanges?.() : undefined, [active]);
     const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     useSyncExternalStore(plugin.preferences.subscribe, plugin.preferences.getSnapshot, plugin.preferences.getSnapshot);
     const commentState = useSyncExternalStore(comments.subscribe, comments.getSnapshot, comments.getSnapshot);

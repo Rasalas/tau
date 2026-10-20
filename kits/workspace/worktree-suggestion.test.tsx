@@ -47,7 +47,7 @@ function start(busyIn: string, worktree: () => Promise<{ workspaceId: string; di
 async function openDraft(): Promise<HTMLElement> {
   await screen.findByText("Idle answer");
   fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
-  const heading = await screen.findByRole("heading", { name: "What should project do next?" });
+  const heading = await screen.findByRole("heading", { name: "In project, what should we do next?" });
   return heading.parentElement!.querySelector(".region-draft-actions") as HTMLElement;
 }
 

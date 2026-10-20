@@ -373,6 +373,20 @@ describe("command palette scopes", () => {
     expect(seen).toEqual([["t2"]]);
   });
 
+  it("offers Stop the run only while the thread on screen runs", () => {
+    const store = new ThreadStore();
+    store.setActiveThread("t1", false);
+    const commands: PaletteCommand[] = [
+      { id: "runtime.abort", label: "Stop the run", group: "Runtime", extensionId: "core", extensionName: "Core", run: vi.fn() },
+      { id: "runtime.settings", label: "Open Settings", group: "Runtime", extensionId: "core", extensionName: "Core", run: vi.fn() },
+    ];
+    render(<ThreadStoreContext.Provider value={store}><CommandPalette open commands={commands} actions={{} as WorkbenchActions} onClose={() => undefined} /></ThreadStoreContext.Provider>);
+    expect(screen.queryByRole("option", { name: /Stop the run/u })).toBeNull();
+    expect(screen.getByRole("option", { name: /Open Settings/u })).toBeTruthy();
+    act(() => store.setActiveThread("t1", true));
+    expect(screen.getByRole("option", { name: /Stop the run/u })).toBeTruthy();
+  });
+
   it("narrows to one kind by its prefix or its tab, and keeps what was typed", () => {
     const { input, heads, pressed } = scoped();
     fireEvent.change(input, { target: { value: "#xyz" } });

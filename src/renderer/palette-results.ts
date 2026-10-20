@@ -125,6 +125,13 @@ export function readOnlyCommands(commands: readonly PaletteCommand[]): PaletteCo
   return commands.filter((command) => looking.has(command.group));
 }
 
+/** Core's Stop the run: Escape in the chat still reaches it, but the palette offers it only while there is a run to stop. */
+export const STOP_RUN_COMMAND = "runtime.abort";
+
+export function withoutIdleStop(commands: readonly PaletteCommand[], running: boolean): readonly PaletteCommand[] {
+  return running ? commands : commands.filter((command) => command.id !== STOP_RUN_COMMAND);
+}
+
 export function readOnlySources(sources: readonly PaletteSourceResult[]): PaletteSourceResult[] {
   return sources.filter((source) => source.items.some((item) => item.access === "read"));
 }

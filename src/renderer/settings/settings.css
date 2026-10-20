@@ -149,7 +149,8 @@
 .settings-group-note { margin: 0; padding: var(--space-5) var(--space-6); font-size: var(--text-sm); line-height: 1.5; color: var(--muted); }
 
 /* Cards in two columns (design 2i, 2h): the heading inside, compact rows, plain choices. */
-.settings-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); }
+/* A card is as tall as its rows: stretched to its neighbour, a short one (Quitting) ended in an empty block. */
+.settings-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: var(--space-5); }
 .settings-cards > :not(.settings-card) { grid-column: 1 / -1; }
 .settings-page.settings-cards > * + .settings-section { margin-top: 0; }
 @container (max-width: 640px) { .settings-cards { grid-template-columns: minmax(0, 1fr); } }

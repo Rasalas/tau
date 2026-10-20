@@ -137,8 +137,11 @@ describe("the composer's slim footer", () => {
     const row = screen.getByLabelText("Select model: GPT-5.6 Luna").closest(".composer-toolbar") as HTMLElement;
     const labels = [...row.querySelectorAll("button")].map((button) => button.getAttribute("aria-label") ?? button.textContent);
     expect(labels).toEqual(["Machine", "Select model: GPT-5.6 Luna", "Thinking: Medium", "Status", "More composer controls", "Context 20 percent used", "Attach files", "Queue or plan", "Send"]);
-    // The ring keeps its percentage in the accessible label and the details.
-    expect(screen.getByLabelText("Context 20 percent used").textContent).toBe("");
+    // The ring shows its percentage beside it, readable without hovering; the accessible name says it in words.
+    const context = screen.getByLabelText("Context 20 percent used");
+    expect(context.textContent).toBe("20%");
+    // A short footer drops the number with the lead controls and keeps the ring.
+    expect(context.querySelector("[data-composer-lead-label]")?.textContent).toBe("20%");
     fireEvent.click(screen.getByLabelText("More composer controls"));
     const menu = screen.getByRole("dialog", { name: "More composer controls" });
     expect(within(menu).queryByRole("button", { name: /Attach files/u })).toBeNull();

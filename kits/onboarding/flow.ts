@@ -44,6 +44,8 @@ export interface FlowState {
   sessions?: readonly string[];
   /** Folders this run added to Tau. */
   added: readonly string[];
+  /** Conversations this run imported; none means the step was passed over. */
+  imported?: number;
   /** Folders still to open; opening one may reload the page, so the rest wait here. */
   pending?: readonly string[];
   busy?: "projects" | "import";
@@ -241,8 +243,8 @@ export class WelcomeFlow {
   private set(patch: Partial<FlowState>): void {
     this.state = { ...this.state, ...patch };
     if (this.started) {
-      const { step, added, pending, projects, sessions } = this.state;
-      this.storage()?.set(FLOW_STORAGE_KEY, JSON.stringify({ step, added, pending, projects, sessions }));
+      const { step, added, imported, pending, projects, sessions } = this.state;
+      this.storage()?.set(FLOW_STORAGE_KEY, JSON.stringify({ step, added, imported, pending, projects, sessions }));
     }
     for (const listener of this.listeners) listener();
   }
@@ -260,7 +262,7 @@ export class WelcomeFlow {
     const pending = paths(saved.pending);
     // The last folder's switch reloaded the page: adding is done.
     const step = pending?.length === 0 ? 2 : saved.step === 1 || saved.step === 2 || saved.step === 3 ? saved.step : 0;
-    this.state = { step, agents: {}, added: paths(saved.added) ?? [], ...(pending?.length ? { pending } : {}), ...(paths(saved.projects) ? { projects: paths(saved.projects) } : {}), ...(paths(saved.sessions) ? { sessions: paths(saved.sessions) } : {}) };
+    this.state = { step, agents: {}, added: paths(saved.added) ?? [], ...(typeof saved.imported === "number" && saved.imported > 0 ? { imported: saved.imported } : {}), ...(pending?.length ? { pending } : {}), ...(paths(saved.projects) ? { projects: paths(saved.projects) } : {}), ...(paths(saved.sessions) ? { sessions: paths(saved.sessions) } : {}) };
   }
 
   /** Asks everything once per opening; `restart` begins at the first step again. */
@@ -390,7 +392,7 @@ export class WelcomeFlow {
       }
       this.progressBase += paths.length;
     }
-    this.set({ busy: undefined, progress: undefined, sessions: undefined, ...(total.failed ? { error: importSummary(total) } : {}) });
+    this.set({ busy: undefined, progress: undefined, sessions: undefined, imported: (this.state.imported ?? 0) + total.imported, ...(total.failed ? { error: importSummary(total) } : {}) });
     // What is in Tau now, without emptying the list while it is asked.
     void this.host.invoke("discover").then((discovery) => this.set({ discovery: discovery as Discovery }), () => undefined);
     return total;

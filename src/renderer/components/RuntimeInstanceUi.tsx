@@ -401,9 +401,9 @@ export function RuntimeCommandRow({ id, program, commandName, variable, kind, kn
       id={id}
       title="Executable"
       description={fromEnv ? `Set by ${override ?? "a variable"} in Tau's environment.`
-        : description ?? `A name on the PATH or an absolute path. Empty looks for ${name ?? program} on the PATH.`}
+        : description ?? `A name on the PATH or an absolute path. Empty looks for ${name ?? program} on your login shell's PATH.`}
       disabledReason={fromEnv ? `${override ?? "A variable"} in Tau's environment names it; change it there.` : !known ? `Waiting for the machine to report ${program}.` : undefined}
-      control={<TextField label={`${program} executable`} mono width="lg" value={fromEnv ? command ?? "" : saved} placeholder={placeholder ?? (name ? `${name}, from your login shell's PATH` : "A name or an absolute path")} onCommit={(text) => void onSave(text.trim())} />}
+      control={<TextField label={`${program} executable`} mono width="lg" value={fromEnv ? command ?? "" : saved} placeholder={placeholder ?? name ?? "A name or an absolute path"} onCommit={(text) => void onSave(text.trim())} />}
     />
   );
 }

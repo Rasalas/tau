@@ -1130,7 +1130,7 @@ branch and the cost moved to Workspace Kit's project card and the model is the
 composer's, so `thread-details` and `thread-branch` show on the start screen,
 a tablet's head and a phone's bar only.
 `draft-actions` (K98, for API 1.28.0) is the row of pills after a new
-thread's "What should <project> do next?" and its sentence: core's project
+thread's "In <project>, what should we do next?" and its sentence: core's project
 pill leads it (a click opens the project picker at the pill and moves the
 draft; a second click on the pill closes it), then the kits' pills, each a `button.draft-pill` that opens its own
 popover, or a sheet on a phone or tablet. Machine and branch are no longer
@@ -2640,10 +2640,11 @@ older core draws it in the row. From API 1.61.0, a `lead` control whose root ele
 room, before anything else folds, the row sets `data-lead-icons` on itself and
 the control's own CSS hides its label.
 `placement: "status"` (API 1.68.0) puts a control after the thinking level,
-before the "…" menu: something worth seeing that the row can do without, such
-as Access Kit's level. When the row is short of room, it is the first thing to
-go: at the step where `lead` controls shrink, the row drops its status controls
-altogether, so offer their choice somewhere else too (Access Kit's `menu`
+before the "…" menu: something worth seeing at any width, such as Access Kit's
+level. When the row is short of room, it shrinks first: at the step where
+`lead` controls shrink, a status `.runtime-chip` with an `svg` keeps only that
+icon, so name the chip with `aria-label`. Earlier cores drop status controls
+there instead, so offer their choice somewhere else too (Access Kit's `menu`
 control and `composer.mode`). An older core does not draw a `status` control.
 
 `tau/host-extension` re-exports every host seam type, every type of the host

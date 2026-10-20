@@ -128,6 +128,7 @@ export function describeHostUpdate(status: HostUpdateStatus): string {
     case "waiting": return status.reason ?? `Tau ${status.latest} installs when ${status.runningTurns === 1 ? "the running turn ends" : `${status.runningTurns ?? "the"} running turns end`}.`;
     case "installing": return `Installing Tau ${status.latest}…`;
     case "installed": return status.reason ?? `Tau ${status.latest} is installed.`;
-    case "failed": return `The update failed: ${status.reason ?? "unknown error"}`;
+    // Each reason already names the step that failed ("The update check failed: …").
+    case "failed": return status.reason ?? "The update failed.";
   }
 }

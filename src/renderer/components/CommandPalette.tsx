@@ -1,7 +1,7 @@
-import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight, Search, SquareChevronRight } from "lucide-react";
 import type { ExtensionRegistry, PaletteItem, PaletteMenu, PaletteSearchContext, WorkbenchActions } from "../extension-system";
-import { menuRows, PALETTE_SCOPES, PALETTE_SOURCE_LIMIT, paletteRows, paletteScope, readOnlyCommands, readOnlySources, rowEntry, stepRow, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
+import { menuRows, PALETTE_SCOPES, PALETTE_SOURCE_LIMIT, paletteRows, paletteScope, readOnlyCommands, readOnlySources, rowEntry, stepRow, withoutIdleStop, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
 import { searchSettings, settingsSearchEntries } from "../settings/settings-search";
 import { settingsTarget } from "../settings/settings-nav";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
@@ -18,6 +18,7 @@ const SETTINGS_LIMIT = 5;
 /** Rows a source may put in a tab of its own. */
 const SCOPED_LIMIT = 60;
 const NO_RESULTS: PaletteSourceResult[] = [];
+const NO_ACTIVITY = () => () => undefined;
 /** The breadcrumb names this many levels at most; the ones between collapse to "…". */
 const CRUMBS = 3;
 
@@ -77,6 +78,12 @@ export function CommandPalette({
   const listId = useId();
   const threads = useContext(ThreadStoreContext);
   const { readOnly } = useHostCapabilities();
+  // The thread on screen has a run to stop: it streams, or waits for an answer.
+  const running = useSyncExternalStore(threads?.subscribeToActivity ?? NO_ACTIVITY, () => {
+    if (!threads) return false;
+    const activity = threads.getActivity();
+    return activity.isStreaming || activity.waitingThreadIds.includes(activity.activeThreadId);
+  });
   // The workbench hands a new actions object on some renders; that is no reason to search again.
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -168,10 +175,11 @@ export function CommandPalette({
   const rows = useMemo(() => {
     if (level) return menuRows(levelAnswer?.items ?? [], needle, level.menu.searches);
     const wide = scope === "all" || scope === "commands";
-    const shown = !wide ? [] : readOnly ? readOnlyCommands(commands) : commands;
+    const offered = withoutIdleStop(commands, running);
+    const shown = !wide ? [] : readOnly ? readOnlyCommands(offered) : offered;
     const settings = registry && needle && wide ? settingsItems(registry, needle) : [];
     return paletteRows(shown, needle, readOnly ? readOnlySources(results) : results, scope === "all" ? PALETTE_SOURCE_LIMIT : SCOPED_LIMIT, settings);
-  }, [commands, level, levelAnswer, needle, readOnly, registry, results, scope]);
+  }, [commands, level, levelAnswer, needle, readOnly, registry, results, running, scope]);
   // Rows are windowed, so each option says where it stands; a heading names the group its options follow.
   const layout = useMemo(() => {
     let count = 0;

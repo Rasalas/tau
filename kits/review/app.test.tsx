@@ -185,12 +185,12 @@ describe("Review Kit in the workbench", () => {
 
     const hint = await waitFor(() => {
       const found = document.querySelector(".review-commit .review-commit-note");
-      expect(found?.textContent?.trim()).toBe("Could not write a message from the diff: openai is not set up.");
+      expect(found?.textContent?.trim()).toBe("Could not write a message from the diff: Tau has no openai key of its own. Pick a \"Model that writes commit messages\" in Settings.");
       return found;
     });
     expect(hint).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Commit message" })).toHaveProperty("value", "Update a");
-    expect(screen.getAllByText(/openai is not set up/u)).toHaveLength(1);
+    expect(screen.getAllByText(/no openai key of its own/u)).toHaveLength(1);
   });
 
   it("comments on a line and hands the comment to the composer as a chip", async () => {
@@ -225,11 +225,11 @@ describe("Review Kit in the workbench", () => {
     await openStageReview();
     const bar = await screen.findByRole("region", { name: "Commit" });
     await waitFor(() => expect((within(bar).getByRole("textbox", { name: "Commit message" }) as HTMLTextAreaElement).value).toBe("fix(review): restore commit flow"));
-    expect(within(bar).getByRole("button", { name: "Commit & push" }).getAttribute("title")).toBe("Commits all 1 changed file on feat/review, then pushes feat/review.");
+    expect(within(bar).getByRole("button", { name: "Commit all & push" }).getAttribute("title")).toBe("Commits all 1 changed file on feat/review, then pushes feat/review.");
 
     // Local commit sits behind the arrow; the lead action is the push.
     fireEvent.click(within(bar).getByRole("button", { name: "More ways to commit" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /^Commit\b(?! &)/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Commit all(?! &)/u }));
 
     await waitFor(() => expect(commit).toHaveBeenCalledWith("fix(review): restore commit flow", false, "/project"));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Back to thread" })).toBeNull());

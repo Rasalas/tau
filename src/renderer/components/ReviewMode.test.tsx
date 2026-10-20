@@ -192,13 +192,14 @@ describe("ReviewMode", () => {
     const bar = screen.getByRole("region", { name: "Commit" });
     expect(screen.getByText("Bar is on screen")).toBeTruthy();
     expect(within(bar).getAllByRole("button", { name: /^Commit/u })).toHaveLength(1);
-    expect(within(bar).getByRole("button", { name: "Commit & push" }).getAttribute("title")).toBe("Commits all 1 changed file on feat/review, then pushes feat/review.");
+    // Nothing is staged: the button says it takes every changed file.
+    expect(within(bar).getByRole("button", { name: "Commit all & push" }).getAttribute("title")).toBe("Commits all 1 changed file on feat/review, then pushes feat/review.");
 
-    fireEvent.click(within(bar).getByRole("button", { name: "Commit & push" }));
+    fireEvent.click(within(bar).getByRole("button", { name: "Commit all & push" }));
     expect(onCommit).toHaveBeenLastCalledWith("Update a", true);
 
     fireEvent.click(within(bar).getByRole("button", { name: "More ways to commit" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: /^Commit\b(?! &)/u }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^Commit all(?! &)/u }));
     expect(onCommit).toHaveBeenLastCalledWith("Update a", false);
 
     // Folding the sidebar hides the commit controls; reopening it preserves the offered actions.
@@ -219,7 +220,7 @@ describe("ReviewMode", () => {
     expect(screen.queryByRole("button", { name: "More ways to commit" })).toBeNull();
     const field = screen.getByRole("textbox", { name: "Commit message" });
     fireEvent.change(field, { target: { value: "" } });
-    const commit = screen.getByRole("button", { name: "Commit" }) as HTMLButtonElement;
+    const commit = screen.getByRole("button", { name: "Commit all" }) as HTMLButtonElement;
     expect(commit.disabled).toBe(true);
     // The button says why it waits; the chord, which has no button to hover, says it in the bar.
     expect(commit.dataset.tooltip).toBe("Write a commit message first.");
