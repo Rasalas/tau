@@ -1,4 +1,5 @@
 import "./workspace-area.css";
+import { errorMessage } from "../workbench/error-message";
 import { PromptLinkHandler } from "./PromptLinkHandler";
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -230,6 +231,7 @@ export interface WorkbenchThread {
   pendingNewThread: boolean;
   /** The runtime the draft on screen is bound to, when not the preference for new threads. */
   draftRuntime?: string | undefined;
+  projectless?: boolean;
   showStartScreen: boolean;
   startProjectPath: string;
   startProjectName: string;
@@ -343,17 +345,10 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
   const transcriptReady = startupReady || !markdownNeeded || markdownReady;
   const contentCurrent = thread.freshness === undefined || thread.freshness === "current";
   const {
-    snapshot, conversationSnapshot, pendingNewThread, draftRuntime, showStartScreen, startProjectPath, startProjectName,
+    snapshot, conversationSnapshot, pendingNewThread, draftRuntime, projectless, showStartScreen, startProjectPath, startProjectName,
     dropController, activeDraftKey, titleCommands, openThreadTree, duplicateThread, settleActiveThread,
     renameThread, copyThreadValue, threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   } = thread;
-  const startThreadId = pendingNewThread ? "" : conversationSnapshot?.sessionId ?? "";
-  const projectlessThread = useSyncExternalStore(
-    useCallback((listener: () => void) => threadStore.subscribeToThread(startThreadId, listener), [startThreadId, threadStore]),
-    useCallback(() => threadStore.getThread(startThreadId)?.projectless === true, [startThreadId, threadStore]),
-  );
-  const projectlessDraft = useSyncExternalStore(threadStore.subscribeToDrafts, () => threadStore.getDrafts().some((draft) => draft.active && draft.projectless === true));
-  const projectless = projectlessDraft || projectlessThread;
   const clientStorage = useClientStorage();
   const preferences = usePreferences();
   const hostCapabilities = useHostCapabilities();
@@ -623,6 +618,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 
   const pageSidebarFrame = (content: React.ReactNode) => <aside className="page-sidebar-frame">{content}</aside>;
   const settingsFrame = (content: React.ReactNode) => <div className="settings-screen loading">{content}</div>;
+  const chooseNewThreadProject = (project: UiProject) => { closeNewThreadPicker(); createThreadInProject(project, newThreadPick?.carry ? { carry: true } : undefined); };
+  const createThreadWorkspace = registry.getProjectSources().find((source) => source.createThreadWorkspace)?.createThreadWorkspace;
   const overlays = <>
     {snapshot ? <PromptLinkHandler actions={actions} threads={threadStore} snapshot={snapshot} scope={activeDraftKey} /> : null}
     {compact && startupReady ? <Suspense fallback={null}><LazyTouchLayer
@@ -672,18 +669,13 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         sheet={compact}
         anchor={newThreadPick?.anchor}
         {...(newThreadPick?.carry ? { heading: "Project" } : {})}
-        onNoProject={registry.getProjectSources().find((source) => source.createThreadWorkspace) ? () => {
-          const create = registry.getProjectSources().find((source) => source.createThreadWorkspace)?.createThreadWorkspace;
-          if (!create) return;
-          void create().then((project) => {
-            closeNewThreadPicker();
-            createThreadInProject(project, newThreadPick?.carry ? { carry: true } : undefined);
-          }).catch((error: unknown) => actions.notify(error instanceof Error ? error.message : String(error), "error"));
+        onNoProject={createThreadWorkspace ? () => {
+          void createThreadWorkspace().then(chooseNewThreadProject).catch((error: unknown) => actions.notify(errorMessage(error), "error"));
         } : undefined}
         onBrowse={() => actions.openProjectSources()}
         onClose={closeNewThreadPicker}
         onRemove={removeProject}
-        onSelect={(project) => { closeNewThreadPicker(); createThreadInProject(project, newThreadPick?.carry ? { carry: true } : undefined); }}
+        onSelect={chooseNewThreadProject}
       />
     </Suspense>
     {openPage && pageScreen ? appPage : null}
@@ -1210,6 +1202,7 @@ const ConversationComposer = memo(function ConversationComposer({ view, composer
   conversationSnapshot?: HostSnapshot;
   pendingNewThread: boolean;
   draftRuntime?: string | undefined;
+  projectless?: boolean;
   activeDraftKey?: string;
   onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   actions?: WorkbenchActions;

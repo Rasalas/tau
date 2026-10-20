@@ -1,3 +1,4 @@
+import { homeRelative } from "./folder-finder.js";
 import { findProjectForSession, type ClientStorage, type UiProject, type UiSession } from "tau";
 
 /** Undefined shows every project; an empty list deliberately shows none. Strings are the old name-based API. */
@@ -8,6 +9,7 @@ export interface RailProjectState { filter?: RailProjectFilter; groups: readonly
 export const NO_PROJECT = "@no-project";
 export const PROJECT_FILTER_KEY = "host:tau.workspace.project-filter.v1";
 export const projectId = (project: UiProject): string => project.workspaceId ?? project.path;
+export const projectById = (id: string, projects: readonly UiProject[]): UiProject | undefined => projects.find((project) => projectId(project) === id || project.path === id);
 export const sameProjects = (left: readonly string[], right: readonly string[]): boolean => left.length === right.length && left.every((id) => right.includes(id));
 
 export function selectedProjects(filter: RailProjectFilter, projects: readonly UiProject[]): readonly string[] | undefined {
@@ -43,7 +45,7 @@ export function projectFilterLabel(filter: RailProjectFilter, groups: readonly S
 }
 
 export function projectName(id: string, projects: readonly UiProject[]): string {
-  return id === NO_PROJECT ? "No project" : projects.find((project) => projectId(project) === id || project.path === id)?.name ?? "Unavailable project";
+  return id === NO_PROJECT ? "No project" : projectById(id, projects)?.name ?? "Unavailable project";
 }
 
 function readIds(value: unknown): string[] | undefined {
@@ -69,4 +71,28 @@ export function readProjectFilter(storage: ClientStorage | undefined): RailProje
 
 export function writeProjectFilter(storage: ClientStorage | undefined, state: RailProjectState): void {
   storage?.set(PROJECT_FILTER_KEY, JSON.stringify(state));
+}
+
+function fuzzyMatch(value: string, query: string): boolean {
+  let at = 0;
+  const haystack = value.toLocaleLowerCase();
+  for (const character of query.toLocaleLowerCase()) {
+    at = haystack.indexOf(character, at);
+    if (at < 0) return false;
+    at += 1;
+  }
+  return true;
+}
+
+/** Name hits first, then letters of the name in order, then the path; a fuzzy path would match every sibling repo. */
+export function rankProjects(projects: readonly UiProject[], query: string): UiProject[] {
+  const needle = query.toLocaleLowerCase();
+  const tier = (project: UiProject) => {
+    const name = project.name.toLocaleLowerCase();
+    if (name.includes(needle)) return 0;
+    if (fuzzyMatch(name, needle)) return 1;
+    return homeRelative(project.displayPath ?? project.path).toLocaleLowerCase().includes(needle) ? 2 : 3;
+  };
+  return projects.map((project) => ({ project, rank: tier(project) })).filter((entry) => entry.rank < 3)
+    .sort((left, right) => left.rank - right.rank).map((entry) => entry.project);
 }

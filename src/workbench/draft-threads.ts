@@ -172,7 +172,7 @@ export class DraftThreads {
     return {
       draftId: draft.draftId,
       projectName: draft.projectName,
-      ...(draft.projectless ? { projectless: true } : {}),
+      projectless: draft.projectless,
       projectPath: draft.projectPath,
       ...(draft.workspaceId ? { workspaceId: draft.workspaceId } : {}),
       preview,

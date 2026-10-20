@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
-import { PreferencesStore } from "../../src/renderer/preferences.js";
+import { createMemoryStorage, PreferencesStore, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
 import type { WorkbenchActions } from "tau";
 import { createWorkspaceHostClient } from "./protocol.js";
 import { WorkspaceStore } from "./store.js";

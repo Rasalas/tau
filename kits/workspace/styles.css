@@ -1096,8 +1096,12 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
 .rail-project-management button { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 9px; }
 .rail-project-management button:first-child { flex: 1; }
 .project-filter > small { opacity: .65; font-size: 11px; }
-.rail-new-thread-menu { padding: 5px !important; }
-.rail-new-thread-menu .rail-project-pick:disabled { cursor: default; opacity: .45; }
-.rail-project-results > p, .rail-new-thread-menu > p { margin: 10px; color: var(--muted); font-size: 12px; }
+.rail-project-pick:disabled { cursor: default; opacity: .45; }
+.rail-project-results > p { margin: 10px; color: var(--muted); font-size: 12px; }
 @media (hover: none) { .rail-project-settings { opacity: 1; } }
 @media (pointer: coarse) { .rail-project-settings { width: 32px; } }
+
+.rail-project-name strong { font-weight: inherit; }
+.rail-project-menu .project-switcher-results :is(.rail-project-pick, .rail-project-entry) { height: 45px; }
+.rail-project-menu .project-switcher-results .rail-project-name { display: flex; flex-direction: column; align-items: stretch; min-width: 0; }
+.rail-project-menu .project-switcher-results .rail-project-name small { display: flex; color: var(--muted); }

@@ -171,7 +171,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
         path: snapshot.cwd,
         ...(snapshot.workspaceId ? { workspaceId: snapshot.workspaceId } : {}),
         name: projectless ? "No project" : displayPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? displayPath,
-        ...(projectless ? { projectless: true } : {}),
+        projectless,
         lastOpenedAt: Date.now(),
       });
     }

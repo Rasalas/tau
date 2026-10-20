@@ -1,3 +1,4 @@
+import { useThreadEntry } from "./use-thread-shell";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AppUpdatePhase, HostEvent, UiMessage } from "../shared/contracts";
 import type { UiEditor, UiWorkspaceChanges } from "../shared/workspace-kit-types";
@@ -150,14 +151,9 @@ export default function App() {
 
   const hostSnapshot = useSyncExternalStore(viewStore.subscribeToSnapshot, viewStore.getSnapshot);
   const shownThreadId = hostSnapshot?.sessionId ?? "";
-  const savedMessages = useSyncExternalStore(
-    useCallback((listener: () => void) => threadStore.subscribeToThread(shownThreadId, listener), [shownThreadId, threadStore]),
-    useCallback(() => (threadStore.getThread(shownThreadId)?.messageCount ?? 0) > 0, [shownThreadId, threadStore]),
-  );
-  const threadProjectName = useSyncExternalStore(
-    useCallback((listener: () => void) => threadStore.subscribeToThread(shownThreadId, listener), [shownThreadId, threadStore]),
-    useCallback(() => threadStore.getThread(shownThreadId)?.projectName, [shownThreadId, threadStore]),
-  );
+  const shownThread = useThreadEntry(threadStore, shownThreadId);
+  const savedMessages = (shownThread?.messageCount ?? 0) > 0;
+  const threadProjectName = shownThread?.projectName;
   // Tool runs render in the transcript, which subscribes itself; here only
   // whether there are any, which a stream of output never changes.
   const turnHasActivity = useSyncExternalStore(viewStore.subscribeToTools, () => hasActivityTools(viewStore));
@@ -618,7 +614,7 @@ export default function App() {
 
   const thread = useMemo<WorkbenchThread>(() => ({
     freshness,
-    snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread), draftRuntime: pendingNewThread?.runtime,
+    snapshot: liveSnapshot, conversationSnapshot, pendingNewThread: Boolean(pendingNewThread), draftRuntime: pendingNewThread?.runtime, projectless: pendingNewThread ? pendingNewThread.projectless : shownThread?.projectless,
     showStartScreen, startProjectPath, startProjectName, dropController: threadDropController,
     transcriptHistory, transcriptRef, loadTranscriptPage: threadCommands.loadTranscriptPage, applyTranscriptPage, transcriptScopeKey,
     transcriptScope, transcriptTurnStart, visibleTranscriptTurnStart, lastMessageId: conversation.lastMessageId,
@@ -627,7 +623,7 @@ export default function App() {
     titleCommands, openThreadTree, duplicateThread, settleActiveThread, renameThread: threadCommands.renameThread, copyThreadValue: threadCommands.copyThreadValue,
     threadTreeModal, closeThreadTree, navigateThreadTree, forkFromTree,
   }), [
-    freshness, activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
+    freshness, shownThread?.projectless, activeDraftKey, applyTranscriptPage, closeThreadTree, conversation.lastMessageId, conversationSnapshot,
     threadCommands, copyMessage, duplicateThread, editFromMessage, forkFromTree, liveSnapshot, navigateThreadTree,
     openThreadTree, pendingNewThread, runStartedAt, settleActiveThread, showStartScreen, startProjectName,
     startProjectPath, threadDropController, threadTreeModal, titleCommands,
