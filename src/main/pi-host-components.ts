@@ -371,6 +371,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       && record.runtime.adapterPending === 0
       && !record.runtime.adapterStreaming
       && turnObservers.pending(record.threadId) === 0
+      // A prompt still preparing leaves Pi idle, but its turn is already open.
+      && !turnObservers.hasOpenTurn(record.threadId)
       // Releasing the runtime would end its background shells and monitors.
       && !backgrounds.forThread(record.threadId)?.current().length
       // An external runtime owns its transcript in the app-data store rather

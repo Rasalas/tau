@@ -1,6 +1,7 @@
 import type { DeviceAccess } from "./connections.js";
 import { decodeHostServerFrame, type HostClientFrame } from "./host-transport.js";
 import {
+  PAIRING_REQUEST_LIFETIME_MS,
   pairingCommitment,
   pairingVerificationCode,
   randomPairingNonce,
@@ -54,7 +55,13 @@ export interface PairWithHostOptions {
   onWaiting?(waiting: { verification: string; expiresAt: string }): void;
   createSocket?(url: string): PairingSocket;
   signal?: AbortSignal;
+  /** How long the machine may take to open the socket and to answer each step; the owner's decision gets the request's lifetime. */
+  replyTimeoutMs?: number;
 }
+
+const REPLY_TIMEOUT_MS = 10_000;
+/** The machine answers `expired` itself once the request's lifetime is over; this only ends a link that went silent. */
+const DECISION_TIMEOUT_MS = PAIRING_REQUEST_LIFETIME_MS + 30_000;
 
 /**
  * Asks a host to let this device in and waits for its owner's answer (ADR
@@ -69,15 +76,27 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
     let settled = false;
     let nonce: string | undefined;
     let ownCode: string | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cancelled = () => finish({ state: "failed", message: "Pairing was cancelled." });
     const finish = (result: PairingResult) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", cancelled);
       socket.close();
       resolve(result);
     };
-    options.signal?.addEventListener("abort", () => finish({ state: "failed", message: "Pairing was cancelled." }));
+    const deadline = (ms: number, result: PairingResult) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => finish(result), ms);
+    };
+    const replyDeadline = () => deadline(options.replyTimeoutMs ?? REPLY_TIMEOUT_MS, { state: "failed", message: "The machine did not answer in time." });
+    if (options.signal?.aborted) { cancelled(); return; }
+    options.signal?.addEventListener("abort", cancelled);
+    replyDeadline();
 
     socket.addEventListener("open", () => {
+      replyDeadline();
       void (async () => {
         const bound = options.fingerprint !== undefined || options.publicKey !== undefined;
         if (bound) nonce = randomPairingNonce();
@@ -104,6 +123,8 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
             deviceNonce: nonce,
             hostNonce: reply.hostNonce,
           });
+          if (settled) return;
+          replyDeadline();
           send({ type: "pair-reveal", id, nonce });
           return;
         }
@@ -113,6 +134,7 @@ export function pairWithHost(options: PairWithHostOptions): Promise<PairingResul
             finish({ state: "failed", message: "The codes do not match, so something between this device and the machine may not be the machine. Do not allow the request." });
             return;
           }
+          deadline(DECISION_TIMEOUT_MS, { state: "expired" });
           options.onWaiting?.({ verification: ownCode ?? reply.verification, expiresAt: reply.expiresAt });
           return;
         default:

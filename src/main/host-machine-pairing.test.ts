@@ -106,7 +106,7 @@ describe("machines-pair", () => {
   it("pairs the agents alone on this host when no window runs, as “<name> · Agents”", async () => {
     const machines = await openMachines();
     const pair = vi.fn(async (options: PairEnvironmentOptions): Promise<PairEnvironmentResult> => {
-      expect(options).toEqual({ text: LINK, deviceName: "mini · Agents" });
+      expect(options).toEqual({ text: LINK, deviceName: "mini · Agents", signal: expect.any(AbortSignal) });
       return { state: "approved", environment: rex("agents-token") };
     });
     const methods = table({ machines: () => machines, window: () => undefined, pair });

@@ -130,6 +130,15 @@ describe("RuntimePrewarm", () => {
     expect(await prewarm.takeSpare("/repo")).toBe(returned);
   });
 
+  it("disposes the spare another project built while a candidate was out", async () => {
+    const { prewarm, disposed } = makePrewarm();
+    const other = await prewarm.awaitSpare("/other");
+    const returned = fakeThread();
+    prewarm.retainSpare(returned);
+    await vi.waitFor(() => { expect(disposed).toEqual([other]); });
+    expect(await prewarm.takeSpare("/repo")).toBe(returned);
+  });
+
   it("builds a spare on demand and keeps it", async () => {
     const { prewarm, port } = makePrewarm({ automatic: false });
     expect(await prewarm.awaitSpare("/repo")).toBeTruthy();

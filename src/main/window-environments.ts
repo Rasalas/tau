@@ -1,7 +1,7 @@
 import type { TauConfig } from "../shared/contracts.js";
 import { lookup } from "node:dns/promises";
 import { dirname, join } from "node:path";
-import { bootstrapSshHost, ManagedSshTunnel, freeLocalPort } from "./managed-ssh.js";
+import { bootstrapSshHost, ManagedSshTunnel, freeLocalPort, type SshRoute } from "./managed-ssh.js";
 import { ConnectClientBridge } from "./connect-tunnel.js";
 import { decodeConnectOffer, type ManagedRoute } from "../shared/managed-connections.js";
 import { parsePairingPayload, pairingUrl } from "../shared/connections.js";
@@ -93,6 +93,7 @@ export interface WindowEnvironmentsOptions {
   resolve?(hostname: string): Promise<string | undefined>;
   /** Test seams. */
   monitor?(options: EnvironmentMonitorOptions): EnvironmentMonitor;
+  sshTunnel?(route: SshRoute, hostId: string): ManagedSshTunnel;
   pair?(options: PairEnvironmentOptions): ReturnType<typeof pairEnvironment>;
   now?(): number;
 }
@@ -116,6 +117,10 @@ interface Watched {
  */
 export class WindowEnvironments {
   private readonly routes = new Map<string, { close(): void }>();
+  /** The SSH forwards among `routes`: a machine reached through one is only greeted while it is up. */
+  private readonly tunnels = new Map<string, ManagedSshTunnel>();
+  /** What a route did on its own that the machine's status says, such as a port it moved from. */
+  private readonly notices = new Map<string, string>();
   private catalog: EnvironmentCatalog | undefined;
   private readonly watched = new Map<string, Watched>();
   private localConnection: { url: string; token: string } | undefined;
@@ -285,7 +290,11 @@ export class WindowEnvironments {
       if (abort.signal.aborted) return { state: "cancelled" };
       const result = await this.pairDirect({ ...input, ssh: undefined, wsl: undefined, text: link, nearby: undefined }, managed);
       if (result.state === "added") {
-        if (transport) { this.routes.get(result.environment.id)?.close(); this.routes.set(result.environment.id, transport); transport = undefined; }
+        if (transport) {
+          this.routes.get(result.environment.id)?.close(); this.routes.set(result.environment.id, transport);
+          if (transport instanceof ManagedSshTunnel) this.followTunnel(result.environment.id, transport);
+          transport = undefined;
+        }
         await finish?.();
       }
       return result;
@@ -295,7 +304,9 @@ export class WindowEnvironments {
 
   private async resumeRoute(saved: SavedEnvironment): Promise<void> {
     if (saved.managed?.ssh) {
-      const tunnel = new ManagedSshTunnel(saved.managed.ssh); this.routes.set(saved.id, tunnel);
+      const tunnel = (this.options.sshTunnel ?? ((route, hostId) => new ManagedSshTunnel(route, undefined, hostId)))(saved.managed.ssh, saved.id);
+      this.routes.set(saved.id, tunnel);
+      this.followTunnel(saved.id, tunnel);
       await tunnel.start();
     } else if (saved.managed?.connect) {
       const bridge = new ConnectClientBridge(saved.managed.connect); this.routes.set(saved.id, bridge);
@@ -305,6 +316,42 @@ export class WindowEnvironments {
       if (this.closed) return;
       await this.catalog?.update(saved.id, { endpoints: [{ url }], lastUrl: url });
     }
+  }
+
+  /**
+   * Ties a machine's monitor to its SSH forward: greeted only while the
+   * forward is up, on the port it reports, which is saved before it is used.
+   */
+  private followTunnel(id: string, tunnel: ManagedSshTunnel): void {
+    this.tunnels.set(id, tunnel);
+    tunnel.events = {
+      onState: (state) => {
+        if (this.tunnels.get(id) !== tunnel) return;
+        if (state.status === "failed") this.options.logger.warn("environment.tunnel.failed", { id, error: state.detail });
+        const watched = this.watched.get(id);
+        if (watched && watched.state.status !== "connected") watched.monitor.retryNow();
+        this.schedulePublish();
+      },
+      onMoved: async (from, to) => {
+        const ssh = this.catalog?.get(id)?.managed?.ssh;
+        if (ssh) {
+          const url = `http://127.0.0.1:${to}/`;
+          await this.catalog!.update(id, { managed: { ssh: { ...ssh, port: to } }, endpoints: [{ url }], lastUrl: url });
+        }
+        this.notices.set(id, `Port ${from} was in use by another program, now using ${to}.`);
+        this.options.logger.info("environment.tunnel.moved", { id, from, to });
+        this.schedulePublish();
+      },
+    };
+    tunnel.events.onState?.(tunnel.state);
+  }
+
+  /** Why a machine behind an SSH forward may not be greeted yet; the access key goes only to a forward that is up. */
+  private tunnelHold(id: string): { status: "connecting" | "offline"; detail: string } | undefined {
+    if (!this.catalog?.get(id)?.managed?.ssh) return undefined;
+    const state = this.tunnels.get(id)?.state;
+    if (state?.status === "up") return undefined;
+    return state?.status === "failed" ? { status: "offline", detail: state.detail } : { status: "connecting", detail: "Opening the SSH connection…" };
   }
 
   private async pairDirect(input: EnvironmentPairInput, managed?: ManagedRoute): Promise<EnvironmentPairResult> {
@@ -422,6 +469,7 @@ export class WindowEnvironments {
     this.watched.get(id)?.monitor.close();
     this.watched.delete(id);
     this.routes.get(id)?.close(); this.routes.delete(id);
+    this.tunnels.delete(id); this.notices.delete(id);
     await this.catalog.remove(id);
     // Its agents' key goes with it; the other machine lists both devices until its owner revokes them.
     await this.options.agents?.remove(id).catch((error: unknown) => this.options.logger.warn("environment.agents.remove-failed", { id, error: error instanceof Error ? error.message : String(error) }));
@@ -432,6 +480,8 @@ export class WindowEnvironments {
   }
 
   retry(id: string): void {
+    // A forward that gave up starts over; the monitor follows once it is up.
+    this.tunnels.get(id)?.retry();
     const watched = this.watched.get(id);
     if (!watched) return;
     // A refused monitor has given up; a new one starts over with the saved key.
@@ -758,7 +808,7 @@ export class WindowEnvironments {
     for (const watched of this.watched.values()) watched.monitor.close();
     this.watched.clear();
     this.extensionInterest.clear();
-    for (const route of this.routes.values()) route.close(); this.routes.clear();
+    for (const route of this.routes.values()) route.close(); this.routes.clear(); this.tunnels.clear();
     if (this.publishTimer) clearTimeout(this.publishTimer);
   }
 
@@ -770,6 +820,7 @@ export class WindowEnvironments {
       urls: () => orderEndpoints(current().endpoints, current().lastUrl).map((endpoint) => socketUrl(endpoint.url)),
       token: saved.token,
       trust: (url) => endpointTrust(current(), url),
+      held: () => this.tunnelHold(saved.id),
       onReached: (url, reply, certificate) => {
         const entry = current();
         const page = entry.endpoints.find((endpoint) => socketUrl(endpoint.url) === url)?.url;
@@ -848,6 +899,8 @@ export class WindowEnvironments {
     const watched = this.watched.get(id);
     const state = watched?.state;
     const kept = watched?.kept;
+    const tunnel = this.tunnels.get(id)?.state;
+    const notice = tunnel?.status === "failed" ? tunnel.detail : this.notices.get(id);
     return {
       id,
       name: base.name,
@@ -860,6 +913,7 @@ export class WindowEnvironments {
       ...(state?.readOnly ?? base.readOnly ? { readOnly: true } : {}),
       ...(state?.hostVersion ? { hostVersion: state.hostVersion } : {}),
       ...(state?.update ? { update: state.update } : {}),
+      ...(notice ? { notice } : {}),
       threads: kept?.threads ?? [],
       threadCount: kept?.threadCount ?? 0,
       projects: kept?.projects ?? [],

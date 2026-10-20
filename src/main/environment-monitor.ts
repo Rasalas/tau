@@ -72,6 +72,12 @@ export interface EnvironmentMonitorOptions {
   /** What a refused token reads as; a window's wording by default. */
   unauthorizedDetail?: string;
   now?(): number;
+  /**
+   * Why no attempt may start yet, read before each one: a route of the
+   * window's own that is not up, whose port must not see the access key.
+   * Whoever holds the monitor calls `retryNow` once it may.
+   */
+  held?(): { status: "connecting" | "offline"; detail: string } | undefined;
   /** Timers, injectable so tests need not wait. */
   setTimer?(callback: () => void, ms: number): unknown;
   clearTimer?(handle: unknown): void;
@@ -193,6 +199,11 @@ export class EnvironmentMonitor {
 
   private connect(): void {
     if (this.closed || this.timers.paused) return;
+    const held = this.options.held?.();
+    if (held) {
+      this.set({ ...held, roundTripMs: undefined, running: new Set() });
+      return;
+    }
     const urls = this.options.urls();
     const url = urls[this.urlIndex % Math.max(urls.length, 1)];
     if (!url) {

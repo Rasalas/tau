@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -82,6 +82,73 @@ describe("ThreadTrash", () => {
     expect(again.list()).toMatchObject([{ sessionId: "a", title: "Kept" }]);
     await again.restore("a");
     expect(await readFile(join(sessions, "a.jsonl"), "utf8")).toBe("a\n");
+  });
+
+  it("puts the session file back when the manifest cannot be saved", async () => {
+    const { sessions, trash, dir } = await setup();
+    const path = join(sessions, "one.jsonl");
+    await mkdir(sessions, { recursive: true });
+    await writeFile(path, "one\n");
+    // An unreadable manifest refuses every later write.
+    await mkdir(join(dir, "trash.json"), { recursive: true });
+
+    await expect(trash.trash({ sessionId: "one", cwd: "/repo", title: "", backendKind: "pi", path })).rejects.toThrow();
+    expect(await readFile(path, "utf8")).toBe("one\n");
+    expect(trash.has("one")).toBe(false);
+    expect(await readdir(dir)).toEqual(["trash.json"]);
+  });
+
+  it("keeps a thread in the trash when its restore cannot be saved", async () => {
+    const { sessions, trash, dir } = await setup();
+    const path = join(sessions, "one.jsonl");
+    await mkdir(sessions, { recursive: true });
+    await writeFile(path, "one\n");
+    await trash.trash({ sessionId: "one", cwd: "/repo", title: "", backendKind: "pi", path });
+    await rm(join(dir, "trash.json"));
+    await mkdir(join(dir, "trash.json"));
+
+    await expect(trash.restore("one")).rejects.toThrow();
+    expect(trash.has("one")).toBe(true);
+    expect(await readdir(sessions)).toEqual([]);
+    expect(await readFile(join(dir, "one", "one.jsonl"), "utf8")).toBe("one\n");
+  });
+
+  it("lists a trashed thread again whose manifest entry was never saved", async () => {
+    const { sessions, trash, dir, port, deleted } = await setup();
+    const path = join(sessions, "one.jsonl");
+    await mkdir(sessions, { recursive: true });
+    await writeFile(path, "one\n");
+    await trash.trash({ sessionId: "one", cwd: "/repo", title: "Kept", backendKind: "pi", path });
+    trash.dispose();
+    // The host died after the move, before the manifest named the thread.
+    await writeFile(join(dir, "trash.json"), JSON.stringify({ version: 1, threads: [] }));
+
+    const again = new ThreadTrash(port, { dir });
+    await again.load();
+    expect(again.list()).toMatchObject([{ sessionId: "one", title: "Kept" }]);
+    expect(JSON.parse(await readFile(join(dir, "trash.json"), "utf8")).threads).toHaveLength(1);
+    await again.restore("one");
+    expect(await readFile(path, "utf8")).toBe("one\n");
+    expect(deleted).toEqual([]);
+  });
+
+  it("drops an entry whose session file is back in its place, and runs no hook for it", async () => {
+    const { sessions, trash, dir, port, deleted } = await setup();
+    const path = join(sessions, "one.jsonl");
+    await mkdir(sessions, { recursive: true });
+    await writeFile(path, "one\n");
+    await trash.trash({ sessionId: "one", cwd: "/repo", title: "", backendKind: "pi", path });
+    trash.dispose();
+    // A restore moved the file back, then the host died before saving the manifest.
+    await rename(join(dir, "one", "one.jsonl"), path);
+
+    const again = new ThreadTrash(port, { dir, now: () => Number.MAX_SAFE_INTEGER });
+    await again.purgeDue();
+    again.dispose();
+    expect(again.has("one")).toBe(false);
+    expect(deleted).toEqual([]);
+    expect(await readFile(path, "utf8")).toBe("one\n");
+    expect(await readdir(dir)).toEqual(["trash.json"]);
   });
 
   it("takes a backend's shell record and hands the same record back", async () => {

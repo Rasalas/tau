@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { ThreadBackendKind } from "../shared/contracts.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
@@ -11,6 +11,8 @@ export const DEFAULT_TRASH_RETENTION_MS = 30 * DAY_MS;
 const MAX_PURGE_WAIT_MS = 60 * 60_000;
 /** A due purge another process refused waits this long before it tries again. */
 const REFUSED_PURGE_RETRY_MS = MAX_PURGE_WAIT_MS;
+/** Each entry's folder keeps its own copy, so a folder the manifest lost is found again at the next start. */
+const ENTRY_FILE = "entry.json";
 
 /** A deleted thread the host can still put back. */
 export interface TrashedThread {
@@ -128,10 +130,47 @@ export class ThreadTrash {
         ? ((value as { threads: unknown[] }).threads).flatMap((entry) => { const decoded = decodeEntry(entry); return decoded ? [decoded] : []; })
         : undefined,
       ...(this.options.logger ? { logger: this.options.logger } : {}),
-    }).then((read) => {
+    }).then(async (read) => {
       for (const entry of read?.data ?? []) this.entries.set(entry.sessionId, entry);
+      await this.reconcile().catch((error: unknown) => this.port.log("thread.trash.reconcile-failed", error instanceof Error ? error.message : String(error)));
     }, () => undefined);
     return this.loading;
+  }
+
+  /**
+   * Squares the folders with the manifest after a failed save or a host that
+   * died midway: a folder still holding its thread comes back as an entry, a
+   * folder whose thread never arrived goes, and an entry whose session file is
+   * back in its place is dropped without running any hook.
+   */
+  private async reconcile(): Promise<void> {
+    const names = await readdir(this.options.dir).catch(() => [] as string[]);
+    const changed = await Promise.all(names.map((name) => this.reconcileFolder(join(this.options.dir, name))));
+    if (changed.some(Boolean)) await this.save();
+  }
+
+  private async reconcileFolder(folder: string): Promise<boolean> {
+    if (!(await stat(folder).catch(() => undefined))?.isDirectory()) return false;
+    const listed = [...this.entries.values()].find((entry) => this.folder(entry.sessionId) === folder);
+    if (listed) {
+      if (!listed.file || !listed.originalPath || await exists(join(folder, listed.file)) || !await exists(listed.originalPath)) return false;
+      this.entries.delete(listed.sessionId);
+      await rm(folder, { recursive: true, force: true });
+      return true;
+    }
+    const entry = (await readPersistedJson(join(folder, ENTRY_FILE), {
+      expectedVersion: VERSION,
+      decode: (value) => decodeEntry((value as { entry?: unknown } | undefined)?.entry),
+      ...(this.options.logger ? { logger: this.options.logger } : {}),
+    }).catch(() => undefined))?.data;
+    // A folder without a record of its own is left alone: nothing says what it holds.
+    if (!entry || this.folder(entry.sessionId) !== folder || this.entries.has(entry.sessionId)) return false;
+    const held = entry.file ? join(folder, entry.file) : entry.shell ? join(folder, "shell.json") : undefined;
+    if (held && await exists(held)) {
+      this.entries.set(entry.sessionId, entry);
+      this.port.log("thread.trash.recovered", entry.sessionId.slice(0, 8));
+    } else await rm(folder, { recursive: true, force: true });
+    return true;
   }
 
   has(sessionId: string): boolean {
@@ -159,25 +198,53 @@ export class ThreadTrash {
         purgeAt: deletedAt + this.retentionMs,
       };
       const folder = this.folder(thread.sessionId);
+      let undo: () => Promise<void>;
       if (thread.backendKind === "pi") {
         entry.originalPath = thread.path;
         entry.file = basename(thread.path);
-        await this.hold(thread.path, "delete", () => moveFile(thread.path, join(folder, entry.file!)));
+        const trashed = join(folder, entry.file);
+        await this.hold(thread.path, "delete", async () => {
+          try {
+            await this.writeRecord(entry);
+            await moveFile(thread.path, trashed);
+          } catch (error) {
+            await rm(folder, { recursive: true, force: true }).catch(() => undefined);
+            throw error;
+          }
+        });
+        undo = () => this.hold(thread.path, "restore", () => moveFile(trashed, thread.path));
       } else {
         const backend = this.port.backend(thread.backendKind);
-        if (!backend?.removeThread || !backend.restoreThread) throw new Error(`${backend?.label ?? thread.backendKind} threads cannot be deleted from Tau yet.`);
+        const restoreThread = backend?.restoreThread;
+        if (!backend?.removeThread || !restoreThread) throw new Error(`${backend?.label ?? thread.backendKind} threads cannot be deleted from Tau yet.`);
         const record = await backend.removeThread(thread.sessionId);
+        undo = () => restoreThread.call(backend, thread.sessionId, record);
+        entry.shell = true;
         try {
           await mkdir(folder, { recursive: true, mode: 0o700 });
           await writeFile(join(folder, "shell.json"), JSON.stringify(record ?? null), { mode: 0o600 });
+          await this.writeRecord(entry);
         } catch (error) {
-          await backend.restoreThread(thread.sessionId, record);
+          await undo();
+          await rm(folder, { recursive: true, force: true }).catch(() => undefined);
           throw error;
         }
-        entry.shell = true;
       }
       this.entries.set(entry.sessionId, entry);
-      await this.save();
+      try {
+        await this.save();
+      } catch (error) {
+        // An entry the manifest never got would leave its thread nowhere: put the thread back.
+        this.entries.delete(entry.sessionId);
+        try {
+          await undo();
+          await rm(folder, { recursive: true, force: true });
+        } catch (rollback) {
+          // The folder keeps its record, so the next start lists the thread again.
+          this.port.log("thread.trash.rollback-failed", rollback instanceof Error ? rollback.message : String(rollback));
+        }
+        throw error;
+      }
       this.arm();
       return this.list().find((candidate) => candidate.sessionId === entry.sessionId)!;
     });
@@ -190,20 +257,30 @@ export class ThreadTrash {
       const entry = this.entries.get(sessionId);
       if (!entry) throw new Error("This thread is no longer in the trash.");
       const folder = this.folder(sessionId);
+      // The manifest lets go first, so a stale entry never purges a live thread; a failed move takes the entry back.
+      const forget = async () => {
+        this.entries.delete(sessionId);
+        try { await this.save(); } catch (error) { this.entries.set(sessionId, entry); throw error; }
+      };
+      const keep = async () => {
+        this.entries.set(sessionId, entry);
+        // Unsaved, the folder's own record brings the entry back at the next start.
+        await this.save().catch((error: unknown) => this.port.log("thread.restore.rollback-failed", error instanceof Error ? error.message : String(error)));
+      };
       if (entry.file && entry.originalPath) {
         const target = entry.originalPath;
         await this.hold(target, "restore", async () => {
           if (await exists(target)) throw new Error("A session file already sits where this thread was; it was not restored.");
-          await moveFile(join(folder, entry.file!), target);
+          await forget();
+          try { await moveFile(join(folder, entry.file!), target); } catch (error) { await keep(); throw error; }
         });
       } else if (entry.shell) {
         const backend = this.port.backend(entry.backendKind);
         if (!backend?.restoreThread) throw new Error(`Turn ${entry.backendKind} on to restore this thread.`);
         const record = JSON.parse(await readFile(join(folder, "shell.json"), "utf8")) as unknown;
-        await backend.restoreThread(sessionId, record);
-      }
-      this.entries.delete(sessionId);
-      await this.save();
+        await forget();
+        try { await backend.restoreThread(sessionId, record); } catch (error) { await keep(); throw error; }
+      } else await forget();
       await rm(folder, { recursive: true, force: true });
       this.arm();
       return entry;
@@ -221,9 +298,10 @@ export class ThreadTrash {
       const entry = this.entries.get(sessionId);
       if (!entry) return;
       const purge = async () => {
+        // The folder goes first: one left behind would come back at the next start.
+        await rm(this.folder(sessionId), { recursive: true, force: true });
         this.entries.delete(sessionId);
         await this.save();
-        await rm(this.folder(sessionId), { recursive: true, force: true });
         this.port.log("thread.purged", sessionId.slice(0, 8));
         try { await this.port.threadDeleted(sessionId, entry.cwd); }
         catch (error) { this.port.log("thread.deleted.failed", error instanceof Error ? error.message : String(error)); }
@@ -289,6 +367,10 @@ export class ThreadTrash {
   private folder(sessionId: string): string {
     const safe = sessionId.replace(/[^A-Za-z0-9_-]+/gu, "-").slice(0, 120) || "thread";
     return join(this.options.dir, safe);
+  }
+
+  private writeRecord(entry: StoredEntry): Promise<void> {
+    return writePersistedJson(join(this.folder(entry.sessionId), ENTRY_FILE), VERSION, { entry }, this.options.logger ? { logger: this.options.logger } : {});
   }
 
   private save(): Promise<void> {

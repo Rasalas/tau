@@ -1,10 +1,15 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { renameReplacing } from "./atomic-rename.js";
+import { renameReplacing, writeFileReplacing, writeFileReplacingSync } from "./atomic-rename.js";
 
-const mocks = vi.hoisted(() => ({ rename: vi.fn() }));
+const mocks = vi.hoisted(() => ({ rename: vi.fn(), renameSync: vi.fn() }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  mocks.renameSync.mockImplementation(actual.renameSync);
+  return { ...actual, renameSync: mocks.renameSync };
+});
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   mocks.rename.mockImplementation(actual.rename);
@@ -15,6 +20,7 @@ const directories: string[] = [];
 afterEach(async () => {
   const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   mocks.rename.mockReset().mockImplementation(actual.rename);
+  mocks.renameSync.mockReset().mockImplementation((await vi.importActual<typeof import("node:fs")>("node:fs")).renameSync);
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -54,5 +60,26 @@ describe("renameReplacing", () => {
     mocks.rename.mockClear().mockRejectedValue(locked("EPERM"));
     await expect(renameReplacing(from, to, { platform: "linux", delaysMs: [0, 0] })).rejects.toMatchObject({ code: "EPERM" });
     expect(mocks.rename).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("writeFileReplacing", () => {
+  it("replaces the whole file and leaves no temp file", async () => {
+    const { to } = await pair();
+    await writeFileReplacing(to, "new contents\n");
+    writeFileReplacingSync(`${to}-sync`, "sync contents\n");
+    expect(await readFile(to, "utf8")).toBe("new contents\n");
+    expect(await readFile(`${to}-sync`, "utf8")).toBe("sync contents\n");
+    expect((await readdir(directories.at(-1)!)).sort()).toEqual(["from", "to", "to-sync"]);
+  });
+
+  it("keeps the old contents when the write cannot finish", async () => {
+    const { to } = await pair();
+    mocks.rename.mockRejectedValue(locked("ENOSPC"));
+    mocks.renameSync.mockImplementation(() => { throw locked("ENOSPC"); });
+    await expect(writeFileReplacing(to, "new")).rejects.toMatchObject({ code: "ENOSPC" });
+    expect(() => writeFileReplacingSync(to, "new")).toThrow("ENOSPC");
+    expect(await readFile(to, "utf8")).toBe("old");
+    expect((await readdir(directories.at(-1)!)).sort()).toEqual(["from", "to"]);
   });
 });

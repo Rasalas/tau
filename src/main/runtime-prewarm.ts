@@ -79,8 +79,9 @@ export class RuntimePrewarm {
     return await spare.pending;
   }
 
-  /** Puts an untouched candidate back; a rejected prompt must not cost the spare. */
+  /** Puts an untouched candidate back; a rejected prompt must not cost the spare. A spare built meanwhile is disposed. */
   retainSpare(thread: ThreadRuntime): void {
+    if (this.spare) void this.discardSpare().catch((error) => this.port.fail(error));
     this.spare = { cwd: thread.cwd, pending: Promise.resolve(thread), cancel: () => {
       this.port.extensionUi.cancelFor(thread.sessionId);
       void thread.backend.abort().catch((error) => this.port.log("runtime.prepared.abort", this.port.errorMessage(error)));

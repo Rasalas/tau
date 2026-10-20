@@ -91,44 +91,111 @@ async function reachable(port: number): Promise<boolean> {
   });
 }
 
-/** Owns one stable local address and reconnects SSH without changing a saved machine's endpoint. */
+/** How long a forward must hold before its drop starts the backoff over. */
+const STABLE_FORWARD_MS = 60_000;
+
+/** Failed tries in a row before the tunnel stops and waits for "Try again" (about 30 s of backoff). */
+const MAX_ATTEMPTS = 6;
+
+/** Whether the local port may carry the machine's access key: only while `up`, and only to `port`. */
+export type SshTunnelState =
+  | { status: "opening" }
+  | { status: "up"; port: number }
+  | { status: "failed"; detail: string };
+
+export interface ManagedSshTunnelEvents {
+  onState?(state: SshTunnelState): void;
+  /** The saved port was taken by another program; the forward moves to `to` once this resolves, so save it here. */
+  onMoved?(from: number, to: number): void | Promise<void>;
+}
+
+/**
+ * Owns one local address for a machine reached over SSH and reconnects it.
+ * A port another program holds is given up for a free one; a Tau whose host
+ * id is not `hostId` is never forwarded to; after `MAX_ATTEMPTS` failed tries
+ * in a row the tunnel stops until `retry`.
+ */
 export class ManagedSshTunnel {
   private child?: ChildProcessWithoutNullStreams;
   private timer?: ReturnType<typeof setTimeout>;
   private closed = false;
   private attempts = 0;
-  constructor(readonly route: SshRoute, private readonly exec: SshExecutor = sshExecutor) {}
+  private current: SshTunnelState = { status: "opening" };
+  events: ManagedSshTunnelEvents = {};
+  constructor(public route: SshRoute, private readonly exec: SshExecutor = sshExecutor, private readonly hostId?: string) {}
+  get state(): SshTunnelState { return this.current; }
   async start(signal?: AbortSignal): Promise<void> {
+    this.report({ status: "opening" });
     try { await this.startOnce(signal); }
-    catch (error) { if (signal?.aborted) this.close(); else this.reconnect(); throw error; }
+    catch (error) { if (signal?.aborted) this.close(); else this.retryLater(error); throw error; }
+  }
+  /** Starts over after the tunnel gave up, or now instead of at the next scheduled try. */
+  retry(): void {
+    if (this.closed || this.current.status === "up") return;
+    clearTimeout(this.timer); this.timer = undefined; this.attempts = 0;
+    void this.start().catch(() => undefined);
+  }
+  private report(state: SshTunnelState): void {
+    this.current = state;
+    this.events.onState?.(state);
+  }
+  /** Whatever answers before the forward exists is another program: take a free port instead, saved by the owner first. */
+  private async claimPort(): Promise<void> {
+    if (!await reachable(this.route.port)) return;
+    const from = this.route.port;
+    const to = await freeLocalPort();
+    this.route = { ...this.route, port: to };
+    await this.events.onMoved?.(from, to);
   }
   private async startOnce(signal?: AbortSignal): Promise<void> {
     if (this.closed) throw new Error("The SSH forward was closed.");
+    await this.claimPort();
     const ready = await this.exec.run(this.route.target, `${managedCli(this.route.platform)} service status >/dev/null; ${this.descriptorCommand()}`, undefined, signal);
-    const descriptor = JSON.parse(ready.trim().split("\n").at(-1)! ) as { url: string };
+    const descriptor = JSON.parse(ready.trim().split("\n").at(-1)! ) as { url: string; id?: string };
     const remote = new URL(descriptor.url);
     if (!/^(ws|wss):$/u.test(remote.protocol) || !["127.0.0.1", "localhost", "[::1]"].includes(remote.hostname)) throw new Error("The managed host must listen on loopback.");
+    if (this.hostId && descriptor.id && descriptor.id !== this.hostId) {
+      // No retry changes which Tau answers there.
+      this.attempts = MAX_ATTEMPTS;
+      throw new Error("SSH reached a Tau that is not this machine; its data may have been reset. Remove the machine and add it again.");
+    }
     if (this.closed || signal?.aborted) throw new Error("SSH setup was cancelled.");
-    this.child = this.exec.spawn(this.route.target, "cat >/dev/null", ["-L", `127.0.0.1:${this.route.port}:127.0.0.1:${remote.port}`]);
+    await this.claimPort();
+    const child = this.child = this.exec.spawn(this.route.target, "cat >/dev/null", ["-L", `127.0.0.1:${this.route.port}:127.0.0.1:${remote.port}`]);
     let problem = "";
-    this.child.stderr.on("data", (bytes: Buffer) => { problem = (problem + bytes.toString()).slice(-2_000); });
-    this.child.on("error", () => this.reconnect());
-    this.child.on("close", () => this.reconnect());
+    let openedAt: number | undefined;
+    child.stderr.on("data", (bytes: Buffer) => { problem = (problem + bytes.toString()).slice(-2_000); });
+    child.on("error", (error) => this.retryLater(error));
+    child.on("close", () => {
+      if (this.child !== child) return;
+      // Only a forward that held counts as working; one that keeps dropping backs off.
+      if (openedAt !== undefined && Date.now() - openedAt >= STABLE_FORWARD_MS) this.attempts = 0;
+      if (!this.closed) this.report({ status: "opening" });
+      this.retryLater(failure(problem));
+    });
     for (let attempt = 0; attempt < 100; attempt++) {
       if (signal?.aborted || this.closed) { this.close(); throw new Error("SSH setup was cancelled."); }
-      if (this.child.exitCode !== null) throw failure(problem);
-      if (await reachable(this.route.port)) { this.attempts = 0; return; }
+      if (child.exitCode !== null) throw failure(problem);
+      if (await reachable(this.route.port)) {
+        openedAt = Date.now();
+        this.report({ status: "up", port: this.route.port });
+        return;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    this.child.kill(); throw new Error("SSH forwarding did not open in time.");
+    child.kill(); throw new Error("SSH forwarding did not open in time.");
   }
   private descriptorCommand(): string {
     const executable = this.route.platform === "darwin" ? "Tau.app/Contents/MacOS/Tau" : "tau";
-    return `ELECTRON_RUN_AS_NODE=1 ${root}/current/${executable} -e ${shellQuote('const fs=require("fs");const limit=Date.now()+30000;function probe(){if(Date.now()>limit){console.error("Tau service did not become ready; inspect its service log");process.exit(1);}let d;try{d=JSON.parse(fs.readFileSync(process.env.HOME+"/.local/share/tau-managed/data/host.json","utf8"));}catch{setTimeout(probe,250);return;}const s=new WebSocket(d.url);let ended=false;const retry=()=>{if(ended)return;ended=true;s.close();setTimeout(probe,250);};const timer=setTimeout(retry,2000);s.onopen=()=>s.send(JSON.stringify({type:"hello",id:"probe",hello:{protocol:1,token:fs.readFileSync(d.tokenPath,"utf8").trim(),auxiliary:true}}));s.onerror=retry;s.onmessage=e=>{const f=JSON.parse(String(e.data));if(f.type==="hello-reply"&&f.reply.owner!==false){ended=true;clearTimeout(timer);console.log(JSON.stringify({url:d.url}));s.close();}};}probe();')}`;
+    return `ELECTRON_RUN_AS_NODE=1 ${root}/current/${executable} -e ${shellQuote('const fs=require("fs");const limit=Date.now()+30000;function probe(){if(Date.now()>limit){console.error("Tau service did not become ready; inspect its service log");process.exit(1);}let d;try{d=JSON.parse(fs.readFileSync(process.env.HOME+"/.local/share/tau-managed/data/host.json","utf8"));}catch{setTimeout(probe,250);return;}const s=new WebSocket(d.url);let ended=false;const retry=()=>{if(ended)return;ended=true;s.close();setTimeout(probe,250);};const timer=setTimeout(retry,2000);s.onopen=()=>s.send(JSON.stringify({type:"hello",id:"probe",hello:{protocol:1,token:fs.readFileSync(d.tokenPath,"utf8").trim(),auxiliary:true}}));s.onerror=retry;s.onmessage=e=>{const f=JSON.parse(String(e.data));if(f.type==="hello-reply"&&f.reply.owner!==false){ended=true;clearTimeout(timer);console.log(JSON.stringify({url:d.url,id:f.reply.host&&f.reply.host.id}));s.close();}};}probe();')}`;
   }
-  private reconnect(): void {
+  private retryLater(error: unknown): void {
     if (this.closed || this.timer) return;
-    this.timer = setTimeout(() => { this.timer = undefined; void this.start().catch(() => this.reconnect()); }, Math.min(30_000, 1_000 * 2 ** Math.min(this.attempts++, 5)));
+    if (this.attempts >= MAX_ATTEMPTS) {
+      if (this.current.status !== "failed") this.report({ status: "failed", detail: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    this.timer = setTimeout(() => { this.timer = undefined; void this.start().catch(() => undefined); }, Math.min(30_000, 1_000 * 2 ** Math.min(this.attempts++, 5)));
     this.timer.unref();
   }
   close(): void { this.closed = true; clearTimeout(this.timer); this.child?.kill(); }
@@ -167,12 +234,12 @@ export async function bootstrapSshHost(target: string, cacheDir: string, deviceN
           clearTimeout(timeout); signal?.removeEventListener("abort", abort);
           const payload = parsePairingPayload(value.urls?.[0]?.url ?? "");
           if (!payload) { reject(new Error("The remote host offered an invalid pairing link.")); return; }
-          const endpoint = { url: `http://127.0.0.1:${route.port}/` };
+          const endpoint = { url: `http://127.0.0.1:${tunnel.route.port}/` };
           resolve(pairingUrl(endpoint, { ...payload, endpoints: [endpoint] }));
         }
       });
     }).catch((error) => { child.kill(); throw error; });
-    return { tunnel, pairing: { link, route, async finish() {
+    return { tunnel, pairing: { link, route: tunnel.route, async finish() {
       if (child.exitCode !== null) return;
       const ended = new Promise<void>((resolve) => { const timer = setTimeout(resolve, 2_000); child.once("close", () => { clearTimeout(timer); resolve(); }); });
       child.stdin.end(`${JSON.stringify({ type: "done" })}\n`); await ended; lines.close();

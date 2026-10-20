@@ -1,3 +1,4 @@
+import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ThreadIndexSnapshot } from "../shared/contracts.js";
 import { HOST_TRANSPORT_VERSION } from "../shared/host-transport.js";
@@ -50,6 +51,25 @@ function watch(options: ConstructorParameters<typeof EnvironmentMonitor>[0]) {
 }
 
 describe("the window's connection to a machine", () => {
+  it("opens no socket while its route is held, and says hello once it is let go", async () => {
+    const { url } = await host();
+    const opened: string[] = [];
+    let held: { status: "connecting" | "offline"; detail: string } | undefined = { status: "connecting", detail: "Opening the SSH connection…" };
+    const { monitor, last } = watch({
+      urls: () => [url], token: "host-secret", onChange: () => undefined, held: () => held,
+      createSocket: (target) => { opened.push(target); return new WebSocket(target) as unknown as MonitorSocket; },
+    });
+    expect(last()).toMatchObject({ status: "connecting", detail: "Opening the SSH connection…" });
+    held = { status: "offline", detail: "SSH could not log in with a key." };
+    monitor.retryNow();
+    expect(last()).toMatchObject({ status: "offline", detail: "SSH could not log in with a key." });
+    expect(opened).toEqual([]);
+    held = undefined;
+    monitor.retryNow();
+    await expect.poll(() => last().status).toBe("connected");
+    expect(opened).toEqual([url]);
+  });
+
   it("says hello, reads the thread index and follows it, and knows which threads run", async () => {
     const { url, push } = await host();
     const reached: string[] = [];

@@ -296,3 +296,68 @@ it("keeps automatic spare preparation behind an admitted turn's held preflight",
     vi.useRealTimers();
   }
 });
+
+it("releases a new thread of another backend whose start configuration fails", async () => {
+  const bench = hostWithHeldStarts();
+  bench.internals.seam.backends.set("fake", {
+    kind: "fake", label: "Fake", adapter: PI_AGENT_RUNTIME_ADAPTER,
+    open: async (threadId: string) => Object.assign(fakeThread(threadId, bench.delivered).backend, { kind: "fake" }),
+  });
+  vi.spyOn(bench.internals.runtimes, "dispose").mockResolvedValue(undefined);
+  const result = await bench.host.newSession("hello", [], "/repo", undefined, { backendKind: "fake", sessionId: "draft" } as never, { mode: "plan" });
+  expect((result as { submission?: { accepted: boolean } }).submission?.accepted).toBe(false);
+  expect(bench.internals.threads.list().map((record: { threadId: string }) => record.threadId)).toEqual(["active"]);
+});
+
+describe("a prompt whose runtime may go while it prepares", () => {
+  function preparing() {
+    const delivered: string[] = [];
+    const history = { list: () => [], isHidden: () => false, iconFor: async () => undefined, remember: async () => undefined };
+    const host = new PiHost("/repo", () => undefined, history as never, false, false);
+    const internals = host as unknown as Record<string, any>;
+    internals.index.refreshShell = async () => {};
+    vi.spyOn(internals.runtimes, "dispose").mockResolvedValue(undefined);
+    const thread = fakeThread("background", delivered);
+    const state = thread.backend.state.bind(thread.backend);
+    thread.backend.state = () => ({ ...state(), hasMessages: true });
+    internals.threads.adopt({ threadId: "background", cwd: "/repo", runtime: thread, isolation: "in-process" });
+    let reached!: () => void;
+    let release!: (error?: Error) => void;
+    const entered = new Promise<void>((resolve) => { reached = resolve; });
+    const held = new Promise<void>((resolve, reject) => { release = (error) => { if (error) reject(error); else resolve(); }; });
+    internals.turnObservers.add({ prepare: async () => { reached(); await held; } });
+    return { host, internals, thread, delivered, entered, release };
+  }
+
+  it("keeps the runtime of a prompt that is still preparing", async () => {
+    const bench = preparing();
+    const pending = bench.host.prompt("queued work", [], "background");
+    await bench.entered;
+    expect(bench.internals.threads.idleThreadIds(0)).toEqual([]);
+    bench.release();
+    await pending;
+    expect(bench.delivered).toEqual(["background:queued work"]);
+  });
+
+  it("rejects the prompt and forgets its turn when the released runtime's preparation fails", async () => {
+    const bench = preparing();
+    const pending = bench.host.prompt("queued work", [], "background");
+    await bench.entered;
+    await bench.internals.threads.release("background");
+    bench.release(new Error("Preparation failed"));
+    await expect(pending).rejects.toThrow("Preparation failed");
+    expect(bench.internals.turnsInFlight.get("background")).toBeUndefined();
+    expect(bench.delivered).toEqual([]);
+  });
+
+  it("settles the prompt when the released runtime refuses it before admission", async () => {
+    const bench = preparing();
+    (bench.thread.backend as { prompt: unknown }).prompt = async () => { throw new Error("Runtime stopped"); };
+    const pending = bench.host.prompt("queued work", [], "background");
+    await bench.entered;
+    await bench.internals.threads.release("background");
+    bench.release();
+    await expect(pending).rejects.toThrow("Runtime stopped");
+    expect(bench.internals.turnsInFlight.get("background")).toBeUndefined();
+  });
+});
