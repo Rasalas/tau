@@ -97,7 +97,7 @@ export class EnvironmentCatalog {
     return true;
   }
 
-  async update(id: string, patch: Partial<Pick<SavedEnvironment, "name" | "lastUrl" | "readOnly" | "endpoints" | "publicKey" | "fingerprint">>): Promise<boolean> {
+  async update(id: string, patch: Partial<Pick<SavedEnvironment, "name" | "lastUrl" | "readOnly" | "endpoints" | "publicKey" | "fingerprint" | "managed">>): Promise<boolean> {
     const entry = this.get(id);
     if (!entry) return false;
     const next = { ...entry, ...patch };

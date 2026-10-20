@@ -13,6 +13,7 @@ import type { PairEnvironmentOptions, PairEnvironmentResult } from "./environmen
 import { CERTIFICATE_ACCEPT, CERTIFICATE_DEFAULT, CERTIFICATE_REJECT } from "./host-tls-trust.js";
 import { WindowEnvironments, answerEnvironmentCommand, type EnvironmentConnection, type WindowEnvironmentsOptions } from "./window-environments.js";
 import { EnvironmentCatalog } from "./environment-catalog.js";
+import type { ManagedSshTunnel, ManagedSshTunnelEvents, SshTunnelState } from "./managed-ssh.js";
 
 const directories: string[] = [];
 const opened: WindowEnvironments[] = [];
@@ -387,6 +388,54 @@ describe("the machines of a window", () => {
     expect(environments.certificateVerdict("192.168.1.77", { fingerprint: OTHER, publicKey: OTHER })).toBe(CERTIFICATE_REJECT);
     expect(environments.isSavedSocket("wss://192.168.1.77:7788/")).toBe(true);
     expect(environments.isSavedSocket("wss://192.168.1.77:9999/")).toBe(false);
+  });
+});
+
+describe("a machine reached over SSH", () => {
+  const rex: SavedEnvironment = {
+    id: "host-rex", name: "rex", token: "tau_client_rex", addedAt: "2026-09-24T10:00:00.000Z",
+    endpoints: [{ url: "http://127.0.0.1:4721/" }], lastUrl: "http://127.0.0.1:4721/",
+    managed: { ssh: { target: "rex", platform: "linux", port: 4721 } },
+  };
+
+  async function withTunnel() {
+    const directory = mkdtempSync(join(tmpdir(), "tau-window-environments-"));
+    directories.push(directory);
+    const catalog = await EnvironmentCatalog.open(join(directory, "environments.json"), box, logger);
+    await catalog.save(rex);
+    let state: SshTunnelState = { status: "opening" };
+    const tunnel = {
+      route: rex.managed!.ssh!, events: {} as ManagedSshTunnelEvents,
+      get state() { return state; },
+      start: async () => undefined, retry: vi.fn(), close: vi.fn(),
+    };
+    const report = (next: SshTunnelState) => { state = next; tunnel.events.onState?.(next); };
+    const bench = await setup(undefined, { directory, sshTunnel: (route, hostId) => { expect([route.port, hostId]).toEqual([4721, rex.id]); return tunnel as unknown as ManagedSshTunnel; } });
+    const monitor = bench.monitors.get("ws://127.0.0.1:4721/")!;
+    const machine = () => bench.environments.snapshot().environments.find((entry) => entry.id === rex.id)!;
+    return { ...bench, tunnel, report, monitor, machine };
+  }
+
+  it("keeps the access key back until its forward is up, and follows a port the forward moved to", async () => {
+    const { tunnel, report, monitor, machine, directory } = await withTunnel();
+    expect(monitor.options.held?.()).toEqual({ status: "connecting", detail: "Opening the SSH connection…" });
+
+    await tunnel.events.onMoved?.(4721, 4733);
+    report({ status: "up", port: 4733 });
+    expect(monitor.options.held?.()).toBeUndefined();
+    expect(monitor.options.urls()).toEqual(["ws://127.0.0.1:4733/"]);
+    expect(machine().notice).toBe("Port 4721 was in use by another program, now using 4733.");
+    const saved = (await EnvironmentCatalog.open(join(directory, "environments.json"), box, logger)).get(rex.id);
+    expect(saved?.managed?.ssh?.port).toBe(4733);
+  });
+
+  it("shows a forward that gave up as an error, and starts it over on Try again", async () => {
+    const { environments, tunnel, report, monitor, machine } = await withTunnel();
+    report({ status: "failed", detail: "SSH could not log in with a key. Set up an SSH key or agent; Tau disables password prompts." });
+    expect(monitor.options.held?.()).toEqual({ status: "offline", detail: expect.stringMatching(/could not log in/u) });
+    expect(machine().notice).toMatch(/could not log in/u);
+    environments.retry(rex.id);
+    expect(tunnel.retry).toHaveBeenCalledOnce();
   });
 });
 

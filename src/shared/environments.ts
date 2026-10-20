@@ -52,6 +52,8 @@ export interface UiEnvironment {
   status: EnvironmentStatus;
   /** Why it is refused or offline, written for the user. */
   detail?: string;
+  /** What the window's own route to it did or could not do, said in its status line: a port it moved off, or an SSH connection that gave up until "Try again". */
+  notice?: string;
   roundTripMs?: number;
   /** When the window last heard from it; for an offline machine. */
   lastSeenAt?: number;

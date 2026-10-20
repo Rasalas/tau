@@ -945,6 +945,8 @@ describe("a machine's status", () => {
     const now = 3 * 60 * 60_000;
     expect(statusText(studio, now)).toBe("Connected · 4 ms");
     expect(statusText(attic, now)).toBe("Offline · last seen 3h ago");
+    expect(statusText({ ...studio, notice: "Port 4721 was in use by another program, now using 4733." }, now)).toBe("Connected · 4 ms · Port 4721 was in use by another program, now using 4733.");
+    expect(statusText({ ...attic, status: "refused", detail: "revoked", notice: "ignored" }, now)).toBe("Refused · revoked");
     expect(unavailableReason(attic, now)).toBe("attic is offline (last seen 3h ago).");
     expect(unavailableReason(studio, now)).toBeUndefined();
     expect(otherMachines({ shown: "studio", environments: [studio, attic, laptop], secureStorage: true }).map((entry) => entry.id)).toEqual(["laptop", "attic"]);

@@ -4,7 +4,7 @@ import { createServer, type Server } from "node:net";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pairingUrl, parsePairingPayload } from "../shared/connections.js";
-import { ManagedSshTunnel, bootstrapSshHost, managedCli, managedSshArgs, validateSshTarget, type SshExecutor } from "./managed-ssh.js";
+import { ManagedSshTunnel, bootstrapSshHost, freeLocalPort, managedCli, managedSshArgs, validateSshTarget, type SshExecutor } from "./managed-ssh.js";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const close of cleanup.splice(0)) close(); });
@@ -75,16 +75,57 @@ describe("managed SSH", () => {
     expect(fake.forwards[1]!.args[1]).toBe(`127.0.0.1:${result.pairing.route.port}:127.0.0.1:7799`);
     result.tunnel.close(); await new Promise((resolve) => setTimeout(resolve, 50)); expect(fake.forwards).toHaveLength(2);
   });
-  it("logs in to nothing while another program holds the saved local port", async () => {
+  it("moves off a port another program holds and saves the new one before forwarding to it", async () => {
     const fake = fakeSsh();
     const foreign = createServer((socket) => socket.destroy());
     await new Promise<void>((resolve) => foreign.listen(0, "127.0.0.1", resolve));
     cleanup.push(() => foreign.close());
-    const tunnel = new ManagedSshTunnel({ target: "studio", platform: "linux", port: (foreign.address() as { port: number }).port }, fake.exec);
+    const taken = (foreign.address() as { port: number }).port;
+    const tunnel = new ManagedSshTunnel({ target: "studio", platform: "linux", port: taken }, fake.exec);
     cleanup.push(() => tunnel.close());
-    await expect(tunnel.start()).rejects.toThrow(/Another program listens/u);
-    expect(fake.run).not.toHaveBeenCalled();
+    const order: string[] = [];
+    const states: string[] = [];
+    tunnel.events = {
+      onMoved: async (from, to) => { order.push(`moved ${from}->${to}`); },
+      onState: (state) => { states.push(state.status === "up" ? `up ${state.port}` : state.status); },
+    };
+    const forwarded = fake.exec.spawn.bind(fake.exec);
+    fake.exec.spawn = (target, command, args) => { order.push(`forward ${args?.[1] ?? ""}`); return forwarded(target, command, args); };
+    await tunnel.start();
+    const moved = tunnel.route.port;
+    expect(moved).not.toBe(taken);
+    expect(order).toEqual([`moved ${taken}->${moved}`, `forward 127.0.0.1:${moved}:127.0.0.1:7788`]);
+    expect(states).toEqual(["opening", `up ${moved}`]);
+  });
+  it("never forwards to a Tau whose host id is not the machine's, and does not retry", async () => {
+    const fake = fakeSsh();
+    fake.run.mockImplementation(async () => JSON.stringify({ url: "ws://127.0.0.1:7788", id: "another-host" }));
+    const tunnel = new ManagedSshTunnel({ target: "studio", platform: "linux", port: await freeLocalPort() }, fake.exec, "rex-id");
+    cleanup.push(() => tunnel.close());
+    await expect(tunnel.start()).rejects.toThrow(/not this machine/u);
     expect(fake.forwards).toHaveLength(0);
+    expect(tunnel.state).toMatchObject({ status: "failed", detail: expect.stringMatching(/Remove the machine and add it again/u) });
+  });
+  it("gives up after a few failed tries and starts over on retry", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fake = fakeSsh();
+      fake.run.mockRejectedValue(new Error("Permission denied (publickey)"));
+      const tunnel = new ManagedSshTunnel({ target: "studio", platform: "linux", port: await freeLocalPort() }, fake.exec);
+      cleanup.push(() => tunnel.close());
+      await expect(tunnel.start()).rejects.toThrow(/Permission denied/u);
+      await vi.waitFor(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(tunnel.state).toMatchObject({ status: "failed", detail: expect.stringMatching(/Permission denied/u) });
+      });
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(fake.run).toHaveBeenCalledTimes(7);
+      fake.run.mockReset().mockImplementation(async () => JSON.stringify({ url: "ws://127.0.0.1:7788" }));
+      tunnel.retry();
+      await vi.waitFor(() => expect(tunnel.state.status).toBe("up"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it("stops before download or upload when SSH cannot authenticate", async () => {
     const fake = fakeSsh(); fake.run.mockRejectedValueOnce(new Error("Host key verification failed"));

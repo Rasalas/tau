@@ -18,6 +18,11 @@ function ago(timestamp: number, now: number): string {
 
 /** One line on how the window's connection to a machine is doing; the dot's tooltip and the settings row. */
 export function statusText(environment: UiEnvironment, now: number): string {
+  const line = connectionText(environment, now);
+  return environment.notice && environment.status !== "refused" ? `${line} · ${environment.notice}` : line;
+}
+
+function connectionText(environment: UiEnvironment, now: number): string {
   switch (environment.status) {
     case "connected":
       return environment.roundTripMs !== undefined ? `Connected · ${environment.roundTripMs} ms` : "Connected";
