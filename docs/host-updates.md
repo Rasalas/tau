@@ -10,13 +10,48 @@ update helper and the threat model. The user-facing summary is in
 
 ## Update everything from the desktop
 
+The sidebar's update arrow opens a compact overview before anything installs.
+It uses the same run as Settings → Machines → Update everything. Hover or
+keyboard focus opens a scrollable preview that stays open while the pointer or
+focus is inside. What's new opens its notes in the menu. Both views group notes
+by release, including available releases between
+the oldest machine and the target, rather than repeated for every machine.
+About → What's new keeps the installed release's notes accessible afterwards.
+Stable notes are cached on this machine; unavailable notes never block an update.
+The moving Nightly tag is used only when its release name identifies the requested
+version. Notes retained from a download remain usable without that tag.
+
+The shared run saves progress before sending an update request. After a reload
+it checks requests whose replies were lost; it continues unsent steps only once
+those results are known. Failed and uncertain machines remain visible. Completed
+and skipped machines fold into groups when the list has more than five machines.
+A local restart remains in progress until the next process reports its version.
+
+Update all also queues offline and connecting machines that are writable and
+permit updates. They appear under When online, separately from skipped machines,
+with a Cancel action. The queue is saved on the controlling client before any
+installation starts and survives its restart. Keep Tau open on that client for
+reconnects to trigger work; closing it pauses dispatch until the next start.
+Each queued machine gets a fresh read of its tools and Tau versions on reconnect.
+Removed machines, refused connections and changed access or install policies cancel
+the queued work. A failed or unacknowledged request is never automatically replayed.
+The client's storage lock coordinates its windows so only one dispatches a saved
+run. Clients without that coordination can run connected updates but cannot queue
+offline installations.
+
+Resume interrupted threads is on by default for this update only. The receiving
+host attaches that choice to unfinished-turn markers as installation starts and
+removes it if installation fails. It never changes `threads.continueAfterRestart`.
+Finished threads stay finished, and open questions, disabled runtimes, unsupported
+resume capabilities and the existing continuation limit still prevent continuation.
+
 Settings → Machines → Update everything reviews known tool and Tau updates
 before sending any update requests. The plan uses the window's existing
-connections and each machine's update permissions. Disconnected, Read-only
-and unsupported machines show why their steps are skipped.
+connections and each machine's update permissions. Offline machines can wait
+for reconnect; Read-only and unsupported machines show why their steps are skipped.
 
 Run update plan first finishes the selected tool updates on every machine,
-including queued updates, then updates remote machines. The window's own
+including tool updates already in progress, then updates reachable remote machines. The window's own
 machine and app update last through the existing host updater. Each step
 shows its progress or error. Confirmed failures allow other steps to continue;
 an uncertain request prevents that machine's restart and the final app restart.
@@ -248,9 +283,9 @@ from then on.
 |---|---|---|---|
 | `update-status` | read | – | `HostUpdateStatus` |
 | `update-check` | read | – | `HostUpdateStatus` after asking the feed (downloads at once when automatic) |
-| `update-install` | write | – | `HostUpdateStatus`; refused (`forbidden`) to a paired device while the owner turned *Paired devices may update this machine* off |
+| `update-install` | write | `{ resumeInterrupted? }`, optional | `HostUpdateStatus`; refused (`forbidden`) to a paired device while the owner turned *Paired devices may update this machine* off |
 | `update-settings` | write | `{ automatic?, devicesMayInstall? }` | `HostUpdateStatus`; `devicesMayInstall` only with the host token on this machine |
-| `environments-update` | write (window) | machine, `status` \| `check` \| `install` \| `{ automatic }` | the machine's `HostUpdateStatus`, over the window's own connection there |
+| `environments-update` | write (window) | machine, `status` \| `check` \| `install` \| `{ install: true, resumeInterrupted }` \| `{ automatic }` | the machine's `HostUpdateStatus`, over the window's own connection there |
 | `machines-update` | owner | machine, `status` \| `check` \| `install` | `{ id, name, update }`, through the window on this machine |
 
 Push event `{ type: "update-status", status }` at every change.
@@ -308,3 +343,11 @@ moment.
   accepts only the same team's valid code signature in addition to the signed
   release checksum. Windows has no Authenticode signing yet; its NSIS
   installer runs as the user after verification against the signed release.
+
+### Phone update review
+
+The compact client offers machine updates above its thread list when attention is needed, and permanently in Settings → Machines. The review opens as a full page with one row per machine and a fixed action area. Release notes open as a separate reader; Back returns to the review. Neither opening the review nor reading notes installs anything.
+
+The phone uses the same persisted coordinator, continuation choice and reconnect queue as desktop. Queued machines have an explicit Cancel action, completed and skipped machines are grouped, and the native host-scoped storage forwards locks to the underlying device store. Keep Tau open for queued requests to dispatch. Updating a machine does not update the native phone app; About and the review name the relevant app store separately.
+
+The `release-notes` host method is a read operation, so paired Read-only devices can inspect release groups. A headless host owns its persisted changelog cache too. Clients without a native window use this method for the reader; native window actions remain unavailable on those clients.

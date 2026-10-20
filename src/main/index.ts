@@ -336,6 +336,7 @@ const appShell = createAppShell({
   releaseNotes: {
     pending: async () => releaseNotes?.pending(),
     seen: async (version) => releaseNotes?.seen(version),
+    get: async (version, fromVersion) => releaseNotes?.get(version, fromVersion) ?? [],
   },
 });
 const quitShortcut = createQuitShortcut({
@@ -711,6 +712,7 @@ async function pointWindowAtHost(): Promise<void> {
 /** Everything this machine can answer for itself; a client of a remote host has none of it. */
 function createLocalHostMethods(): HostMethodTable {
   return createHostMethods({
+    releaseNotes: { get: (version, fromVersion) => releaseNotes?.get(version, fromVersion) ?? Promise.resolve([]) },
     bootstrap: async () => {
       return (await requireHostReady()).bootstrap();
     },

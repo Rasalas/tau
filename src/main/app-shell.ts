@@ -16,7 +16,7 @@ export interface AppShellPorts {
   checkForUpdates(): void;
   updateReady(): string | undefined;
   devBuild?: boolean;
-  releaseNotes?: { pending(): Promise<ReleaseNotes | undefined>; seen(version: string): Promise<void> };
+  releaseNotes?: { pending(): Promise<ReleaseNotes | undefined>; seen(version: string): Promise<void>; get?(version: string, fromVersion?: string): Promise<ReleaseNotes[]> };
   schedule?(run: () => void, ms: number): () => void;
   /** The `tau` command of a terminal; a client without it answers `unsupported`. */
   commandLine?: CommandLine;
@@ -82,6 +82,7 @@ export function createAppShell(ports: AppShellPorts) {
         case "release-notes-seen":
           await ports.releaseNotes?.seen(action.version);
           return undefined;
+        case "release-notes": return ports.releaseNotes?.get?.(action.version, action.fromVersion) ?? [];
         case "check-for-updates":
           ports.checkForUpdates();
           return undefined;

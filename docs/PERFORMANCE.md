@@ -2379,3 +2379,12 @@ the reliability and UX fixes plus a little headroom for the remaining transcript
 accessibility, walkthrough and destructive-action fixes, rather than another
 increase per PR. Build-time and all timing budgets, including the build reference
 historyEpoch, stay unchanged.
+
+The update review and phone changelog flow, integrated through main `88e184fe7`,
+measure 569,307 total gzipped JavaScript bytes on desktop and 581,427 in the
+browser. The total caps increase by 3,000 bytes to 571,000 and 583,000,
+respectively, allowing the added flow and compression differences between local
+and CI builds. Desktop initial JavaScript remains 809,555 bytes under its
+810,000-byte cap; browser initial JavaScript remains 823,251 under 827,000.
+Initial, CSS, kit and timing budgets stay unchanged. Window dialogs remain
+outside the startup module graph, and release-note requests share the host cache.

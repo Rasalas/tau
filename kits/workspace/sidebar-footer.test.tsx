@@ -102,7 +102,11 @@ describe("sidebar footer pages", () => {
     const end = view.container.querySelector(".sidebar-footer-end") as HTMLElement;
     expect(within(end).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Usage", "Limits left", "Tau 0.8.0 is ready: restart to update", "Settings"]);
     fireEvent.click(footer.getByRole("button", { name: "Tau 0.8.0 is ready: restart to update" }));
+    expect(install).not.toHaveBeenCalled();
+    const updateMenu = await screen.findByRole("dialog", { name: "Updates" });
+    fireEvent.click(within(updateMenu).getByRole("button", { name: "Update" }));
     expect(install).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(window, { key: "Escape" });
 
     count = 0;
     figure = { text: "$12.40 · 22 · 3.1M tok", short: "$12.40", hint: "This month · $12.40 billed per token" };

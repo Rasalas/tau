@@ -32,6 +32,7 @@ export const ComposerSendChooser = deferred(() => import("./components/ComposerS
 export const PlanSheet = deferred(() => import("./components/PlanSheet").then((module) => module.PlanSheet));
 // Snooze's and Plan's list of times (API 1.65.0).
 export const WhenPicker = deferred(() => import("./components/ui/WhenPicker").then((module) => module.WhenPicker));
+export const WindowShellUi = deferred(() => import("./components/WindowShellUi").then((module) => module.WindowShellUi));
 export const Dialog = deferred(() => import("./components/ui/Dialog").then((module) => module.Dialog));
 export const Popover = deferred(() => import("./components/ui/Dialog").then((module) => module.Popover));
 export const Sheet = deferred(() => import("./touch/Sheet").then((module) => module.Sheet));

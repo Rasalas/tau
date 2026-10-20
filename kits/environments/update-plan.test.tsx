@@ -58,7 +58,7 @@ describe("reviewed update plan", () => {
     const f = fixture([machine("offline", { status: "offline" }), machine("viewer", { readOnly: true }), machine("restricted", { update: status({ devicesMayInstall: false }) })]);
     const plan = await buildUpdatePlan(f.environments);
     expect(plan.filter((step) => step.kind === "machine")).toMatchObject([
-      { state: "skipped", message: "Disconnected" }, { state: "skipped", message: "Read only" }, { state: "skipped", message: expect.stringContaining("owner") },
+      { state: "skipped", message: "Will update when online", deferUntilOnline: true }, { state: "skipped", message: "Read only" }, { state: "skipped", message: expect.stringContaining("owner") },
     ]);
     expect(f.readExtension).toHaveBeenCalledTimes(1);
     await runUpdatePlan(plan, f.environments, { changed });
@@ -94,7 +94,8 @@ describe("reviewed update plan", () => {
     expect(f.calls).toEqual(["tools:rex", "tools:local", "machine:rex", "machine:local"]);
     expect(messages).toContain("Waiting for running turns before updating tools…");
     expect(messages).toContain("Waiting for required background work and its results before restarting.");
-    expect(plan.every((step) => step.state === "done")).toBe(true);
+    expect(plan.filter((step) => step.kind !== "app").every((step) => step.state === "done")).toBe(true);
+    expect(plan.find((step) => step.kind === "app")?.state).toBe("running");
     expect(f.invokeExtension).toHaveBeenCalledWith("local", ENVIRONMENTS_EXTENSION_ID, LOCAL_UPDATE_SELECTED, { kinds: ["pi"] }, { timeoutMs: 120_000 });
   });
 
@@ -199,11 +200,12 @@ describe("update plan settings", () => {
     await waitFor(() => expect(run).toHaveProperty("disabled", false));
     expect(f.update).not.toHaveBeenCalled();
     fireEvent.click(run);
-    await waitFor(() => expect(screen.getAllByText("done")).toHaveLength(4));
+    await waitFor(() => expect(screen.getAllByText("done")).toHaveLength(3));
+    expect(screen.getByText("Restarting into the update…")).toBeTruthy();
     expect(f.calls.at(-1)).toBe("machine:local");
     view.unmount();
     render(<TestProviders><Section /></TestProviders>);
-    expect(screen.getAllByText("done")).toHaveLength(4);
+    expect(screen.getAllByText("done")).toHaveLength(3);
   });
 
   it("shows each machine as it answers and enables the run only after every read settled", async () => {

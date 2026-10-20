@@ -1,11 +1,13 @@
 import { SettingsFilter } from "./SettingsFilter";
-import { useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronRight, Copy, Download, ExternalLink, FileText, RefreshCw } from "lucide-react";
 import { LICENSES_FILE, unpackLicenses, type ThirdPartyLicense } from "../../shared/third-party-licenses";
 import { defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
 import { describeHostUpdate, hostUpdatePending, type HostUpdateStatus } from "../../shared/host-updates";
 import { useClientEnvironment } from "../client-environment";
-import { ConfirmDialog } from "../deferred-surfaces";
+import { ConfirmDialog, Popover } from "../deferred-surfaces";
+import { UpdateNotes } from "../components/UpdateNotes";
+import "../components/update-center.css";
 import { useHostClient } from "../host-client-context";
 import { useHostUpdate } from "../machine-updates";
 import { usePlatform } from "../platform-context";
@@ -74,6 +76,8 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
   const [asking, setAsking] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
+  const notesAnchor = useRef<HTMLSpanElement>(null);
+  const [showNotes, setShowNotes] = useState(false);
 
   useEffect(() => {
     if (!showLicenses) return;
@@ -162,7 +166,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
             ) : windowCheck ? (
               <Button variant="ghost" icon={<RefreshCw size={12} />} onClick={() => { void client?.windowAction({ kind: "check-for-updates" }).catch(() => undefined); }}>Check now</Button>
             ) : null}
-            {version ? <Button variant="ghost" icon={<ExternalLink size={12} />} onClick={() => platform.openExternal(`https://github.com/Rasalas/tau-releases/releases/tag/v${version}`)}>Release notes</Button> : null}
+            {version ? <span ref={notesAnchor}><Button variant="ghost" icon={<ExternalLink size={12} />} onClick={() => setShowNotes(true)}>What's new</Button></span> : null}
             <Button variant="ghost" icon={<Copy size={12} />} onClick={() => void (client ? client.copyText(diagnostics()) : navigator.clipboard.writeText(diagnostics())).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => undefined)}>
               {copied ? "Copied" : "Copy diagnostics"}
             </Button>
@@ -180,6 +184,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
           onCancel={() => setConfirming(false)}
         />
       ) : null}
+      {showNotes && version ? <Popover anchor={notesAnchor} label="What's new" className="update-center" onClose={() => setShowNotes(false)}><UpdateNotes version={version} /></Popover> : null}
 
       {(status && !unsupported) || (here && oldHost) ? (
         <div className="settings-group">

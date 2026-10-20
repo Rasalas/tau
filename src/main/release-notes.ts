@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isNightlyVersion } from "../shared/app-version.js";
+import { compareVersions } from "../shared/runtime-version.js";
 import type { ReleaseNotes } from "../shared/window-shell.js";
 import { readPersistedJson, writePersistedJson } from "./persisted-json.js";
 
@@ -65,11 +66,26 @@ export function releaseNoteText(notes: unknown, version: string): string | undef
 /** Where the notes of a version are read from, when the update did not bring them along. */
 export interface ReleaseNotesSource {
   read(version: string): Promise<{ body: string; url?: string } | undefined>;
+  range?(from: string, to: string): Promise<Array<{ version: string; body: string; url?: string }>>;
 }
 
 /** The repository's release for a version, read-only through the public API. A nightly is the moving `nightly` tag. */
 export function githubReleaseNotes(feed: { owner: string; repo: string }, fetchImpl: typeof fetch = fetch): ReleaseNotesSource {
   return {
+    async range(from, to) {
+      if (isNightlyVersion(from) || isNightlyVersion(to)) return [];
+      const response = await fetchImpl(`https://api.github.com/repos/${feed.owner}/${feed.repo}/releases?per_page=100`, {
+        headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) return [];
+      const data: unknown = await response.json();
+      if (!Array.isArray(data)) return [];
+      return data.flatMap((item: { tag_name?: unknown; body?: unknown; html_url?: unknown; draft?: unknown }) => {
+        const version = typeof item.tag_name === "string" ? item.tag_name.replace(/^v/u, "") : "";
+        if (item.draft || !/^\d+\.\d+\.\d+$/u.test(version) || typeof item.body !== "string" || compareVersions(version, from) <= 0 || compareVersions(version, to) > 0) return [];
+        return [{ version, body: item.body, ...(typeof item.html_url === "string" ? { url: item.html_url } : {}) }];
+      }).sort((a, b) => compareVersions(b.version, a.version)).slice(0, 12);
+    },
     async read(version) {
       const tag = isNightlyVersion(version) ? "nightly" : `v${version}`;
       const response = await fetchImpl(`https://api.github.com/repos/${feed.owner}/${feed.repo}/releases/tags/${encodeURIComponent(tag)}`, {
@@ -77,7 +93,9 @@ export function githubReleaseNotes(feed: { owner: string; repo: string }, fetchI
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) return undefined;
-      const release = await response.json() as { body?: unknown; html_url?: unknown };
+      const release = await response.json() as { body?: unknown; html_url?: unknown; name?: unknown };
+      // The nightly tag moves. Never attribute today's notes to an older installed nightly.
+      if (isNightlyVersion(version) && (typeof release.name !== "string" || !release.name.match(/\d+\.\d+\.\d+-[\w.-]+/gu)?.some((entry) => entry === version))) return undefined;
       if (typeof release.body !== "string") return undefined;
       return { body: release.body, ...(typeof release.html_url === "string" ? { url: release.html_url } : {}) };
     },
@@ -92,6 +110,7 @@ export function fileReleaseNotes(path: string): ReleaseNotesSource {
 const STATE_VERSION = 1;
 
 interface ReleaseNotesState extends Record<string, unknown> {
+  cache?: ReleaseNotes[];
   /** The version that ran last. */
   lastVersion?: string;
   /** A version whose notes are waiting to be shown once. */
@@ -107,6 +126,7 @@ function decodeState(value: unknown): ReleaseNotesState {
   const lastVersion = text("lastVersion");
   const due = text("due");
   return {
+    ...(Array.isArray(item.cache) ? { cache: item.cache.filter((entry): entry is ReleaseNotes => Boolean(entry && typeof entry === "object" && typeof entry.version === "string" && Array.isArray(entry.items) && entry.items.every((line: unknown) => typeof line === "string") && typeof entry.totalItems === "number")).slice(0, 24) } : {}),
     ...(lastVersion ? { lastVersion } : {}),
     ...(due ? { due } : {}),
     ...(typeof downloaded?.version === "string" && typeof downloaded.body === "string" ? { downloaded: { version: downloaded.version, body: downloaded.body } } : {}),
@@ -129,6 +149,9 @@ export class ReleaseNotesStore {
   private state: ReleaseNotesState = {};
   private loaded: Promise<void> | undefined;
   private notes: Promise<ReleaseNotes | undefined> | undefined;
+  private readonly reads = new Map<string, Promise<ReleaseNotes | undefined>>();
+  private readonly lookups = new Map<string, Promise<ReleaseNotes[]>>();
+  private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: ReleaseNotesOptions) {}
 
@@ -144,6 +167,7 @@ export class ReleaseNotesStore {
       const { currentVersion } = this.options;
       const moved = state.lastVersion !== undefined && state.lastVersion !== currentVersion;
       this.state = {
+        ...(state.cache ? { cache: state.cache } : {}),
         lastVersion: currentVersion,
         ...(moved ? { due: currentVersion } : state.due === currentVersion ? { due: currentVersion } : {}),
         ...(state.downloaded ? { downloaded: state.downloaded } : {}),
@@ -166,7 +190,7 @@ export class ReleaseNotesStore {
     await this.start();
     if (this.state.due !== version) return;
     const { lastVersion, downloaded } = this.state;
-    this.state = { ...(lastVersion ? { lastVersion } : {}), ...(downloaded && downloaded.version !== version ? { downloaded } : {}) };
+    this.state = { ...(this.state.cache ? { cache: this.state.cache } : {}), ...(lastVersion ? { lastVersion } : {}), ...(downloaded && downloaded.version !== version ? { downloaded } : {}) };
     this.notes = undefined;
     await this.save();
   }
@@ -180,6 +204,47 @@ export class ReleaseNotesStore {
     await this.save();
   }
 
+  /** An explicit read, independent of the once-after-install announcement. Cached stable releases work offline. */
+  get(version: string, fromVersion?: string): Promise<ReleaseNotes[]> {
+    const key = `${fromVersion ?? ""}:${version}`;
+    let pending = this.lookups.get(key);
+    if (!pending) {
+      pending = this.load(version, fromVersion).then((notes) => {
+        if (!notes.length) this.lookups.delete(key);
+        return notes;
+      }, (error: unknown) => { this.lookups.delete(key); throw error; });
+      if (this.lookups.size >= 24) this.lookups.delete(this.lookups.keys().next().value!);
+      this.lookups.set(key, pending);
+    }
+    return pending;
+  }
+
+  private async load(version: string, fromVersion?: string): Promise<ReleaseNotes[]> {
+    await this.start();
+    const cached = () => (this.state.cache ?? []).filter((entry) => entry.version === version || Boolean(fromVersion && compareVersions(entry.version, fromVersion) > 0 && compareVersions(entry.version, version) <= 0));
+    if (fromVersion && compareVersions(fromVersion, version) < 0) {
+      const range = await this.options.source?.range?.(fromVersion, version).catch(() => []).then((entries) => entries ?? []) ?? [];
+      for (const entry of range) this.keep(parseReleaseNotes(entry.body, entry.version, entry.url));
+    }
+    const held = cached().find((entry) => entry.version === version);
+    if (!held) {
+      let read = this.reads.get(version);
+      if (!read) {
+        read = this.read(version).finally(() => this.reads.delete(version));
+        this.reads.set(version, read);
+      }
+      const notes = await read;
+      if (notes?.items.length) this.keep(notes);
+    }
+    await this.save();
+    return cached().sort((a, b) => compareVersions(b.version, a.version));
+  }
+
+  private keep(notes: ReleaseNotes): void {
+    if (!notes.items.length) return;
+    this.state = { ...this.state, cache: [notes, ...(this.state.cache ?? []).filter((entry) => entry.version !== notes.version)].slice(0, 24) };
+  }
+
   private async read(version: string): Promise<ReleaseNotes | undefined> {
     const kept = this.state.downloaded?.version === version ? this.state.downloaded.body : undefined;
     try {
@@ -191,7 +256,9 @@ export class ReleaseNotesStore {
     }
   }
 
-  private async save(): Promise<void> {
-    await writePersistedJson(this.options.file, STATE_VERSION, this.state).catch((error: unknown) => this.options.log?.("release-notes.save.failed", error));
+  private save(): Promise<void> {
+    const state = this.state;
+    this.writing = this.writing.then(() => writePersistedJson(this.options.file, STATE_VERSION, state)).catch((error: unknown) => this.options.log?.("release-notes.save.failed", error));
+    return this.writing;
   }
 }

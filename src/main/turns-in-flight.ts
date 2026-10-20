@@ -18,6 +18,8 @@ export interface InFlightTurn {
   /** Consecutive restart continuations; absent on older markers and user turns. */
   continuationCount?: number;
   waitingForAnswer?: boolean;
+  /** One update's restart policy; never changes the user's general preference. */
+  resumeAfterUpdate?: boolean;
 }
 
 function processAlive(pid: number): boolean {
@@ -47,6 +49,7 @@ function decodeTurn(value: unknown): InFlightTurn | undefined {
     ...(Number.isSafeInteger(entry.continuationCount) && (entry.continuationCount as number) >= 0
       ? { continuationCount: entry.continuationCount as number } : {}),
     ...(entry.waitingForAnswer === true ? { waitingForAnswer: true } : {}),
+    ...(typeof entry.resumeAfterUpdate === "boolean" ? { resumeAfterUpdate: entry.resumeAfterUpdate } : {}),
   };
 }
 
@@ -70,6 +73,7 @@ export class TurnsInFlight {
   private loaded = false;
   private frozen = false;
   private readonly continuations = new Map<string, number>();
+  private updateResume: boolean | undefined;
 
   constructor(private readonly options: TurnsInFlightOptions = {}) {}
 
@@ -126,6 +130,7 @@ export class TurnsInFlight {
     const continuationCount = this.continuations.get(turn.sessionId);
     this.turns.set(turn.sessionId, {
       ...turn,
+      ...(this.updateResume !== undefined ? { resumeAfterUpdate: this.updateResume } : {}),
       ...(continuationCount !== undefined ? { continuationCount } : {}),
       writer: { pid: process.pid },
       prompt: { ...turn.prompt, text: turn.prompt.text.slice(0, MAX_PROMPT_TEXT) },
@@ -152,6 +157,18 @@ export class TurnsInFlight {
     if (!held) return;
     this.turns.set(sessionId, { ...held, waitingForAnswer });
     this.persist();
+  }
+
+  /** Arm only as installation starts, retaining the policy on any turns a restart cuts short. */
+  async prepareUpdateRestart(resume: boolean | undefined): Promise<void> {
+    if (this.frozen) return;
+    this.updateResume = resume;
+    for (const [id, marker] of this.turns) {
+      const { resumeAfterUpdate: _previous, ...turn } = marker;
+      this.turns.set(id, { ...turn, ...(resume !== undefined ? { resumeAfterUpdate: resume } : {}) });
+    }
+    this.persist();
+    await this.flush();
   }
 
   /** A user message can also join a running turn without replacing its marker. */

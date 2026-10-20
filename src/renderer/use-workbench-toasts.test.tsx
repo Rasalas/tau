@@ -45,7 +45,7 @@ describe("the update toast", () => {
     });
     const toast = () => toasts.getToasts().find((entry) => entry.id === "tau.update");
 
-    expect(toast()).toMatchObject({ title: "Tau 0.7.23 downloaded", description: "Restart to install it.", timeoutMs: 0 });
+    expect(toast()).toMatchObject({ title: "Tau 0.7.23 downloaded", description: "Review what changed before installing.", timeoutMs: 0 });
     const restart = toast()!.actions![0]!;
     expect(restart.keepOpen).toBe(true);
     restart.run();
@@ -59,6 +59,6 @@ describe("the update toast", () => {
 
     // A failed install goes back to the restart.
     rerender({ version: "0.7.23", install });
-    expect(toast()).toMatchObject({ title: "Tau 0.7.23 downloaded", actions: [expect.objectContaining({ label: "Restart" })] });
+    expect(toast()).toMatchObject({ title: "Tau 0.7.23 downloaded", actions: [expect.objectContaining({ label: "Review update" })] });
   });
 });

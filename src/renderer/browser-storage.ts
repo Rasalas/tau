@@ -34,6 +34,7 @@ export function createLocalStorageAdapter(environment?: string): ClientStorage {
       }
       return result;
     },
+    ...(globalThis.navigator?.locks ? { withLock: <T,>(name: string, work: () => Promise<T>) => navigator.locks.request(`tau.storage:${key(name)}`, work) } : {}),
   };
 }
 
