@@ -1768,6 +1768,10 @@ describe("Agents Kit spawn for another kit", () => {
       expect(bench.started[0]).toMatchObject({ title: "Guide", thinkingLevel: "high", model: { provider: "anthropic", id: "small-model" }, parent: { threadId: "parent", details: expect.objectContaining({ spawnedBy: "tau.review", agent: "pr-guide", persona: expect.objectContaining({ name: "pr-guide", access: "read-only", tools: ["read", "submit_pull_request_guide"] }) }) } });
       // No wake is owed to a parent that did not use its own tool.
       expect((await bench.state()).links[0]).toMatchObject({ spawnedBy: "tau.review" });
+      // After a reload the kit finds what it started, and only that.
+      let review: ((command: string) => Promise<unknown>) | undefined;
+      await bench.registry().activate({ id: "tau.review", name: "Review", permissions: [], activate: (context) => { review = (command) => context.invokeHostExtension(AGENTS_HOST_EXTENSION_ID, command); } });
+      expect(await review!("spawned")).toEqual({ agents: [expect.objectContaining({ threadId: spawned.threadId, agent: "pr-guide", spawnedBy: "tau.review" })] });
     } finally {
       await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }

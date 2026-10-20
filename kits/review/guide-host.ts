@@ -47,7 +47,24 @@ interface Active {
 
 export interface Guides {
   dispose(): void;
+  /** Settles once the guide agents an earlier activation left behind are stopped and their worktrees discarded. */
+  readonly swept: Promise<void>;
 }
+
+/** What this kit reads of an agent Agents Kit lists for it (`spawned`). */
+interface SpawnedAgent {
+  id: string;
+  threadId?: string;
+  parentThreadId: string;
+  agent?: string;
+  title: string;
+  projectPath: string;
+  spawnedAt: number;
+  status: string;
+  workspace?: { mode: string; settled?: string };
+}
+
+const LEFT_BEHIND = "Stopped because Review was reloaded. Write the guide again.";
 
 const CLEANUP_ATTEMPTS = 4;
 const CLEANUP_WAIT_MS = 3_000;
@@ -409,5 +426,55 @@ export function registerGuides(
     }),
   ];
 
-  return { dispose: () => { active.clear(); for (const dispose of disposers.reverse()) dispose(); void store.idle(); } };
+  let disposed = false;
+  const pause = options.wait ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms).unref?.(); }));
+  /**
+   * Runs live in memory, so a guide agent an earlier activation started (a reload, an update, the kit
+   * turned off and on) can no longer hand in its guide. It is stopped, its read-only worktree discarded,
+   * and its request's run fails with a reason, so the tab offers to write the guide again.
+   */
+  const sweep = async () => {
+    let listed: SpawnedAgent[] | undefined;
+    // Agents Kit may still be starting when this kit is.
+    for (let attempt = 1; attempt <= CLEANUP_ATTEMPTS && !listed; attempt += 1) {
+      if (disposed) return;
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- attempts follow one another
+        listed = (await agentCall("spawned", undefined) as { agents?: SpawnedAgent[] }).agents ?? [];
+      } catch (error) {
+        if (attempt === CLEANUP_ATTEMPTS) services.log("review.guide-sweep", message(error));
+        // oxlint-disable-next-line no-await-in-loop
+        else await pause(CLEANUP_WAIT_MS);
+      }
+    }
+    if (!listed || disposed) return;
+    const owned = new Set([...active.values(), ...threads.values()].flatMap((run) => [run.jobId, run.threadId]));
+    await Promise.all(listed.map(async (agent) => {
+      if (agent.agent !== GUIDE_AGENT || owned.has(agent.id) || (agent.threadId && owned.has(agent.threadId))) return;
+      const open = agent.status !== "completed" && agent.status !== "failed" && agent.status !== "cancelled";
+      const unsettled = agent.workspace?.mode === "worktree" && !agent.workspace.settled;
+      if (!open && !unsettled) return;
+      services.log("review.guide-left", `${agent.title} · ${agent.status}`);
+      if (open) await agentCall("stop-agent", { threadId: agent.id }).catch(() => undefined);
+      if (unsettled) await cleanUp(agent.id);
+      if (open) await leftBehind(agent);
+    }));
+  };
+  const leftBehind = async (agent: SpawnedAgent) => {
+    const number = Number(/#(\d+)$/u.exec(agent.title)?.[1]);
+    if (!Number.isInteger(number) || number < 1) return;
+    const ref = await resolveRef({ number }, agent.projectPath).catch(() => undefined);
+    if (!ref || disposed) return;
+    const key = guideKey(ref);
+    // A run started since, or a guide the agent handed in before the reload, says more than this.
+    const guide = await store.get(key);
+    if (active.has(key) || (guide && Date.parse(guide.generatedAt) >= agent.spawnedAt)) return;
+    const detail = await reads.detail(ref, false).catch(() => undefined);
+    if (active.has(key) || disposed) return;
+    runs.set(key, { state: "failed", headSha: detail?.headSha ?? "", failedAt: new Date(now()).toISOString(), detail: LEFT_BEHIND });
+    emit({ ref, ...(detail?.title ? { title: detail.title } : {}), parentThreadId: agent.parentThreadId }, "failed");
+  };
+  const swept = sweep().catch((error: unknown) => { services.log("review.guide-sweep", message(error)); });
+
+  return { swept, dispose: () => { disposed = true; active.clear(); for (const dispose of disposers.reverse()) dispose(); void store.idle(); } };
 }

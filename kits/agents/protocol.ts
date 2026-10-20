@@ -47,6 +47,8 @@ export interface AgentsHostCommands {
   "machines": { input: undefined; output: AgentMachinesView };
   /** Stops an agent and every agent below it; `alsoStopped` counts the ones below. */
   "stop-agent": { input: { threadId: string }; output: { threadId: string; status: AgentThreadStatus; cancelled: boolean; alsoStopped?: number } };
+  /** For a kit: the agents its own `spawn` started, so a reload can stop what it left without an owner. */
+  "spawned": { input: undefined; output: { agents: AgentThreadLink[] } };
 }
 
 /** An agent definition's `access`: what Access Kit may narrow its thread to. */
