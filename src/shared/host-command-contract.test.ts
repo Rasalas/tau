@@ -92,6 +92,11 @@ describe("shared turn command contracts", () => {
     const at = 1_800_000_000_000;
     expect(HOST_COMMANDS["queue-message"].decode(["thread", "later", [], null, at]))
       .toEqual(["thread", "later", [], undefined, at]);
+    expect(HOST_COMMANDS["queue-message"].decode(["thread", "later", [], null, at, null]))
+      .toEqual(["thread", "later", [], undefined, at]);
+    const identity = { clientTurnId: "turn", clientMessageId: "message" };
+    expect(HOST_COMMANDS["queue-message"].decode(["thread", "later", [], null, at, identity]))
+      .toEqual(["thread", "later", [], undefined, at, identity]);
     expect(HOST_COMMANDS["plan-queued"].decode(["thread", "queued", null]))
       .toEqual(["thread", "queued", undefined]);
     for (const invalid of [0, -1, NaN, Infinity, "tomorrow"]) {

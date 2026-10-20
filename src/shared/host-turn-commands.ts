@@ -46,7 +46,10 @@ export const HOST_TURN_COMMANDS = attachCommandMetadata(HOST_TURN_COMMAND_METADA
   "follow-up": command<void>()({ audit: { label: "sent a follow-up", thread: 2 }, decode: (p) => promptArgs("follow-up", p) }),
   "queue-message": command<{ id: string }, [sessionId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft | null, deliverAt?: number, identity?: ClientTurnIdentity]>()({
     audit: { label: "queued a message", thread: 0 },
-    decode: (p) => [decodeString("queue-message", "sessionId", p[0]), decodeText("queue-message", "text", p[1]), decodeUiPromptAttachments("queue-message", "attachments", p[2]) ?? [], decodeUiSkillDraft("queue-message", "skillDraft", p[3] ?? undefined), decodeDeliverAt("queue-message", p[4]), p[5] === undefined ? undefined : decodeClientTurnIdentity("queue-message", "identity", p[5])] as const,
+    decode: (p) => {
+      const args = [decodeString("queue-message", "sessionId", p[0]), decodeText("queue-message", "text", p[1]), decodeUiPromptAttachments("queue-message", "attachments", p[2]) ?? [], decodeUiSkillDraft("queue-message", "skillDraft", p[3] ?? undefined), decodeDeliverAt("queue-message", p[4])] as const;
+      return p[5] == null ? args : [...args, decodeClientTurnIdentity("queue-message", "identity", p[5])] as const;
+    },
   }),
   "take-queued": command<UiQueuedPrompt[]>()({ audit: { label: "took a queued message", thread: 0 }, decode: (p) => [decodeString("take-queued", "sessionId", p[0]), decodeOptionalString("take-queued", "id", p[1])] as const }),
   "move-queued": command<void>()({ audit: { label: "reordered queued messages", thread: 0 }, decode: (p) => [decodeString("move-queued", "sessionId", p[0]), decodeString("move-queued", "id", p[1]), decodeIndex("move-queued", p[2])] as const }),

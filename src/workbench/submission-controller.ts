@@ -150,6 +150,29 @@ export function createSubmissionController(ports: Omit<SubmissionControllerPorts
   });
 }
 
+/** Explicit retries load with sending, so recovery UI adds no eager delivery implementation. */
+export async function retrySubmittedMessage(session: {
+  view: ThreadViewStore;
+  newThread: Pick<NewThreadController, "current" | "resumeRequest">;
+  submit(input: SubmissionInput, retry?: OptimisticUserMessage): Promise<SubmissionResult>;
+}, messageId: string): Promise<void> {
+  const row = session.view.getOptimisticMessages().find((entry) => entry.message.id === messageId);
+  if (!row?.input || row.message.submission?.state !== "failed"
+    || row.scope !== draftKey(session.view.getSnapshot()?.sessionId, session.newThread.current())) return;
+  if (row.scope.startsWith("new:") && row.requestId) session.newThread.resumeRequest(row.requestId);
+  const failed = (message: string) => session.view.setOptimisticMessages((current) => {
+    const restored: OptimisticUserMessage = { ...row, message: { ...row.message, submission: { state: "failed", error: message } } };
+    return current.some((entry) => entry.message.id === messageId)
+      ? current.map((entry) => entry.message.id === messageId ? restored : entry) : [...current, restored];
+  });
+  session.view.setOptimisticMessages((current) => current.map((entry) => entry === row
+    ? { ...entry, message: { ...entry.message, submission: { state: "sending" as const } } } : entry));
+  try {
+    const result = await session.submit(row.input, row);
+    if (!result.accepted && !result.retained) failed(result.message);
+  } catch (error) { failed(error instanceof Error ? error.message : String(error)); }
+}
+
 /**
  * Everything that happens between the composer and the runtime: slash
  * commands, prepared prompts, optimistic rows, the transcript turn, the four

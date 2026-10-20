@@ -82,6 +82,10 @@ export class DraftThreads {
 
   list = (): readonly DraftThread[] => this.drafts;
 
+  private submitted(draftId: string) {
+    return this.ports.submitted?.list().find((entry) => entry.draft.draftId === draftId);
+  }
+
   /** The composer is a thread now; its rail row stays until the index catches up. */
   handoff = (draftId: string, sessionId: string, withUserTurn = true): void => {
     const row = this.submissions.get(draftId)?.row ?? (this.lastActive?.draftId === draftId ? this.lastActive : undefined);
@@ -106,7 +110,7 @@ export class DraftThreads {
    * dropped otherwise. False when there was nothing to keep, or it is being sent.
    */
   keep = (draft: NewThreadDraft): boolean => {
-    if (this.ports.submitted?.list().some((entry) => entry.draft.draftId === draft.draftId)) return true;
+    if (this.submitted(draft.draftId)) return true;
     const scope = draftKey(undefined, draft);
     const composer = scope ? this.ports.scopes.getSnapshot(scope) : undefined;
     if (composer?.submissionPending) return false;
@@ -123,7 +127,7 @@ export class DraftThreads {
 
   /** A kept draft, taken out of the list to be the draft on screen again. */
   take = (draftId: string): NewThreadDraft | undefined => {
-    const submitted = this.ports.submitted?.list().find((entry) => entry.draft.draftId === draftId);
+    const submitted = this.submitted(draftId);
     if (submitted) return submitted.draft;
     const draft = this.kept.find((entry) => entry.draftId === draftId);
     if (!draft) return undefined;
@@ -149,7 +153,7 @@ export class DraftThreads {
   };
 
   find = (draftId: string): NewThreadDraft | undefined =>
-    this.ports.submitted?.list().find((entry) => entry.draft.draftId === draftId)?.draft
+    this.submitted(draftId)?.draft
       ?? this.submissions.get(draftId)?.draft ?? this.kept.find((entry) => entry.draftId === draftId);
 
   private follow = (): void => {
@@ -173,7 +177,7 @@ export class DraftThreads {
   private row(draft: NewThreadDraft, active: boolean): DraftThread {
     const scope = draftKey(undefined, draft);
     const composer = scope ? this.ports.scopes.getSnapshot(scope) : undefined;
-    const submitted = this.ports.submitted?.list().find((entry) => entry.draft.draftId === draft.draftId);
+    const submitted = this.submitted(draft.draftId);
     // The controller's copy of the text is stale; the composer writes the active draft's record in storage.
     const stored = active ? readNewThreadDraft(this.ports.storage) : undefined;
     const typed = previewOf(composer?.draft || (stored?.draftId === draft.draftId ? stored.draft : draft.draft) || "");
@@ -202,7 +206,7 @@ export class DraftThreads {
     if (!submission) return;
     const composer = this.ports.scopes.getSnapshot(submission.scope);
     if (composer.submissionPending) return;
-    if (this.ports.submitted?.list().some((entry) => entry.draft.draftId === draftId)) {
+    if (this.submitted(draftId)) {
       submission.release();
       this.submissions.delete(draftId);
       this.refresh();

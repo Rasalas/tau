@@ -204,21 +204,8 @@ export class WorkbenchSession {
   };
 
   retryMessage = async (messageId: string): Promise<void> => {
-    const row = this.view.getOptimisticMessages().find((entry) => entry.message.id === messageId);
-    if (!row?.input || row.message.submission?.state !== "failed"
-      || row.scope !== draftKey(this.view.getSnapshot()?.sessionId, this.newThread.current())) return;
-    if (row.scope.startsWith("new:") && row.requestId) this.newThread.resumeRequest(row.requestId);
-    const failed = (message: string) => this.view.setOptimisticMessages((current) => {
-      const restored: OptimisticUserMessage = { ...row, message: { ...row.message, submission: { state: "failed", error: message } } };
-      return current.some((entry) => entry.message.id === messageId)
-        ? current.map((entry) => entry.message.id === messageId ? restored : entry) : [...current, restored];
-    });
-    this.view.setOptimisticMessages((current) => current.map((entry) => entry === row
-      ? { ...entry, message: { ...entry.message, submission: { state: "sending" as const } } } : entry));
-    try {
-      const result = await this.submit(row.input, row);
-      if (!result.accepted && !result.retained) failed(result.message);
-    } catch (error) { failed(error instanceof Error ? error.message : String(error)); }
+    const { retrySubmittedMessage } = await import("./submission-controller");
+    await retrySubmittedMessage(this, messageId);
   };
 
   /** Reconcile authoritative detail as well as live user events, before returning to the caller. */
