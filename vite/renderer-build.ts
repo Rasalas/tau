@@ -41,6 +41,7 @@ export const COMMON_MODULES = [
   "renderer/components/SystemPromptModal.tsx",
   "renderer/components/Menu.tsx",
   "renderer/components/ProjectSources.tsx",
+  "renderer/submission-environment.ts",
   "workbench/submission-controller.ts",
   "workbench/submission-queue.ts",
   "workbench/config-layers-store.ts",

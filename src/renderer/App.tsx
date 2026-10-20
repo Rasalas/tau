@@ -46,8 +46,7 @@ import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { useRendererLayout } from "./use-renderer-layout";
 import { stageOwner } from "../workbench/thread-stages";
 import { usePanelLayout } from "./use-panel-layout";
-import { loadSubmissionController } from "./deferred-surfaces";
-import { submissionEnvironment } from "./submission-environment";
+import { loadSubmissionController, loadSubmissionEnvironment } from "./deferred-surfaces";
 import { useTurnActivityCache } from "./use-turn-activity-cache";
 import { useWorkbenchStartup } from "./use-workbench-startup";
 import { threadComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
@@ -106,11 +105,14 @@ export default function App() {
     cached: cachedBootstrap,
     submission: {
       client: () => clientRef.current,
-      environment: submissionEnvironment({
-        client: () => clientRef.current, registry, preferences,
-        actions: () => actionsRef.current,
-        notify: (message, level) => actionsRef.current?.notify(message ?? "", level),
-      }),
+      environment: async () => {
+        const { submissionEnvironment } = await loadSubmissionEnvironment();
+        return submissionEnvironment({
+          client: () => clientRef.current, registry, preferences,
+          actions: () => actionsRef.current,
+          notify: (message, level) => actionsRef.current?.notify(message ?? "", level),
+        });
+      },
       load: loadSubmissionController,
     },
     settledThreadIds: () => preferences.getSnapshot().settledThreadIds,

@@ -29,7 +29,7 @@ export interface WorkbenchSessionOptions {
   cached?: CachedBootstrap;
   submission?: {
     client(): HostClient | undefined;
-    environment: SubmissionEnvironment;
+    environment: SubmissionEnvironment | (() => Promise<SubmissionEnvironment>);
     /** Optional renderer loader shares its idle preload with the first send. */
     load?(): Promise<typeof import("./submission-controller")>;
   };
@@ -159,10 +159,11 @@ export class WorkbenchSession {
     if (!adapter) return { accepted: false, message: "The workbench is not ready yet." };
     if (!this.submission) {
       this.submissionLoading ??= (adapter.load ? adapter.load() : import("./submission-controller"))
-        .then(({ createSubmissionController }) => {
+        .then(async ({ createSubmissionController }) => {
+          const environment = typeof adapter.environment === "function" ? await adapter.environment() : adapter.environment;
           const controller = createSubmissionController({
             client: adapter.client,
-            environment: adapter.environment,
+            environment,
             storage: this.options.storage,
             view: this.view,
             threads: this.threads,
