@@ -39,10 +39,13 @@ export type PairEnvironmentResult =
   | { state: "denied" | "expired" | "cancelled" }
   | { state: "failed"; message: string };
 
+/** An address that does not answer gives way to the next one instead of waiting out the system's TCP timeout. */
+const HANDSHAKE_TIMEOUT_MS = 10_000;
+
 function defaultSocket(url: string, trust: EndpointTrust | undefined): PairingSocket {
   const options: ClientOptions = url.startsWith("wss:")
-    ? { createConnection: hostTlsConnect(trust) as unknown as ClientOptions["createConnection"] }
-    : {};
+    ? { createConnection: hostTlsConnect(trust) as unknown as ClientOptions["createConnection"], handshakeTimeout: HANDSHAKE_TIMEOUT_MS }
+    : { handshakeTimeout: HANDSHAKE_TIMEOUT_MS };
   return new WebSocket(url, options) as unknown as PairingSocket;
 }
 

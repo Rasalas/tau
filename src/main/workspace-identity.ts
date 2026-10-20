@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { WORKSPACE_ID_PREFIX, isWorkspaceId, type WorkspaceRef } from "../shared/workspace-identity.js";
+import { writeFileReplacingSync } from "./atomic-rename.js";
 import { HostCommandError } from "./host-extension-errors.js";
 
 /**
@@ -24,7 +25,7 @@ export function readOrCreateHostId(path: string): string {
   }
   const hostId = randomBytes(16).toString("hex");
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, `${hostId}\n`, { encoding: "utf8", mode: 0o600 });
+  writeFileReplacingSync(path, `${hostId}\n`);
   return hostId;
 }
 

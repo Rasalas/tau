@@ -4,7 +4,7 @@ import { createServer, type Server } from "node:net";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pairingUrl, parsePairingPayload } from "../shared/connections.js";
-import { bootstrapSshHost, managedCli, managedSshArgs, validateSshTarget, type SshExecutor } from "./managed-ssh.js";
+import { ManagedSshTunnel, bootstrapSshHost, managedCli, managedSshArgs, validateSshTarget, type SshExecutor } from "./managed-ssh.js";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const close of cleanup.splice(0)) close(); });
@@ -74,6 +74,17 @@ describe("managed SSH", () => {
     await vi.waitFor(() => expect(fake.forwards).toHaveLength(2), { timeout: 5_000 });
     expect(fake.forwards[1]!.args[1]).toBe(`127.0.0.1:${result.pairing.route.port}:127.0.0.1:7799`);
     result.tunnel.close(); await new Promise((resolve) => setTimeout(resolve, 50)); expect(fake.forwards).toHaveLength(2);
+  });
+  it("logs in to nothing while another program holds the saved local port", async () => {
+    const fake = fakeSsh();
+    const foreign = createServer((socket) => socket.destroy());
+    await new Promise<void>((resolve) => foreign.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => foreign.close());
+    const tunnel = new ManagedSshTunnel({ target: "studio", platform: "linux", port: (foreign.address() as { port: number }).port }, fake.exec);
+    cleanup.push(() => tunnel.close());
+    await expect(tunnel.start()).rejects.toThrow(/Another program listens/u);
+    expect(fake.run).not.toHaveBeenCalled();
+    expect(fake.forwards).toHaveLength(0);
   });
   it("stops before download or upload when SSH cannot authenticate", async () => {
     const fake = fakeSsh(); fake.run.mockRejectedValueOnce(new Error("Host key verification failed"));

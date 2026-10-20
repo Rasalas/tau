@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream, mkdirSync, readdirSync, unlinkSync } from "node:fs";
-import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import { readFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { writeFileReplacing } from "./atomic-rename.js";
 import { DATA_FOLDER_BUSY_EXIT_CODE, dataFolderBusy, describeDataFolderOwner, waitForDataFolderFree } from "./data-folder-lock.js";
 import type { HostLogger } from "./host-log.js";
 import { HostUplink } from "./host-uplink.js";
@@ -129,7 +130,7 @@ export async function readHostDescriptor(userData: string): Promise<HostProcessD
 
 export async function writeHostDescriptor(userData: string, descriptor: HostProcessDescriptor): Promise<void> {
   await mkdir(userData, { recursive: true }).catch(() => undefined);
-  await writeFile(hostDescriptorPath(userData), `${JSON.stringify(descriptor, null, 2)}\n`, { mode: 0o600 });
+  await writeFileReplacing(hostDescriptorPath(userData), `${JSON.stringify(descriptor, null, 2)}\n`);
 }
 
 /**

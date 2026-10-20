@@ -89,14 +89,14 @@ type Method = (params: readonly unknown[], context: HostMethodContext) => Promis
  */
 export function createMachinePairingMethods(deps: MachinePairingDeps): Record<string, Method> {
   const owned = <Args extends readonly unknown[], Result, WireArgs extends readonly unknown[] | never>(
-    definition: HostCommand<Args, Result, WireArgs>, run: (params: Args) => Result | Promise<Result>,
+    definition: HostCommand<Args, Result, WireArgs>, run: (params: Args, context: HostMethodContext) => Result | Promise<Result>,
   ): Method => async (params, context) => {
     if (!isHostOwner(context.principal)) throw ownerRefusal();
     return bindHostCommand(definition, run)(params, context);
   };
   return {
     "machines-overview": owned(HOST_FACTORY_COMMANDS["machines-overview"], () => overview(deps)),
-    "machines-pair": owned(HOST_FACTORY_COMMANDS["machines-pair"], async (params): Promise<MachinePairResult> => {
+    "machines-pair": owned(HOST_FACTORY_COMMANDS["machines-pair"], async (params, context): Promise<MachinePairResult> => {
       const input = params[0];
       const list = await overview(deps);
       const known = input.id ? list.machines.find((entry) => entry.id === input.id) : undefined;
@@ -117,7 +117,9 @@ export function createMachinePairingMethods(deps: MachinePairingDeps): Record<st
       }
       const machines = deps.machines();
       if (!machines) return { state: "failed", message: "This machine keeps no list of machines for its agents." };
-      const result = await (deps.pair ?? pairEnvironment)({ text: input.link, deviceName: agentsDeviceName(machines.self.name) });
+      // A link that went silent ends with the job, or at the latest when the window's pairing would have.
+      const signal = AbortSignal.any([context.signal, AbortSignal.timeout(PAIR_TIMEOUT_MS)]);
+      const result = await (deps.pair ?? pairEnvironment)({ text: input.link, deviceName: agentsDeviceName(machines.self.name), signal });
       if (result.state !== "approved") return result;
       const { environment } = result;
       if (input.id && environment.id !== input.id) return { state: "failed", message: "The link's address answered as another machine than the one that made it." };

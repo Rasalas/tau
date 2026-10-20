@@ -1163,7 +1163,7 @@ export class PiHost {
       const spare = backendKind === "pi" ? await this.prewarm.takeSpare(targetCwd) : undefined;
       const thread = spare
         ?? (backendKind !== "pi"
-          ? await this.runtimes.openExternal(backendKind, randomUUID(), targetCwd, { resume: false })
+          ? await this.runtimes.openExternal(backendKind, randomUUID(), targetCwd, { resume: false, adopt: false })
           : await this.runtimes.open(
             SessionManager.create(targetCwd, this.sessionsDirOverride),
             { type: "session_start", reason: "new", previousSessionFile: this.active?.sessionFile },
@@ -1216,7 +1216,8 @@ export class PiHost {
         if (lifecycle === "prepared") {
           if (isLocalPiRuntime(thread) && !configuration?.model && !configuration?.thinkingLevel && !configuration?.mode) this.prewarm.retainSpare(thread);
           else {
-            await this.runtimes.dispose(thread);
+            if (this.threads.has(thread.threadId)) await this.threads.release(thread.threadId);
+            else await this.runtimes.dispose(thread);
             if (backendKind === "pi") this.prewarm.scheduleSpare(targetCwd, true);
           }
           return this.publication.newThreadResult([], { accepted: false, message: this.errorMessage(error) }, requestId);
@@ -1586,21 +1587,24 @@ export class PiHost {
         onAdmitted: (accepted, error) => reportPreflight({ accepted, ...(error !== undefined ? { error } : {}) }),
       });
       void run.then(async () => {
-        if (this.threads.get(thread.threadId)?.runtime !== thread) return;
+        if (this.threads.get(thread.threadId)?.runtime !== thread) {
+          // A runtime released before admitting the prompt never ran it.
+          if (preflightState === "pending") reportPreflight({ accepted: false, error: new Error("The agent session changed while the message was being prepared. Send it again.") });
+          return;
+        }
         if (preflightState === "pending") reportPreflight({ accepted: true });
         if ((preflightState as PromptPreflightState) === "rejected") return;
         if (preparedTurnId) this.turnsInFlight.clear(thread.threadId, preparedTurnId);
         if (preparedTurnId) await this.turnObservers.ended(thread.threadId, preparedTurnId, "completed");
         if (this.threads.get(thread.threadId)?.runtime === thread) await this.index.refreshShell(thread, true);
       }).catch((error) => {
-        if (this.threads.get(thread.threadId)?.runtime !== thread) return;
         if (preflightState === "pending") reportPreflight({ accepted: false, error });
-        else if (preflightState === "accepted") this.turns.failAcceptedTurn(thread, preparedTurnId, error);
+        else if (preflightState === "accepted" && this.threads.get(thread.threadId)?.runtime === thread) this.turns.failAcceptedTurn(thread, preparedTurnId, error);
       });
     } catch (error) {
-      if (this.threads.get(thread.threadId)?.runtime !== thread) return;
-      if ((preflightState as PromptPreflightState) === "accepted") this.turns.failAcceptedTurn(thread, preparedTurnId, error);
-      else reportPreflight({ accepted: false, error });
+      // An unadmitted prompt always settles, even when its runtime was released meanwhile.
+      if ((preflightState as PromptPreflightState) !== "accepted") reportPreflight({ accepted: false, error });
+      else if (this.threads.get(thread.threadId)?.runtime === thread) this.turns.failAcceptedTurn(thread, preparedTurnId, error);
     }
     // Reaching here means preflight accepted; a rejection throws out of the await.
     await preflight;

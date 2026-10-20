@@ -1,8 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, type ClientOptions } from "ws";
+import { PAIRING_REQUEST_LIFETIME_MS } from "../shared/pairing.js";
 import { pairWithHost, type PairingSocket } from "../workbench/host-pairing.js";
 import { HostAccess } from "./host-access.js";
 import { HostPushLog } from "./host-push-log.js";
@@ -134,5 +135,46 @@ describe("a device pairing with a host", () => {
   it("hears a spent link as such", async () => {
     const { url } = await host();
     expect(await pairWithHost({ url, code: "spent", createSocket: socket })).toEqual({ state: "refused", reason: "unknown-code" });
+  });
+});
+
+describe("a device pairing with a machine that goes silent", () => {
+  /** A socket that opens when told to and answers only what the test sends. */
+  function silentSocket() {
+    const listeners = new Map<string, (event: { data: unknown }) => void>();
+    const state = { closed: false };
+    const created: PairingSocket = {
+      send: () => undefined,
+      close: () => { state.closed = true; },
+      addEventListener: ((type: string, listener: (event: { data: unknown }) => void) => { listeners.set(type, listener); }) as PairingSocket["addEventListener"],
+    };
+    return { created, state, open: () => listeners.get("open")?.({ data: undefined }), reply: (frame: unknown) => listeners.get("message")?.({ data: JSON.stringify(frame) }) };
+  }
+
+  it("gives up on an address that never opens, and closes the socket", async () => {
+    const silent = silentSocket();
+    const result = await pairWithHost({ url: "ws://192.0.2.1:7788", createSocket: () => silent.created, replyTimeoutMs: 5 });
+    expect(result).toEqual({ state: "failed", message: "The machine did not answer in time." });
+    expect(silent.state.closed).toBe(true);
+  });
+
+  it("ends a request whose machine stops talking while the owner decides", async () => {
+    vi.useFakeTimers();
+    try {
+      const silent = silentSocket();
+      let id = "";
+      silent.created.send = (data) => { id = (JSON.parse(data) as { id: string }).id; };
+      const result = pairWithHost({ url: "ws://192.0.2.1:7788", createSocket: () => silent.created });
+      silent.open();
+      await vi.waitFor(() => { expect(id).not.toBe(""); });
+      silent.reply({ type: "pair-reply", id, reply: { state: "waiting", requestId: "r", verification: "123456", expiresAt: new Date().toISOString() } });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(silent.state.closed).toBe(false);
+      await vi.advanceTimersByTimeAsync(PAIRING_REQUEST_LIFETIME_MS);
+      expect(await result).toEqual({ state: "expired" });
+      expect(silent.state.closed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

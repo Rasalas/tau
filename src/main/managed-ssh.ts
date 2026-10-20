@@ -91,6 +91,9 @@ async function reachable(port: number): Promise<boolean> {
   });
 }
 
+/** How long a forward must hold before its drop starts the backoff over. */
+const STABLE_FORWARD_MS = 60_000;
+
 /** Owns one stable local address and reconnects SSH without changing a saved machine's endpoint. */
 export class ManagedSshTunnel {
   private child?: ChildProcessWithoutNullStreams;
@@ -104,20 +107,27 @@ export class ManagedSshTunnel {
   }
   private async startOnce(signal?: AbortSignal): Promise<void> {
     if (this.closed) throw new Error("The SSH forward was closed.");
+    // Whatever answers before the forward exists is another program; SSH would only fail to bind behind it.
+    if (await reachable(this.route.port)) throw new Error(`Another program listens on 127.0.0.1:${this.route.port}, this machine's local address. Quit it, or remove the machine and add it again.`);
     const ready = await this.exec.run(this.route.target, `${managedCli(this.route.platform)} service status >/dev/null; ${this.descriptorCommand()}`, undefined, signal);
     const descriptor = JSON.parse(ready.trim().split("\n").at(-1)! ) as { url: string };
     const remote = new URL(descriptor.url);
     if (!/^(ws|wss):$/u.test(remote.protocol) || !["127.0.0.1", "localhost", "[::1]"].includes(remote.hostname)) throw new Error("The managed host must listen on loopback.");
     if (this.closed || signal?.aborted) throw new Error("SSH setup was cancelled.");
-    this.child = this.exec.spawn(this.route.target, "cat >/dev/null", ["-L", `127.0.0.1:${this.route.port}:127.0.0.1:${remote.port}`]);
+    const child = this.child = this.exec.spawn(this.route.target, "cat >/dev/null", ["-L", `127.0.0.1:${this.route.port}:127.0.0.1:${remote.port}`]);
     let problem = "";
-    this.child.stderr.on("data", (bytes: Buffer) => { problem = (problem + bytes.toString()).slice(-2_000); });
-    this.child.on("error", () => this.reconnect());
-    this.child.on("close", () => this.reconnect());
+    let openedAt: number | undefined;
+    child.stderr.on("data", (bytes: Buffer) => { problem = (problem + bytes.toString()).slice(-2_000); });
+    child.on("error", () => this.reconnect());
+    child.on("close", () => {
+      // Only a forward that held counts as working; one that keeps dropping backs off.
+      if (openedAt !== undefined && Date.now() - openedAt >= STABLE_FORWARD_MS) this.attempts = 0;
+      this.reconnect();
+    });
     for (let attempt = 0; attempt < 100; attempt++) {
       if (signal?.aborted || this.closed) { this.close(); throw new Error("SSH setup was cancelled."); }
-      if (this.child.exitCode !== null) throw failure(problem);
-      if (await reachable(this.route.port)) { this.attempts = 0; return; }
+      if (child.exitCode !== null) throw failure(problem);
+      if (await reachable(this.route.port)) { openedAt = Date.now(); return; }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     this.child.kill(); throw new Error("SSH forwarding did not open in time.");
