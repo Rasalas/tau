@@ -115,10 +115,10 @@ export function writeBootstrapCache(
     if (byteLength(raw) > MAX_BYTES && retained.messages.length) {
       // The fewest oldest messages to drop, found by halving: one serialization
       // per step instead of one per dropped message.
-      const window = retained;
-      const without = (count: number) => boundedSnapshot({ ...window, messages: window.messages.slice(count), historyCompleteness: "unknown" });
+      const retainedWindow = retained;
+      const without = (count: number) => boundedSnapshot({ ...retainedWindow, messages: retainedWindow.messages.slice(count), historyCompleteness: "unknown" });
       let low = 1;
-      let high = window.messages.length;
+      let high = retainedWindow.messages.length;
       let fitting: string | undefined;
       while (low <= high) {
         const count = Math.floor((low + high) / 2);
