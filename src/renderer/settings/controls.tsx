@@ -17,16 +17,18 @@ import "./controls.css";
 type Tone = "neutral" | "accent" | "success" | "warn" | "danger";
 
 /** On or off, for a change that applies at once. */
-export function Switch({ label, checked, disabled, role = "switch", onChange }: {
+export function Switch({ label, checked, disabled, role = "switch", describedBy, onChange }: {
   label: string;
   checked: boolean;
   disabled?: boolean;
+  /** The id of visible text that says why it is as it is (a runtime that is not installed). */
+  describedBy?: string | undefined;
   /** `checkbox` for an option in a list of several; the look is the same. */
   role?: "switch" | "checkbox";
   onChange(next: boolean): void;
 }) {
   return (
-    <button type="button" className={`switch ${checked ? "on" : ""}`} role={role} aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)}>
+    <button type="button" className={`switch ${checked ? "on" : ""}`} role={role} aria-checked={checked} aria-label={label} aria-describedby={describedBy} disabled={disabled} onClick={() => onChange(!checked)}>
       <i />
     </button>
   );

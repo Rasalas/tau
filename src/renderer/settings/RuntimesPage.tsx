@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type ComponentType } from "react";
+import { useId, useState, useSyncExternalStore, type ComponentType } from "react";
 import { ChevronRight, Plus, Star } from "lucide-react";
 import type { HostSnapshot, UiRuntimeBackend } from "../../shared/contracts";
 import type { SettingsPageContribution, SettingsSectionProps } from "../extension-system";
@@ -21,13 +21,14 @@ const PI: UiRuntimeBackend = { kind: "pi", label: "Pi" };
 /** One runtime in the list: open it, see its state, and switch it on or off. */
 function RuntimeListItem({ row, selected, onOpen }: { row: RuntimeRow; selected: boolean; onOpen(): void }) {
   const enabled = useRuntimeEnabled(row.kind);
+  const stateId = useId();
   return (
     <li className="runtimes-item" data-selected={selected ? "" : undefined} data-off={enabled.value ? undefined : ""}>
       <button type="button" className="runtimes-item-open" aria-current={selected ? "true" : undefined} onClick={onOpen}>
         <ProviderIconStack runtimeProvider={row.kind} hint={false} className="runtimes-mark" />
         <span className="runtimes-item-text">
           <b>{row.label}</b>
-          <small {...tooltipProps(row.note, { side: "top" })}>
+          <small id={stateId} {...tooltipProps(row.note, { side: "top" })}>
             <StateLine row={row} />
           </small>
         </span>
@@ -36,7 +37,7 @@ function RuntimeListItem({ row, selected, onOpen }: { row: RuntimeRow; selected:
           <ChevronRight size={14} className="runtimes-chevron" aria-hidden />
         </span>
       </button>
-      <RuntimeEnabledSwitch setting={enabled} label={row.label} />
+      <RuntimeEnabledSwitch setting={enabled} label={row.label} missing={row.state === "missing" ? { describedBy: stateId } : undefined} />
     </li>
   );
 }

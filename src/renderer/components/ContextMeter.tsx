@@ -55,7 +55,9 @@ export function ContextMeter({
         onClick={() => setOpen((value) => !value)}
         aria-label={`Context ${Math.round(percent)} percent used`}
       >
-        <i />
+        <span className="context-dial-ring" aria-hidden="true"><i /></span>
+        {/* Readable without hovering; a short footer drops it with the lead controls (ComposerFooterControls). */}
+        <span className="context-dial-value" aria-hidden="true" data-composer-lead-label="">{Math.round(percent)}%</span>
       </button>
       {open ? (
         <div className="context-popover" ref={popover}>

@@ -1523,12 +1523,21 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 
 /* --------------------------------------------------------- context dial */
 
+/* The ring and its percentage: a thin arc alone read as a spinner. */
 .context-dial {
-  width: 16px; height: 16px; flex: none; border: 0; padding: 0;
-  border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  flex: none; display: inline-flex; align-items: center; height: 24px; border: 0; padding: 0 4px;
+  border-radius: 6px; background: none; color: var(--muted); font: var(--text-xs) var(--sans); cursor: pointer;
+}
+.context-dial:hover { background: var(--raised); color: var(--ink-2); }
+.context-dial-ring {
+  width: 16px; height: 16px; flex: none; border-radius: 50%; display: grid; place-items: center;
   background: conic-gradient(var(--muted) 0 var(--used), var(--line-control) var(--used) 100%);
 }
-.context-dial > i { width: 10px; height: 10px; border-radius: 50%; background: var(--field); }
+.context-dial-ring > i { width: 10px; height: 10px; border-radius: 50%; background: var(--field); }
+/* Padding rather than a gap, so the width the footer measures for it includes the space before it. */
+.context-dial-value { padding-left: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A block's label that leaves with the lead controls (ComposerFooterControls). */
+.composer-chips[data-lead-icons] [data-composer-lead-label] { display: none; }
 .context-popover {
   position: absolute; bottom: 28px; right: -52px; width: 252px; z-index: 30;
   display: flex; flex-direction: column; gap: 10px;

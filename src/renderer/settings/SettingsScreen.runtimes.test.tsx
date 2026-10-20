@@ -38,7 +38,7 @@ const catalog = (kind: string, providers: string[], status?: UiRuntimeCatalog["s
 });
 
 /** A host whose config files live in memory and whose catalogs answer; kits' calls are recorded: the page's buttons must make none. */
-function setup(options: { page?: string; section?: boolean; stacked?: boolean; config?: TauConfig; host?: TauConfig } = {}) {
+function setup(options: { page?: string; section?: boolean; stacked?: boolean; config?: TauConfig; host?: TauConfig; cursorInstalled?: boolean } = {}) {
   const hostCalls: unknown[][] = [];
   const registry = new ExtensionRegistry({ invoke: async (...args: unknown[]) => { hostCalls.push(args); return undefined; } }, { preferences: new PreferencesStore() });
   registry.activate({
@@ -60,7 +60,7 @@ function setup(options: { page?: string; section?: boolean; stacked?: boolean; c
   });
   const files: { host: TauConfig; project: TauConfig } = { host: options.host ?? {}, project: {} };
   const client = createFakeHostClient({
-    runtimeCatalogs: async () => [catalog("pi", ["anthropic", "openai", "anthropic"]), catalog("codex", ["openai"]), catalog("cursor", [], "not-installed")],
+    runtimeCatalogs: async () => [catalog("pi", ["anthropic", "openai", "anthropic"]), catalog("codex", ["openai"]), catalog("cursor", [], options.cursorInstalled ? undefined : "not-installed")],
     getConfig: async () => options.config ?? {},
     getConfigLayers: async (workspaceId) => (workspaceId ? { host: files.host, project: files.project, projectPath: "/work/app" } : { host: files.host }),
     updateConfig: async (patch, scope) => {
@@ -257,8 +257,24 @@ describe("Settings → Runtimes on a phone", () => {
 });
 
 describe("Settings → Runtimes: turning a runtime on or off", () => {
+  it("draws a runtime that is not installed off and inert, says why, and keeps the stored choice", async () => {
+    const { files, page } = setup({ page: "runtimes/cursor", host: { runtimeEnabled: { cursor: true } } as TauConfig });
+    await within(item(/Cursor Agent/u)).findByText("Not installed");
+    for (const place of [list(), within(page).getByRole("region", { name: "Cursor Agent" })]) {
+      const cursor = within(place).getByRole("switch", { name: "Use Cursor Agent" }) as HTMLButtonElement;
+      expect(cursor.getAttribute("aria-checked")).toBe("false");
+      expect(cursor.disabled).toBe(true);
+      expect(document.getElementById(cursor.getAttribute("aria-describedby")!)?.textContent).toContain("Not installed");
+    }
+    const detail = within(page).getByRole("region", { name: "Cursor Agent" });
+    // Not the user's "Off": nothing was turned off, and the install action stays.
+    expect(within(detail).queryByText("Off")).toBeNull();
+    expect(within(detail).getByRole("button", { name: "Install Cursor Agent" })).toBeTruthy();
+    expect(files.host).toEqual({ runtimeEnabled: { cursor: true } });
+  });
+
   it("gives each runtime a switch that is on until a level says otherwise, and writes the machine's level first", async () => {
-    const { files, page } = setup({ page: "runtimes/cursor" });
+    const { files, page } = setup({ page: "runtimes/cursor", cursorInstalled: true });
     const cursor = await within(list()).findByRole("switch", { name: "Use Cursor Agent" });
     expect(cursor.getAttribute("aria-checked")).toBe("true");
     fireEvent.click(cursor);
@@ -271,7 +287,7 @@ describe("Settings → Runtimes: turning a runtime on or off", () => {
   });
 
   it("writes a project's own entry over the machine's, and resets it from the runtime's head", async () => {
-    const { files, page } = setup({ page: "runtimes/codex", host: { runtimeEnabled: { cursor: false } } as TauConfig });
+    const { files, page } = setup({ page: "runtimes/codex", host: { runtimeEnabled: { cursor: false } } as TauConfig, cursorInstalled: true });
     fireEvent.click(await within(page).findByRole("button", { name: /Settings apply to this machine/u }));
     fireEvent.click(within(page).getByRole("menuitemradio", { name: /app/u }));
     await within(page).findByRole("button", { name: /Settings apply to app/u });
