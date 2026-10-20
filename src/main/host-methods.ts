@@ -14,7 +14,7 @@ import type {
 import { HOST_ERROR, jobMethodKey } from "../shared/host-transport.js";
 import { type SystemNotification, type SystemNotificationOutcome } from "../shared/system-attention.js";
 import { type MenuPoint, type NativeMenuEntry } from "../shared/context-menu.js";
-import { type WindowAction } from "../shared/window-shell.js";
+import { type ReleaseNotes, type WindowAction } from "../shared/window-shell.js";
 import type { PiHost } from "./pi-host.js";
 import { defaultUserThemeResolver } from "./user-themes.js";
 import { openExternalEditor } from "./external-editor.js";
@@ -163,6 +163,8 @@ export interface HostMethodDeps {
   blobs?(): HostBlobStore | undefined;
   /** The machine's own Tau updates (K103); absent for a host in the window's process. */
   updates?(): HostUpdater | undefined;
+  /** Public release information, readable by paired clients without a native window. */
+  releaseNotes?: { get(version: string, fromVersion?: string): Promise<ReleaseNotes[]> };
 }
 
 const JOB_CONTROL_METHODS = new Set(["start-job", "cancel-job", "job-methods"]);
@@ -431,6 +433,7 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     }),
     ...createBlobMethods(() => deps.blobs?.()),
     ...createUpdateMethods(() => deps.updates?.()),
+    "release-notes": bindHostCommand(HOST_COMMANDS["release-notes"], async ([version, fromVersion]) => deps.releaseNotes?.get(version, fromVersion) ?? []),
 
     // The other direction of the protocol: a client answering a `client-call`.
     // Only the connection it was sent to may answer (ADR 0023).

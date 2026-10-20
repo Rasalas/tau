@@ -13,6 +13,7 @@ export function hostStorage(base: ClientStorage, hostId: string): ClientStorage 
     get: (key) => base.get(scoped(key)),
     set: (key, value) => base.set(scoped(key), value),
     remove: (key) => base.remove(scoped(key)),
+    ...(base.withLock ? { withLock: <T,>(key: string, work: () => Promise<T>) => base.withLock!(scoped(key), work) } : {}),
     keys: (narrow) => narrow?.startsWith(DEVICE_STORAGE_PREFIX)
       ? base.keys(narrow)
       : base.keys(prefix + (narrow ?? "")).map((key) => key.slice(prefix.length)),

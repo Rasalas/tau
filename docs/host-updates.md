@@ -343,3 +343,11 @@ moment.
   accepts only the same team's valid code signature in addition to the signed
   release checksum. Windows has no Authenticode signing yet; its NSIS
   installer runs as the user after verification against the signed release.
+
+### Phone update review
+
+The compact client offers machine updates above its thread list when attention is needed, and permanently in Settings → Machines. The review opens as a full page with one row per machine and a fixed action area. Release notes open as a separate reader; Back returns to the review. Neither opening the review nor reading notes installs anything.
+
+The phone uses the same persisted coordinator, continuation choice and reconnect queue as desktop. Queued machines have an explicit Cancel action, completed and skipped machines are grouped, and the native host-scoped storage forwards locks to the underlying device store. Keep Tau open for queued requests to dispatch. Updating a machine does not update the native phone app; About and the review name the relevant app store separately.
+
+The `release-notes` host method is a read operation, so paired Read-only devices can inspect release groups. A headless host owns its persisted changelog cache too. Clients without a native window use this method for the reader; native window actions remain unavailable on those clients.

@@ -72,6 +72,7 @@ import { appPackageVersion } from "./packaged-app.js";
 import { HostUpdater, localWindowUpdatePort } from "./host-updater.js";
 import { hostInstaller } from "./update-installers.js";
 import { readUpdateFeed, releaseKeysFor } from "./release-feed.js";
+import { ReleaseNotesStore, fileReleaseNotes, githubReleaseNotes } from "./release-notes.js";
 import { RELEASE_PUBLIC_KEYS } from "../shared/release-keys.js";
 import { HostConnect } from "./host-connect.js";
 import { openConnectListener } from "./connect-listener.js";
@@ -388,12 +389,19 @@ async function main(): Promise<void> {
     ...(serviceKind === "task-scheduler" ? { windowsTask: service.names.task } : {}),
   });
   const feedFile = join(dirname(appRoot), "app-update.yml");
+  const feed = existsSync(feedFile) ? readUpdateFeed(await readFile(feedFile, "utf8").catch(() => "")) : undefined;
+  const notesFile = process.env.TAU_RELEASE_NOTES_FILE;
+  const releaseNotes = new ReleaseNotesStore({
+    file: join(userData, "host-release-notes.json"), currentVersion: hostVersion,
+    ...(notesFile ? { source: fileReleaseNotes(notesFile) } : feed ? { source: githubReleaseNotes(feed) } : {}),
+    log: (label, detail) => hostLog.warn(label, detail),
+  });
   updates = new HostUpdater({
     version: hostVersion,
     arch: process.arch,
     platform: process.platform,
     ...target,
-    ...(existsSync(feedFile) ? { feed: readUpdateFeed(await readFile(feedFile, "utf8").catch(() => "")) } : {}),
+    ...(feed ? { feed } : {}),
     ...(process.env.TAU_UPDATE_FEED_URL ? { feedOverride: process.env.TAU_UPDATE_FEED_URL } : {}),
     releaseKeys: releaseKeysFor(process.env, RELEASE_PUBLIC_KEYS),
     dir: join(userData, "updates"),
@@ -415,6 +423,7 @@ async function main(): Promise<void> {
     browserResources,
     machineRoutes,
     updates: () => updates,
+    releaseNotes,
     clientCalls,
     connections: () => connectionsService(),
     externalMcp: () => externalMcp,

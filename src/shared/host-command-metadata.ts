@@ -36,6 +36,7 @@ export const HOST_FACTORY_COMMAND_METADATA = {
   "readiness": READ,
   "update-status": READ,
   "update-check": READ,
+  "release-notes": READ,
   "update-install": WRITE,
   "update-settings": WRITE,
   "blob-put": WRITE,

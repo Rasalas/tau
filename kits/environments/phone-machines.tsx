@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { Plus } from "lucide-react";
-import type { PlatformEnvironments, SettingsPageProps, UiEnvironments } from "tau";
+import type { PlatformEnvironments, SettingsPageProps, UiEnvironments, UpdateCoordinator } from "tau";
+import { PhoneUpdates } from "./phone-updates.js";
 import { withAgentMachines, type AgentMachinesStore } from "./page-machine.js";
 import { MachineIcon, useEnvironments } from "./rail.js";
 import { runOnDetail } from "./run-on.js";
@@ -21,7 +22,7 @@ export function usePhoneMachines(environments: PlatformEnvironments, agents: Age
  * asked again. A machine only the host on screen reaches is listed, not opened.
  * Pairing another happens in the app's own host list.
  */
-export function createPhoneMachinesPage(environments: PlatformEnvironments, agents: AgentMachinesStore) {
+export function createPhoneMachinesPage(environments: PlatformEnvironments, agents: AgentMachinesStore, updates: UpdateCoordinator) {
   return function PhoneMachines({ onNotify }: SettingsPageProps) {
     const machines = usePhoneMachines(environments, agents);
     const fail = (error: unknown) => onNotify(error instanceof Error ? error.message : String(error), "error");
@@ -29,6 +30,7 @@ export function createPhoneMachinesPage(environments: PlatformEnvironments, agen
     const { list, paired } = machines;
     const via = list.environments.find((machine) => machine.id === list.shown)?.name;
     return <div className="settings-page machines-phone">
+      <PhoneUpdates updates={updates} />
       <div className="run-on-rows" role="group" aria-label="Machines">
         {list.environments.map((machine) => {
           const projects = machine.projects.map((project) => project.name).join(", ");

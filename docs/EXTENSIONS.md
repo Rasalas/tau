@@ -2082,11 +2082,13 @@ It also exports the renderer's shared state and presentation:
 | `loadReviewMode` | the full-window review surface, as its own chunk. |
 | the workspace vocabulary | `UiWorkspaceChanges`, `UiFileDiff`, `FileNode`, `WorkspaceInfo`, `UiTurnCheckpoint`, `HostActionResult` … the shapes the stage and the host commands both speak. |
 
-API 1.78.0 exports `UpdateCenter` and `UPDATE_CENTER_SERVICE` (`tau.updates`).
+API 1.78.0 exports `UpdateCenter`, `UpdateNotes` and `UPDATE_CENTER_SERVICE` (`tau.updates`).
 The Machines extension publishes an `UpdateCoordinator` there; the workspace's
 update entry subscribes to its `UpdateCenterView` and delegates review, run,
 result checks, retries and queued-update cancellation to it. Without a
 coordinator, `UpdateCenter` reviews this machine's ordinary app update.
+`UpdateNotes` renders the same release groups in a kit's own surface; it takes
+`version`, optional `fromVersion`, and an optional `onBack` callback.
 
 `context.provideService(id, value)` and `context.useService(id, use)` are how
 the extensions of one product reach one another without core learning what

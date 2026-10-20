@@ -24,8 +24,7 @@ export function createSocketHostClient(
   connection = new HostConnection(transport);
   const client = createHostClient(connection, local);
   if (local) return { client, connection };
-  // A page without a window process (a browser tab, the app) has no window to act on, and asking
-  // the host would count as a change a paired device made.
+  // A page without a native window cannot issue actions against the host's window.
   const windowAction = async (): Promise<never> => { throw new HostRequestError("This client has no window of its own.", HOST_ERROR.unsupported); };
   return { client: { ...client, windowAction }, connection };
 }

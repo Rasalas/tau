@@ -146,6 +146,8 @@ export interface HostClient {
   showContextMenu(entries: NativeMenuEntry[], point: MenuPoint): Promise<string | undefined>;
   /** Asks the window's own process (`src/shared/window-shell.ts`); refused where the client has none. */
   windowAction: CommandClient<"window-action">;
+  /** Public release groups from the connected host, including clients without a native window. */
+  releaseNotes: CommandClient<"release-notes">;
   onHostEvent(listener: (event: HostEvent) => void): () => void;
   /**
    * Whether the host announced a capability in its hello. `local-files` means
@@ -417,6 +419,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     setBadge: (count) => commandCall("set-badge", [count]),
     showContextMenu: async (entries, point) => (await commandCall("context-menu", [entries, point]))?.id,
     windowAction: (action) => commandCall("window-action", [action]),
+    releaseNotes: (version, fromVersion) => commandCall("release-notes", [version, fromVersion]),
     // The window's own process publishes these on its own transport; the host never does.
     onHostEvent: (listener) => {
       const offHost = connection.onEvent(listener);

@@ -233,6 +233,19 @@ describe("socket host client", () => {
 
     await expect(client.windowAction({ kind: "status" })).rejects.toMatchObject({ code: "unsupported" });
     expect(request).not.toHaveBeenCalled();
+    connection.close();
+  });
+
+  it("reads release notes from the host without granting access to native window actions", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const { client, connection } = createSocketHostClient("ws://host.test:7788");
+    const notes = [{ version: "0.8.0", items: ["A change"], totalItems: 1 }];
+    const request = vi.spyOn(connection, "request").mockResolvedValue(notes);
+    expect(await client.releaseNotes("0.8.0", "0.7.9")).toEqual(notes);
+    expect(request).toHaveBeenCalledWith("release-notes", ["0.8.0", "0.7.9"]);
+    await expect(client.windowAction({ kind: "check-for-updates" })).rejects.toMatchObject({ code: "unsupported" });
+    expect(request).toHaveBeenCalledOnce();
+    connection.close();
   });
 
   it("ignores a frame that is not JSON at all and keeps serving the connection", async () => {

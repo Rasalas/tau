@@ -14,6 +14,7 @@ import { createMachineToolsSection } from "./runtime-tools-section.js";
 import { createPhoneMachinesPage, usePhoneMachines } from "./phone-machines.js";
 import { createUpdatePlanSection } from "./update-plan-section.js";
 import { createUpdateController } from "./update-controller.js";
+import { PhoneUpdates } from "./phone-updates.js";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -83,6 +84,7 @@ export const environmentsExtension: DesktopExtension = {
     if (!environments) return;
     const updates = createUpdateController(environments);
     context.provideService(UPDATE_CENTER_SERVICE, updates);
+    context.registerRegion({ id: "environments.updates", placement: "thread-list-head", order: -10, profiles: ["compact"], Component: () => <PhoneUpdates updates={updates} notice /> });
     context.registerSettingsSection({ id: "environments.update-everything", page: MACHINES_SETTINGS_PAGE, profiles: ["desktop"],
       Component: createUpdatePlanSection(environments, updates), rows: [{ id: "setting-update-everything", label: "Update everything", keywords: ["tools", "machines", "app", "updates", "restart"] }] });
     let machineImport: MachineImportService | undefined;
@@ -126,7 +128,7 @@ export const environmentsExtension: DesktopExtension = {
       profiles: ["compact"],
       // "2 online" beside it in the list.
       useSummary: useOnline,
-      Component: createPhoneMachinesPage(environments, agents),
+      Component: createPhoneMachinesPage(environments, agents, updates),
     });
     context.registerCommand({
       id: "environments.add",

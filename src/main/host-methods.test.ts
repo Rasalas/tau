@@ -7,13 +7,14 @@ import { PiHost } from "./pi-host.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 
-function methodsFor(host: PiHost, externalMcp?: Parameters<typeof createHostMethods>[0]["externalMcp"]) {
+function methodsFor(host: PiHost, externalMcp?: Parameters<typeof createHostMethods>[0]["externalMcp"], releaseNotes?: Parameters<typeof createHostMethods>[0]["releaseNotes"]) {
   const unsupported = (): never => { throw new Error("not in this test"); };
   return createHostMethods({
     bootstrap: unsupported,
     requireHost: async () => host,
     host: () => host,
     externalMcp,
+    ...(releaseNotes ? { releaseNotes } : {}),
     jobs: new HostJobRunner(() => undefined),
     platform: {
       copyText: unsupported, copyImage: unsupported, readImagePreview: unsupported,
@@ -23,6 +24,17 @@ function methodsFor(host: PiHost, externalMcp?: Parameters<typeof createHostMeth
     },
   });
 }
+
+it("lets a Read-only paired phone read release groups without a window", async () => {
+  const notes = [{ version: "0.8.0", items: ["A change"], totalItems: 1 }];
+  const get = vi.fn(async () => notes);
+  const methods = methodsFor(undefined as unknown as PiHost, undefined, { get });
+  const phone = { kind: "workbench-client", connection: "phone", pairedClient: "paired", readOnly: true } as const;
+  expect(await invokeHostMethod(methods, "release-notes", ["0.8.0", "0.7.9"], phone)).toEqual(notes);
+  expect(get).toHaveBeenCalledWith("0.8.0", "0.7.9");
+  await expect(invokeHostMethod(methods, "release-notes", [5], phone)).rejects.toThrow("release-notes: version must be a non-empty string");
+  expect(get).toHaveBeenCalledOnce();
+});
 
 it("keeps MCP grant management on the local owner's protocol channel", async () => {
   const manage = vi.fn(async () => ({ clients: [] }));

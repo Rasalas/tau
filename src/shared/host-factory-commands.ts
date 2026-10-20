@@ -37,6 +37,7 @@ import {
 import { personPreferences, type PersonPreferences } from "./person-preferences.js";
 import type { TranscriptPage } from "./host-protocol.js";
 import type { ConfigLayers } from "./config-layers.js";
+import type { ReleaseNotes } from "./window-shell.js";
 const failure = (message: string, code: string = HOST_ERROR.invalidRequest): Error => Object.assign(new Error(message), { code });
 function decodeObject(method: string, value: unknown): Record<string, unknown> {
   if (value === undefined || value === null) return {};
@@ -281,6 +282,9 @@ export const HOST_FACTORY_COMMANDS = attachCommandMetadata(HOST_FACTORY_COMMAND_
   }),
   "update-check": command<HostUpdateStatus>()({
     decode: (_params) => [] as const,
+  }),
+  "release-notes": command<ReleaseNotes[], [version: string, fromVersion?: string | undefined]>()({
+    decode: (params) => [decodeString("release-notes", "version", params[0]), decodeOptionalText("release-notes", "fromVersion", params[1])] as const,
   }),
   "update-install": command<HostUpdateStatus>()({
     audit: { label: "started a Tau update" },

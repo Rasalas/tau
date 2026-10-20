@@ -97,7 +97,6 @@ export function useWindowShell(options: WindowShellOptions): { handle(event: Win
         id: "tau.release-notes",
         type: "success",
         title: `Tau ${release.version} is installed`,
-        ...(readable ? { description: "See what changed in this release." } : {}),
         timeoutMs: RELEASE_NOTES_TOAST_MS,
         actions: readable
           ? [{ label: "What’s new", opens: true, run: () => { if (!openReleaseNotes(release.version)) setNotes(release); } }]
