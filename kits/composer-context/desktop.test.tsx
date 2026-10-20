@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ComposerInlineContext, HostSnapshot } from "tau";
+import type { ComposerInlineContext, HostSnapshot, UiSession, WorkbenchActions } from "tau";
 import { THREAD_PULL_REQUESTS_SERVICE, type ThreadPullRequest, type ThreadPullRequestsService } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
-import composerContext, { ExcerptDetail, parseFileQuery, storeInChunks, storeWithRetry } from "./desktop.js";
+import composerContext, { ADD_THREAD_COMMAND, ExcerptDetail, parseFileQuery, storeInChunks, storeWithRetry } from "./desktop.js";
 import { ChipStore } from "./chips.js";
 import { COMPOSER_CONTEXT_CHIPS_SERVICE, COMPOSER_CONTEXT_ID, PASTE_FOLD_BYTES, PULL_REQUEST_DRAG_TYPE, THREAD_DRAG_TYPE, UPLOAD_CHUNK_BYTES, type ComposerContextChips, type PullRequestSummary } from "./protocol.js";
 
@@ -164,6 +164,43 @@ describe("Composer Context desktop", () => {
     const inlined = await main!.prepareSend!({ ...inline(), text: "continue" });
     expect(inlined?.context).toContain('<file path="/state/attachments/t1/ab-thread-Fix login.md" name="thread-Fix login.md">\n# Fix login');
     expect(inlined?.attachments).toEqual([]);
+  });
+
+  it("adds a thread from the palette as the drop does, without switching to it", async () => {
+    const { registry, invoke, saved, labels } = activate();
+    const [main] = registry.getComposerInlines();
+    const switchSession = vi.fn();
+    const openCommandPalette = vi.fn();
+    const notify = vi.fn();
+    const actions = { switchSession, openCommandPalette, notify } as unknown as WorkbenchActions;
+    const command = registry.getCommand(ADD_THREAD_COMMAND)!;
+    expect(command.label).toBe("Add a thread as context…");
+    void command.run(actions);
+    expect(openCommandPalette).toHaveBeenCalledWith({ menu: ADD_THREAD_COMMAND });
+
+    const thread = (id: string, title: string, extra: Partial<UiSession> = {}) => ({ id, title, projectName: "demo", ...extra }) as UiSession;
+    const threads = [thread("t1", "This thread"), thread("t9", "Fix login "), thread("r1", "Elsewhere", { machine: { id: "m2", name: "Studio" } })];
+    const items = await command.submenu!.items("", { actions, index: { projects: [], threads, activeThreadId: "t1" }, signal: new AbortController().signal });
+    expect(items.map((item) => item.label)).toEqual(["Fix login "]);
+    expect(items[0]).toMatchObject({ detail: "demo" });
+
+    act(() => { void items[0]!.run!(actions); });
+    expect(labels()).toEqual(["Fix login"]);
+    expect(switchSession).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    await waitFor(() => expect(saved.value).toMatchObject({ chips: [{ kind: "thread", payload: { threadId: "t9", title: "Fix login" } }] }));
+    await main!.prepareSend!({ ...inline({ fileAttachments: true }), text: "continue" });
+    expect(invoke).toHaveBeenCalledWith(COMPOSER_CONTEXT_ID, "snapshot-thread", { scope: SCOPE, threadId: "t9", title: "Fix login" });
+  });
+
+  it("says why when no composer is on screen to take the palette's thread", async () => {
+    const { registry, view } = activate();
+    view.unmount();
+    const notify = vi.fn();
+    const actions = { switchSession: vi.fn(), notify } as unknown as WorkbenchActions;
+    const items = await registry.getCommand(ADD_THREAD_COMMAND)!.submenu!.items("", { actions, index: { projects: [], threads: [{ id: "t9", title: "Fix login", projectName: "demo" } as UiSession] }, signal: new AbortController().signal });
+    void items[0]!.run!(actions);
+    expect(notify).toHaveBeenCalledWith("Open a thread's composer first; the thread goes into its message.");
   });
 
   it("refuses the send, and keeps the chip, when a dragged thread cannot be read", async () => {

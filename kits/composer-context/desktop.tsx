@@ -1,8 +1,9 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { AlertCircle, FileText, GitPullRequest, MessageSquare, Paperclip, Quote, X } from "lucide-react";
-import { THREAD_PULL_REQUESTS_SERVICE, type ThreadPullRequestsService } from "tau";
+import { ComposerMenuItem, ComposerMenuSection, THREAD_PULL_REQUESTS_SERVICE, type ThreadPullRequestsService } from "tau";
 import type {
   ComposerChipDetailProps,
+  ComposerControlProps,
   ComposerInlineChip,
   ComposerInlineContext,
   ComposerInlineProps,
@@ -10,7 +11,10 @@ import type {
   ComposerTriggerItem,
   DesktopExtension,
   HostExtensionClient,
+  PaletteItem,
+  PaletteMenu,
   UiPromptFileAttachment,
+  UiSession,
 } from "tau";
 import { SentExcerptChip } from "./sent-excerpt.js";
 import { readPullRequestDrop } from "./pull-request-drop.js";
@@ -196,6 +200,33 @@ export function ChipStrip({ store, scope, draftState, inline = false }: { store:
       ) : null}
     </div>
   );
+}
+
+/** The command whose palette level picks a thread for the composer on screen. */
+export const ADD_THREAD_COMMAND = "composer-context.add-thread";
+
+/**
+ * The palette level that adds a thread as context without dragging it: the
+ * threads this window lists, the open one left out, each adding the chip a
+ * dropped thread adds. Another machine's thread is left out too: its
+ * transcript is not on this machine to snapshot.
+ */
+export function addThreadMenu(add: (thread: UiSession) => boolean): PaletteMenu {
+  return {
+    title: "Add a thread as context",
+    placeholder: "Search threads…",
+    empty: "No other thread matches.",
+    items: (_query, { index }) => index.threads
+      .filter((thread) => thread.id !== index.activeThreadId && !thread.machine)
+      .map((thread): PaletteItem => ({
+        id: thread.id,
+        label: thread.title,
+        detail: thread.projectName,
+        icon: <MessageSquare size={14} aria-hidden />,
+        access: "write",
+        run: (actions) => { if (!add(thread)) actions.notify("Open a thread's composer first; the thread goes into its message."); },
+      })),
+  };
 }
 
 /** What the kit contributes to a prompt; exported for its tests. */
@@ -413,6 +444,33 @@ const composerContext: DesktopExtension = {
       }),
       settleSend: (scope, accepted) => store.settle(scope, accepted),
     });
+    // The keyboard's way to what a thread dragged onto the composer does.
+    const addThread = (thread: UiSession) => {
+      const scope = store.activeScope;
+      if (!scope) return false;
+      store.add(scope, { kind: "thread", payload: { threadId: thread.id, title: thread.title.trim() } });
+      return true;
+    };
+    context.registerCommand({
+      id: ADD_THREAD_COMMAND,
+      label: "Add a thread as context…",
+      group: "Composer",
+      access: "write",
+      submenu: addThreadMenu(addThread),
+      run: (actions) => actions.openCommandPalette({ menu: ADD_THREAD_COMMAND }),
+    });
+    const AddThreadItem = ({ actions }: ComposerControlProps) => (
+      <ComposerMenuSection heading="Context">
+        <ComposerMenuItem
+          icon={<MessageSquare size={13} />}
+          label="Add a thread as context…"
+          disabled={!actions}
+          onSelect={() => actions?.openCommandPalette({ menu: ADD_THREAD_COMMAND })}
+        />
+      </ComposerMenuSection>
+    );
+    context.registerComposerControl({ id: "composer-context.add-thread", placement: "menu", order: 30, profiles: ["desktop"], Component: AddThreadItem });
+
     // `drop` takes one type; the rail's thread drag is a second contribution of this kit.
     context.registerComposerInline({
       id: "composer-context.thread-drop",

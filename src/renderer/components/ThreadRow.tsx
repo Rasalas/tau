@@ -57,7 +57,7 @@ interface ThreadRowProps {
   /** Absent for a thread this rail cannot settle (another machine's): the row has no Settle button. */
   onToggleSettled?(id: string): void;
   /**
-   * The row's own buttons' tab stop (new after API 1.75.0): a list that moves
+   * The row's own buttons' tab stop (new in API 1.76.0): a list that moves
    * between rows with the arrow keys passes `0` for the row it is on and `-1`
    * for the others, so the list is one stop for Tab.
    */
