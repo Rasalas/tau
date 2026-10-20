@@ -190,7 +190,7 @@ describe("starting a new thread while only one of chat and stage fits", () => {
     // ⌘N, the rail and the palette open in the project on screen; ⇧⌘O and "New thread in…" ask.
     const starts: Array<() => Promise<void>> = [
       async () => { pressNewThreadShortcut(); },
-      async () => { fireEvent.click(screen.getByRole("button", { name: "New thread" })); },
+      async () => { fireEvent.click(within(screen.getByRole("navigation", { name: "Threads" }).closest("aside")!).getByRole("button", { name: "New thread" })); },
       async () => { await runPaletteCommand("Create new thread"); },
       async () => { pressNewThreadShortcut("O", true); await pickProjectWithEnter(); },
       async () => { await runPaletteCommand("New thread in…"); await pickProjectWithEnter(); },

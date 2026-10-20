@@ -13,6 +13,8 @@ import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import {
   isCurrentTranscriptSubmission,
+  mergeNewThreadRecoveryAttachments,
+  mergeNewThreadRecoveryDraft,
   transcriptNavigationScope,
   transcriptNavigationScopeKey,
   type NewThreadSubmissionCompletion,
@@ -30,6 +32,7 @@ import type { NewThreadDeliveryPort } from "./new-thread-delivery";
 import type { ThreadStore } from "./thread-store";
 import { SEND_FAILED_NOTICE, type ThreadViewStore } from "./thread-view-store";
 import type { DraftThreads } from "./draft-threads";
+import type { NewThreadController } from "./new-thread-controller";
 import {
   buildOptimisticMessage,
   addOptimisticMessage,
@@ -120,6 +123,27 @@ export interface SubmissionControllerPorts {
   enqueueFollowUp(threadId: string, item: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft; deliverAt?: number }): Promise<void>;
 }
 
+/** The adapters for delivery load with the controller, after the first send. */
+export function createSubmissionController(ports: Omit<SubmissionControllerPorts, "newThread" | "enqueueFollowUp"> & { newThread: NewThreadController }): SubmissionController {
+  const { newThread } = ports;
+  return new SubmissionController({
+    ...ports,
+    newThread: {
+      current: newThread.current, set: newThread.set,
+      update: (change) => newThread.set(change),
+      requestId: newThread.requestId, isCurrent: newThread.isCurrent,
+      markAwaitingPromotion: newThread.markAwaitingPromotion,
+      promoteFromUserMessage: newThread.promoteFromUserMessage,
+    },
+    enqueueFollowUp: async (threadId, item) => {
+      const client = ports.client();
+      if (!client) throw new Error("Queued messages need a connection to the machine.");
+      if (item.deliverAt === undefined) await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
+      else await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft, item.deliverAt);
+    },
+  });
+}
+
 /**
  * Everything that happens between the composer and the runtime: slash
  * commands, prepared prompts, optimistic rows, the transcript turn, the four
@@ -129,6 +153,25 @@ export class SubmissionController {
   private turnSequence = 0;
 
   constructor(private readonly ports: SubmissionControllerPorts) {}
+
+  /** A prompt the runtime failed after taking it goes back into its thread's composer, before what was typed since. */
+  restoreFailedPrompt(clientMessageId: string, sessionId: string): void {
+    const { view, scopes, storage } = this.ports;
+    const sent = view.getOptimisticMessages().find((entry) => entry.message.clientMessageId === clientMessageId)?.sent;
+    if (!sent) return;
+    const scope = createDraftKey(draftKey(sessionId));
+    const current = scopes.getSnapshot(scope);
+    const draft = mergeNewThreadRecoveryDraft(sent.text, current.draft);
+    if (draft !== current.draft) {
+      scopes.setDraft(scope, draft);
+      writeComposerDraft(storage, scope, draft);
+    }
+    const images = sent.attachments.flatMap((attachment) => attachment.kind !== "image" ? [] : [{
+      ...attachment, id: allocateAttachmentId(), previewUrl: `data:${attachment.mimeType};base64,${attachment.data}`,
+    }]);
+    const attachments = mergeNewThreadRecoveryAttachments(images, current.attachments);
+    if (attachments.length !== current.attachments.length) scopes.setAttachments(scope, attachments);
+  }
 
   /** The line a draft's transcript shows while an extension works on its first prompt. */
   private preparingNotice(pending: NewThreadDraft, scope: DraftKey): { preparing(message: string): void; clear(): void } {

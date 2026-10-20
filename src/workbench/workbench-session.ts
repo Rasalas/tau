@@ -2,8 +2,8 @@ import type { HostClient } from "./host-client";
 import type { SubmissionController, SubmissionEnvironment, SubmissionInput } from "./submission-controller";
 import type { HostBootstrap, HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiMessage, SubmissionResult, HostEvent } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
-import { draftKey, draftKeyOwner, writeComposerDraft, writeNewThreadDraft } from "./draft-store";
-import { allocateAttachmentId, createDraftKey, ComposerScopeStore } from "./composer-scope-store";
+import { draftKey, draftKeyOwner, writeNewThreadDraft } from "./draft-store";
+import { createDraftKey, ComposerScopeStore } from "./composer-scope-store";
 import { HostSessionState } from "./host-session-state";
 import {
   NewThreadDeliveryCoordinator,
@@ -18,7 +18,7 @@ import { ThreadStore } from "./thread-store";
 import { SEND_FAILED_NOTICE, ThreadViewStore } from "./thread-view-store";
 import { ToastStore } from "./toast-store";
 import { TranscriptHistoryController, type TranscriptBootstrapRequest, type TranscriptHistoryRequest, type TransitionToken } from "./transcript-history";
-import { mergeNewThreadRecoveryAttachments, mergeNewThreadRecoveryDraft, reconcileOptimisticMessages, transcriptNavigationScopeKey } from "./app-state";
+import { reconcileOptimisticMessages, transcriptNavigationScopeKey } from "./app-state";
 import { TurnScopeController } from "./turn-scope";
 import { WorkbenchStore, type WorkbenchDeliveryObservation } from "./workbench-store";
 import type { CachedBootstrap } from "./bootstrap-cache";
@@ -144,7 +144,8 @@ export class WorkbenchSession {
       promoteReportedThread: (sessionId, message, requestId) => this.promoteReportedThread(sessionId, message, requestId),
       promoteRecovery: (clientMessageId, sessionId, message) => this.promoteRecovery(clientMessageId, sessionId, message),
       settleDelivery: (clientMessageId, sessionId, settlement) => this.settleDelivery(clientMessageId, sessionId, settlement),
-      restoreFailedPrompt: (clientMessageId, sessionId) => this.restoreFailedPrompt(clientMessageId, sessionId),
+      // A sent optimistic row can exist only after the submission controller loaded.
+      restoreFailedPrompt: (clientMessageId, sessionId) => this.submission?.restoreFailedPrompt(clientMessageId, sessionId),
       detachPendingDelivery: this.deliveryCoordinator.detachPendingDelivery,
       release: this.deliveryCoordinator.release,
       rehomeDetached: (clientMessageId, recovery, sessionId) => this.deliveryCoordinator.rehomeDetached(clientMessageId, recovery, sessionId),
@@ -158,8 +159,8 @@ export class WorkbenchSession {
     if (!adapter) return { accepted: false, message: "The workbench is not ready yet." };
     if (!this.submission) {
       this.submissionLoading ??= (adapter.load ? adapter.load() : import("./submission-controller"))
-        .then(({ SubmissionController }) => {
-          const controller = new SubmissionController({
+        .then(({ createSubmissionController }) => {
+          const controller = createSubmissionController({
             client: adapter.client,
             environment: adapter.environment,
             storage: this.options.storage,
@@ -169,22 +170,10 @@ export class WorkbenchSession {
             hostSession: this.hostSession,
             delivery: this.delivery,
             notify: this.view.setNotice,
-            newThread: {
-              current: this.newThread.current, set: this.newThread.set,
-              update: (change) => this.newThread.set(change),
-              requestId: this.newThread.requestId, isCurrent: this.newThread.isCurrent,
-              markAwaitingPromotion: this.newThread.markAwaitingPromotion,
-              promoteFromUserMessage: this.newThread.promoteFromUserMessage,
-            },
+            newThread: this.newThread,
             drafts: this.drafts,
             turn: this.turn,
             host: this,
-            enqueueFollowUp: async (threadId, item) => {
-              const client = adapter.client();
-              if (!client) throw new Error("Queued messages need a connection to the machine.");
-              if (item.deliverAt === undefined) await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
-              else await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft, item.deliverAt);
-            },
           });
           this.submission = controller;
           return controller;
@@ -341,24 +330,6 @@ export class WorkbenchSession {
     const plan = this.deliveryCoordinator.settleDeliveryPlan(clientMessageId, sessionId, settlement);
     if (plan.promotion?.promoted) this.applyPromotion(plan.promotion);
     return plan.handled;
-  }
-
-  /** A prompt the runtime failed after taking it goes back into its thread's composer, before what was typed since. */
-  private restoreFailedPrompt(clientMessageId: string, sessionId: string): void {
-    const sent = this.view.getOptimisticMessages().find((entry) => entry.message.clientMessageId === clientMessageId)?.sent;
-    if (!sent) return;
-    const scope = createDraftKey(draftKey(sessionId));
-    const current = this.scopes.getSnapshot(scope);
-    const draft = mergeNewThreadRecoveryDraft(sent.text, current.draft);
-    if (draft !== current.draft) {
-      this.scopes.setDraft(scope, draft);
-      writeComposerDraft(this.options.storage, scope, draft);
-    }
-    const images = sent.attachments.flatMap((attachment) => attachment.kind !== "image" ? [] : [{
-      ...attachment, id: allocateAttachmentId(), previewUrl: `data:${attachment.mimeType};base64,${attachment.data}`,
-    }]);
-    const attachments = mergeNewThreadRecoveryAttachments(images, current.attachments);
-    if (attachments.length !== current.attachments.length) this.scopes.setAttachments(scope, attachments);
   }
 
   private currentScopeKey(): string {
