@@ -46,6 +46,24 @@ describe("SystemPromptModal", () => {
     });
   });
 
+  it("retries a failed read inside the accessible dialog", async () => {
+    const inspectSystemPrompt = vi.fn()
+      .mockRejectedValueOnce(new Error("Instructions unavailable"))
+      .mockResolvedValueOnce(mockInspection);
+    render(
+      <HostClientProvider client={createFakeHostClient({ inspectSystemPrompt })}>
+        <SystemPromptModal onClose={() => {}} threadId="thread-1" />
+      </HostClientProvider>,
+    );
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not read the instructions");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText(/You are an expert coding assistant/);
+    expect(inspectSystemPrompt).toHaveBeenCalledTimes(2);
+    expect(inspectSystemPrompt).toHaveBeenLastCalledWith("thread-1");
+    expect(screen.getByRole("tabpanel", { name: /Effective prompt/i })).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("navigates through tabs", async () => {
     const inspectSystemPrompt = vi.fn().mockResolvedValue(mockInspection);
     const fakeClient = createFakeHostClient({ inspectSystemPrompt });

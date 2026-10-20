@@ -111,7 +111,7 @@ describe("the Pull Requests page", () => {
     expect(screen.getAllByRole("region").map((region) => region.getAttribute("aria-label"))).toEqual(["tools", "cli"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Filter pull requests" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Host/u }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Site/u }));
     fireEvent.click(await screen.findByRole("menuitemradio", { name: "gitlab.com" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /^#14485 /u })).toBeNull());
     expect(screen.getByRole("button", { name: /^!3 /u })).toBeTruthy();

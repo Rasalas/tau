@@ -39,9 +39,12 @@ describe("queued messages of a thread the user leaves while the host answers", (
     const storage = createMemoryStorage();
     const scopes = new ComposerScopeStore();
     const submit = vi.fn(async () => ({ accepted: true as const }));
-    const onScreen = { composerDraft: vi.fn(() => ""), setComposerDraft: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;
+    const toast = vi.fn();
+    const queueMessage = vi.fn(async () => ({ id: "again" }));
+    const moveQueued = vi.fn(async () => undefined);
+    const onScreen = { composerDraft: vi.fn(() => ""), setComposerDraft: vi.fn(), notify: vi.fn(), toast } as unknown as WorkbenchActions;
     const rendered = renderHook(({ sessionId }) => useFollowUpQueue({
-      client: { takeQueued: vi.fn(take) } as unknown as HostClient,
+      client: { takeQueued: vi.fn(take), queueMessage, moveQueued } as unknown as HostClient,
       threads: new ThreadStore(),
       sessionId,
       currentSessionId: () => shown,
@@ -52,7 +55,7 @@ describe("queued messages of a thread the user leaves while the host answers", (
       composerOf: (threadId) => threadComposer(scopes, storage, threadId, vi.fn()),
     }), { initialProps: { sessionId: "A" } });
     const leave = () => { shown = "B"; rendered.rerender({ sessionId: "B" }); };
-    return { ...rendered, leave, submit, scopes, storage, onScreen };
+    return { ...rendered, leave, submit, scopes, storage, onScreen, toast, queueMessage, moveQueued };
   }
 
   it("sends one sent now to its own thread", async () => {
@@ -63,6 +66,20 @@ describe("queued messages of a thread the user leaves while the host answers", (
     queue.leave();
     await act(async () => { taken([{ id: "q1", text: "for A", attachments: [] }]); await sending; });
     expect(queue.submit).toHaveBeenCalledExactlyOnceWith("for A", [], undefined, undefined, "A");
+  });
+
+  it("undoes a removal into its original thread after navigation", async () => {
+    let taken!: (items: UiQueuedPrompt[]) => void;
+    const queue = queueOf(() => new Promise((resolve) => { taken = resolve; }));
+    act(() => queue.result.current.cancelQueued("q1"));
+    queue.leave();
+    await act(async () => { taken([{ id: "q1", text: "for A", attachments: [] }]); });
+    expect(queue.toast).toHaveBeenCalledOnce();
+    act(() => queue.toast.mock.calls[0]![0].actions[0].run());
+    await vi.waitFor(() => {
+      expect(queue.queueMessage).toHaveBeenCalledExactlyOnceWith("A", "for A", [], undefined, undefined);
+      expect(queue.moveQueued).toHaveBeenCalledExactlyOnceWith("A", "again", 0);
+    });
   });
 
   it("returns a stopped thread's queue to that thread's composer, below its saved draft", async () => {
