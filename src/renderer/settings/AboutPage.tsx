@@ -1,5 +1,5 @@
 import { SettingsFilter } from "./SettingsFilter";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronRight, Copy, Download, ExternalLink, FileText, RefreshCw } from "lucide-react";
 import { LICENSES_FILE, unpackLicenses, type ThirdPartyLicense } from "../../shared/third-party-licenses";
 import { defaultUpdateChannel, isUpdateChannel, type UpdateChannel } from "../../shared/app-version";
@@ -106,6 +106,8 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
   const cannotInstall = readOnly ? READ_ONLY
     : pending && client?.isOwner?.() !== true && !status!.devicesMayInstall ? `${machine ?? "This machine"}'s owner lets only its own Tau window install updates.`
     : undefined;
+  const showsAction = Boolean(status && !unsupported && status.phase !== "installed");
+  const cannotInstallId = useId();
   const run = (action: () => Promise<unknown>) => {
     setAsking(true);
     setProblem(undefined);
@@ -140,6 +142,8 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
           <div><strong>{version ?? "Unknown version"}</strong>{meta.length ? <span> · {meta.join(" · ")}</span> : null}</div>
           {line ? <p role="status">{line}</p> : null}
           {problem ? <p role="alert">{problem}</p> : null}
+          {/* A disabled button takes no focus for its tooltip; the reason is written out. */}
+          {showsAction && cannotInstall ? <p id={cannotInstallId}>{cannotInstall}</p> : null}
           <div className="about-links" id={settingAnchor("Check for updates")}>
             {status && !unsupported && status.phase !== "installed" ? (
               <span {...tooltipProps(cannotInstall)}>
@@ -148,6 +152,7 @@ export function AboutPage({ loader = loadLicenses }: { loader?: () => Promise<Th
                   icon={pending ? <Download size={12} /> : <RefreshCw size={12} />}
                   busy={busy}
                   disabled={busy || cannotInstall !== undefined}
+                  aria-describedby={cannotInstall ? cannotInstallId : undefined}
                   onClick={() => {
                     if (pending && !owner) setConfirming(true);
                     else run(() => (pending ? store!.install() : store!.check()));

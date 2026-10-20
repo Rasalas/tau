@@ -50,6 +50,9 @@ export function worstTarget(targets: readonly TargetStatus[]): TargetStatus | un
 
 export const targetTooltip = (target: TargetStatus) => `${target.label}: ${STATE_LABELS[target.state]}\n${statusSentence(target)}`;
 
+/** What a screen reader hears for a target: the dot and the tooltip say it only to the eye and the pointer. */
+export const targetAccessibleName = (target: TargetStatus) => `${target.label}: ${STATE_LABELS[target.state]}${target.checking ? ", checking" : ""}. ${statusSentence(target)}`;
+
 /** Title bar: a server glyph with the project's worst state as a dot, the targets in its tooltip. */
 export function createTitleChip(store: ServersStatusStore) {
   return function ServersTitleChip({ snapshot, actions }: RegionProps) {
@@ -64,7 +67,7 @@ export function createTitleChip(store: ServersStatusStore) {
       <button
         type="button"
         className="chrome-ghost servers-chip"
-        aria-label={`Servers: ${STATE_LABELS[target.state]}`}
+        aria-label={`Servers: ${STATE_LABELS[target.state]}${checking ? ", checking" : ""}${pending > 0 ? `, ${pending} not uploaded` : ""}`}
         {...tooltipProps(targets.map(targetTooltip).join("\n\n"), { side: "bottom", variant: "lines" })}
         onClick={() => openTarget(actions, status.workspace, target.targetId)}
       >
@@ -118,6 +121,7 @@ export function createRailSection(store: ServersStatusStore, workspace: () => Wo
             key={target.targetId}
             type="button"
             className="servers-rail-row"
+            aria-label={targetAccessibleName(target)}
             {...tooltipProps(`${target.address}\n${statusSentence(target)}`, { side: "right", variant: "lines" })}
             onClick={() => openTarget(actions, status.workspace, target.targetId)}
           >

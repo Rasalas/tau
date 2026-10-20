@@ -213,6 +213,7 @@
 .tau-danger-action { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-8); padding: var(--space-5) var(--space-6); }
 .tau-danger-action > div > h3 { margin: 0; font: 500 var(--text-md) var(--sans); letter-spacing: -.005em; color: var(--ink); }
 .tau-danger-action > div > p { margin: var(--space-2) 0 0; max-width: 576px; color: var(--muted); font: calc(var(--text-sm) + .5px)/1.45 var(--sans); }
+.tau-danger-action > div > p.tau-danger-action-reason { color: var(--faint); }
 @container (max-width: 560px) { .tau-danger-action { grid-template-columns: minmax(0, 1fr); gap: 10px; } }
 
 /* ---------------------------------------------------------- empty, error */

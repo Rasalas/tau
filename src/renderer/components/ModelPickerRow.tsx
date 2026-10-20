@@ -7,6 +7,10 @@ import { entryFacts, modelMaker, type ModelEntry } from "./model-entries";
 import { ProviderIconStack, providerLabel } from "./ProviderIconStack";
 import { monogram } from "../runtime-marks";
 import { runtimeInstanceId } from "../../shared/runtime-instances";
+import { formatKeyChord, parseKeyChord } from "../keybindings";
+
+/** The eye's key on the highlighted row: ⌥⇧↵ on macOS, Alt+Shift+↵ elsewhere. */
+const HIDE_KEYS = formatKeyChord(parseKeyChord("alt+shift+enter")!);
 
 /** What every row of one list shares: marks, the model in use, the chosen set and the row actions. */
 export interface RowCell {
@@ -135,7 +139,7 @@ export function EntryRow({ id, entry, way, line, selected, cells, onPoint, onLea
           className="model-row-action model-hide"
           tabIndex={-1}
           aria-label={hidden ? `Show ${name} in the picker` : `Hide ${name} from the picker`}
-          title={hidden ? "Show in the picker" : "Hide from the picker"}
+          title={`${hidden ? "Show in the picker" : "Hide from the picker"} (${HIDE_KEYS})`}
           onClick={(event) => { event.stopPropagation(); cells.onHide(entry); }}
         >
           {hidden ? <Eye size={13} /> : <EyeOff size={13} />}

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleDot, CircleSlash, CircleX, LoaderCircle, MessageSquare, Pencil, Send } from "lucide-react";
 import { errorMessage, type WorkbenchActions } from "tau";
+import { modEnterLabel } from "../_shared/platform-keys.js";
 import { RequestMarkdown as Markdown } from "./request-markdown.js";
 import { providerInfo, requestNumber, type ComposerContextChips, type PullRequestCheckStatus, type PullRequestChip, type PullRequestComment, type PullRequestThread, type ReviewCommentChip } from "./protocol.js";
 import { relativeTime, ROLLUP_TITLES, type ChecksRollup } from "./pull-request-logic.js";
@@ -153,7 +154,7 @@ export function ReplyBox({ label, placeholder, submitLabel, onSubmit, onCancel, 
       />
       {error ? <p className="pr-error" role="alert">{error}</p> : null}
       <footer>
-        {onSubmit ? <span>⌘↵ to send</span> : null}
+        {onSubmit ? <span>{modEnterLabel()} to send</span> : null}
         {extra?.(text)}
         <button className="text-button" disabled={busy} onClick={onCancel}>Cancel</button>
         {onSubmit ? <button className="mini-button" disabled={busy || !text.trim()} onClick={() => void submit()}>{busy ? "Posting…" : submitLabel}</button> : null}

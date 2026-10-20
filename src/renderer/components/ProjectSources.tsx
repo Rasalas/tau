@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, Search, X } from "lucide-react";
 import { useClientEnvironment } from "../client-environment";
 import type { ContributionOwner, ProjectSourceContribution, WorkbenchActions } from "../extension-system";
+import { useEscapeLayer } from "./ui/escape-layers";
+import { focusableElements, useFocusReturn, useFocusTrap } from "./ui/focus";
 
 /** Sources that draw their own search bar, as the list does. */
 const OWN_BAR = new Set(["workspace.local-folder", "workspace.git-clone", "workspace.new-project"]);
@@ -30,15 +32,20 @@ export function ProjectSourcesModal({
   const activeSource = sources.find((source) => source.id === activeSourceId);
   const visibleSources = sources.filter((source) => !source.createThreadWorkspace && fuzzyMatch(`${source.label} ${source.description}`, query.trim()));
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (activeSourceId) setActiveSourceId(undefined);
-      else onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeSourceId, onClose]);
+  const surface = useRef<HTMLElement>(null);
+  // Tab stays inside, focus returns to where it was, and Escape is one layer:
+  // a source's own menu closes first, then a source goes back to the list.
+  useFocusReturn(true, surface);
+  useFocusTrap(surface);
+  useEscapeLayer(() => {
+    if (activeSourceId) setActiveSourceId(undefined);
+    else onClose();
+  });
+  useLayoutEffect(() => {
+    const element = surface.current;
+    if (!element || element.contains(document.activeElement)) return;
+    (focusableElements(element)[0] ?? element).focus({ preventScroll: true });
+  }, [activeSourceId]);
 
   const selectSource = async (source: ProjectSourceContribution) => {
     if (source.Component) {
@@ -58,7 +65,7 @@ export function ProjectSourcesModal({
   return (
     <>
       <button className="project-modal-scrim" aria-label="Close add project" onClick={onClose} />
-      <section className="project-modal" role="dialog" aria-modal="true" aria-label="Add project">
+      <section ref={surface} className="project-modal" role="dialog" aria-modal="true" aria-label="Add project" tabIndex={-1}>
         {profile === "compact" ? <button type="button" className="project-modal-close" aria-label="Close add project" onClick={onClose}><X size={20} /></button> : null}
         {activeSource && OWN_BAR.has(activeSource.id) ? null : <header className="project-modal-bar">
           {SourceComponent ? <>

@@ -16,7 +16,7 @@ describe("AddModelProviderModal", () => {
       </HostClientProvider>,
     );
 
-    expect(screen.getByRole("dialog", { name: "Add Model Provider" })).toBeDefined();
+    expect(screen.getByRole("dialog", { name: "Add model provider" })).toBeDefined();
     expect(screen.getByPlaceholderText(/ollama, openrouter/i)).toBeDefined();
     expect(screen.getByPlaceholderText(/llama3, mistral/i)).toBeDefined();
 
@@ -58,7 +58,7 @@ describe("AddModelProviderModal", () => {
       target: { value: "32768" },
     });
 
-    const form = screen.getByRole("dialog", { name: "Add Model Provider" }).querySelector("form");
+    const form = screen.getByRole("dialog", { name: "Add model provider" }).querySelector("form");
     expect(form).not.toBeNull();
     fireEvent.submit(form!);
 
@@ -82,6 +82,25 @@ describe("AddModelProviderModal", () => {
       ]);
       expect(onClose).toHaveBeenCalled();
     });
+  });
+
+  it("names every field by its label, takes focus and closes on Escape", () => {
+    const onClose = vi.fn();
+    render(
+      <HostClientProvider client={createFakeHostClient()}>
+        <AddModelProviderModal onClose={onClose} />
+      </HostClientProvider>,
+    );
+
+    const providerId = screen.getByLabelText(/Provider ID/);
+    expect(document.activeElement).toBe(providerId);
+    for (const label of ["Provider name", "Base URL", "API protocol", "API key", "Model name", "Context window"]) {
+      expect(screen.getByLabelText(label)).toBeDefined();
+    }
+    expect(screen.getByLabelText(/Model ID/)).toBeDefined();
+
+    fireEvent.keyDown(providerId, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("closes when cancel button is clicked", () => {

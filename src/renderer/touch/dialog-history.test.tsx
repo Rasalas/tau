@@ -62,6 +62,14 @@ describe("compact dialog history", () => {
     act(() => window.history.back());
     await waitFor(() => expect(routeFromState(window.history.state)?.kind).toBe("threads"));
   });
+  it("Escape closes a panel sheet over a dialog, and only the sheet", async () => {
+    await start("panel");
+    fireEvent.click(screen.getByText("Open confirmation"));
+    await screen.findByRole("dialog", { name: "Confirmation" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Confirmation" })).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Choose project" })).toBeTruthy();
+  });
   it("simultaneously mounted parent and child each receive a back step", async () => {
     await start();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));

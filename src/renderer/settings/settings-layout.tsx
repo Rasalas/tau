@@ -147,7 +147,7 @@ export function SettingRow({ id, title, description, help, status, control, sett
   status?: ReactNode;
   control?: ReactNode;
   setting?: SettingHandle<never> | SettingHandle<unknown>;
-  /** Why the control is off, for a row without a `setting`: it turns inert with this as its tooltip, which a tap shows on touch (API 1.13.0). */
+  /** Why the control is off, for a row without a `setting`: it turns inert, and the row says this under its description and as the control's tooltip (API 1.13.0). */
   disabledReason?: string | undefined;
   /** A row without levels: it holds for the whole machine, so it turns inert while a project or another machine is edited. */
   wholeMachine?: boolean;
@@ -179,7 +179,8 @@ export function SettingRow({ id, title, description, help, status, control, sett
             ) : null}
           </div>
           {description ? <p>{description}</p> : null}
-          {levelLock ? <p className="settings-row-lock">{levelLock}</p> : null}
+          {/* Read and seen without a pointer: the inert control takes no focus for a tooltip. */}
+          {reason ? <p className="settings-row-lock">{reason}</p> : null}
           {status ? <div className="settings-row-status">{status}</div> : null}
         </div>
         {control ? (

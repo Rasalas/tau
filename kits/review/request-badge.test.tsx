@@ -37,6 +37,7 @@ describe("a thread's requests on its rail row", () => {
     draw(newest);
     const badge = screen.getByRole("link", { name: "PR #35 open, checks 1 pending" });
     expect(badge.textContent).toBe("35");
+    expect(badge.tabIndex).toBe(-1);
     expect(badge.classList.contains("state-open")).toBe(true);
     expect(badge.querySelector("svg")).not.toBeNull();
     cleanup();
@@ -82,7 +83,8 @@ describe("a thread's requests on its rail row", () => {
     const badge = screen.getByRole("button", { name: /^2 requests, open:/u });
     badge.addEventListener("click", clicked);
     expect(badge.tagName).toBe("SPAN");
-    expect(badge.tabIndex).toBe(0);
+    // Inside the row's button it is no Tab stop: the row's menu reaches the requests.
+    expect(badge.tabIndex).toBe(-1);
     fireEvent.keyDown(badge, { key });
     expect(clicked).toHaveBeenCalledTimes(1);
     expect(keydown).not.toHaveBeenCalled();

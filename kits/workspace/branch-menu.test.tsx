@@ -82,4 +82,23 @@ describe("worktree removal confirmation", () => {
     fireEvent.click(button);
     expect(remove).not.toHaveBeenCalled();
   });
+
+  it("offers Remove as a button of its own beside the worktree, which Tab reaches", async () => {
+    const host = createWorkspaceHostClient(async () => []);
+    const store = new WorkspaceStore(new PreferencesStore(), host);
+    store.update({ cwd: "/repo", workspace: {
+      root: "/repo", isRepo: true, isDirty: false, branch: "main", refs: [], worktreeParent: "/trees",
+      worktrees: [{ path: "/trees/manual", name: "manual", branch: "manual", isMain: false, isCurrent: false }],
+    } });
+    const open = vi.spyOn(store, "openWorktree").mockResolvedValue(false);
+    const Bound = withWorkspaceStore(store, CheckoutMenu);
+    render(<Bound onDone={() => undefined} />);
+    const trash = await screen.findByRole("button", { name: "Remove manual" });
+    expect(trash.tagName).toBe("BUTTON");
+    expect(trash.tabIndex).toBe(0);
+    expect(trash.parentElement?.closest("button")).toBeNull();
+    fireEvent.click(trash);
+    await screen.findByText(/Remove manual\?/u);
+    expect(open).not.toHaveBeenCalled();
+  });
 });

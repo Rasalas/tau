@@ -186,22 +186,23 @@ export function CheckoutMenu({ sessionId, onDone }: { sessionId?: string; onDone
           setRemoving(undefined);
         }}>Remove</button>
         <button type="button" onClick={() => setRemoving(undefined)}>Cancel</button>
-      </div> : <button key={tree.path} type="button" className={tree.isCurrent ? "selected" : ""} onClick={() => (tree.isCurrent ? onDone() : done(store.openWorktree(tree.path)))}>
-        {tree.isMain ? <Folder size={13} /> : <FolderGit2 size={13} />}
-        <span className="menu-label"><em>{tree.isMain ? "Main checkout" : tree.branch ?? tree.name}</em><small>{statusLine(byPath.get(tree.path))}</small></span>
-        {!tree.isMain && !tree.isCurrent ? <span
+      </div> : <div key={tree.path} className="worktree-row">
+        <button type="button" className={tree.isCurrent ? "selected" : ""} onClick={() => (tree.isCurrent ? onDone() : done(store.openWorktree(tree.path)))}>
+          {tree.isMain ? <Folder size={13} /> : <FolderGit2 size={13} />}
+          <span className="menu-label"><em>{tree.isMain ? "Main checkout" : tree.branch ?? tree.name}</em><small>{statusLine(byPath.get(tree.path))}</small></span>
+        </button>
+        {/* Beside the row's button, not in it, so Tab reaches it. */}
+        {!tree.isMain && !tree.isCurrent ? <button
+          type="button"
           className="worktree-remove-action"
-          role="button"
-          tabIndex={-1}
           aria-label={`Remove ${tree.branch ?? tree.name}`}
-          onClick={(event) => {
-            event.stopPropagation();
+          onClick={() => {
             setRemoving({ tree });
             void store.host.getWorktreeRemoval(tree.path, store.workspace())
               .then((preview) => setRemoving((shown) => shown?.tree.path === tree.path ? { tree, preview } : shown), (error: unknown) => setRemoving((shown) => shown?.tree.path === tree.path ? { tree, error: error instanceof Error ? error.message : String(error) } : shown));
           }}
-        ><Trash2 size={12} /></span> : null}
-      </button>)}
+        ><Trash2 size={12} /></button> : null}
+      </div>)}
       <NewWorktree base={base ?? "the main line"} onCreate={(name) => done(store.createWorktree(name))} />
     </div>
   </div>;

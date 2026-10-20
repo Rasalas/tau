@@ -482,21 +482,25 @@
 .ref-create { max-height: none; padding-top: 0; }
 .ref-create code, .ref-list code { font: var(--text-sm) var(--mono); }
 .branch-menu .worktree-list { max-height: 240px; overflow: auto; padding: 2px 6px 6px; }
-.branch-menu .worktree-list > button, .branch-menu .worktree-list > .worktree-remove {
+.branch-menu .worktree-list > button, .branch-menu .worktree-row > button:first-child, .branch-menu .worktree-list > .worktree-remove {
   width: 100%; min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 6px 9px;
   border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); text-align: left; cursor: pointer;
 }
-.branch-menu .worktree-list > button:hover, .branch-menu .worktree-list > button.selected { background: var(--raised); color: var(--ink); }
+.branch-menu .worktree-list > button:hover, .branch-menu .worktree-list > button.selected,
+.branch-menu .worktree-row:hover > button:first-child, .branch-menu .worktree-row > button.selected { background: var(--raised); color: var(--ink); }
+.branch-menu .worktree-row { position: relative; }
+.branch-menu .worktree-row:has(> .worktree-remove-action) > button:first-child { padding-right: 32px; }
 .branch-menu .menu-label { flex: 1; min-width: 0; display: grid; }
 .branch-menu .menu-label em { font: 500 calc(var(--text-sm) + .5px) var(--sans); font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .branch-menu .menu-label small { color: var(--faint); font-size: var(--text-xs); }
 .new-worktree-name { margin: 4px 0 2px; }
 .ref-list > button.selected { background: var(--raised); color: var(--ink); }
 .worktree-remove-action {
-  display: inline-flex; align-items: center; padding: 2px; border-radius: 4px;
+  position: absolute; top: 50%; right: 9px; transform: translateY(-50%);
+  display: inline-flex; align-items: center; padding: 2px; border: 0; border-radius: 4px; background: none; cursor: pointer;
   color: var(--faint); opacity: 0; transition: opacity 90ms ease;
 }
-.worktree-list > button:hover .worktree-remove-action, .worktree-remove-action:focus-visible { opacity: 1; }
+.worktree-row:hover .worktree-remove-action, .worktree-remove-action:focus-visible { opacity: 1; }
 .worktree-remove-action:hover { color: var(--danger); }
 .worktree-remove {
   display: flex; align-items: center; gap: 8px; min-height: 49px; padding: 6px 10px;
@@ -532,6 +536,8 @@
 }
 
 .file-tree { flex: 1; min-height: 0; overflow: auto; padding: 10px 8px; }
+.file-tree-failed > .empty-state { padding: var(--space-6) var(--space-4); }
+.file-tree-retry { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); border: 1px solid var(--line-control); border-radius: var(--radius-sm); background: var(--raised); color: var(--ink); font: 500 var(--text-sm) var(--sans); cursor: pointer; }
 .file-row {
   width: 100%; display: flex; align-items: center; gap: 8px;
   border: 0; border-radius: 6px; background: transparent;
@@ -628,7 +634,8 @@ body[data-profile="compact"] :is(.files-explorer-view, .files-reading-view) > bu
 .file-reader-image > img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .file-reader-button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-control); border-radius: 12px; background: var(--raised); color: var(--ink); font: 500 15px var(--sans); cursor: pointer; }
 
-.restore-dialog-scrim { z-index: 90; }
+/* Above the workbench's other overlays. */
+.palette-backdrop:has(> .restore-dialog) { z-index: 95; }
 .restore-dialog {
   width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 80px);
   display: flex; flex-direction: column;

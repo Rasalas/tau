@@ -56,6 +56,12 @@ interface ThreadRowProps {
   onSelect(path: string): void;
   /** Absent for a thread this rail cannot settle (another machine's): the row has no Settle button. */
   onToggleSettled?(id: string): void;
+  /**
+   * The row's own buttons' tab stop (new after API 1.75.0): a list that moves
+   * between rows with the arrow keys passes `0` for the row it is on and `-1`
+   * for the others, so the list is one stop for Tab.
+   */
+  tabIndex?: number;
 }
 
 function elapsedLabel(milliseconds: number): string {
@@ -120,6 +126,7 @@ export const ThreadRow = memo(function ThreadRow({
   hoverCard = false,
   onSelect,
   onToggleSettled,
+  tabIndex,
 }: ThreadRowProps) {
   const display = displayRuntime(session);
   const settled = activity === "settled";
@@ -135,7 +142,7 @@ export const ThreadRow = memo(function ThreadRow({
   if (settled || compact) {
     return (
       <article className={`thread-row compact ${active ? "active" : ""} activity-${activity}`}>
-        <button className="thread-main" aria-current={active ? "page" : undefined} onClick={() => onSelect(session.path)} {...hover}>
+        <button className="thread-main" aria-current={active ? "page" : undefined} tabIndex={tabIndex} onClick={() => onSelect(session.path)} {...hover}>
           {projectMark}
           <span className="thread-title" {...titleTip}>{session.title}</span>
           {accessory}
@@ -148,6 +155,7 @@ export const ThreadRow = memo(function ThreadRow({
           {settled ? null : actions}
           {onToggleSettled ? <button
             className="thread-settle"
+            tabIndex={tabIndex}
             {...tooltipProps(settled ? "Return thread to the rail" : "Settle thread")}
             aria-label={`${settled ? "Return" : "Settle"} ${session.title}`}
             onClick={() => onToggleSettled(session.id)}
@@ -161,7 +169,7 @@ export const ThreadRow = memo(function ThreadRow({
 
   return (
     <article className={`thread-row ${active ? "active" : ""} activity-${activity}`}>
-      <button className="thread-main" aria-current={active ? "page" : undefined} onClick={() => onSelect(session.path)} {...hover}>
+      <button className="thread-main" aria-current={active ? "page" : undefined} tabIndex={tabIndex} onClick={() => onSelect(session.path)} {...hover}>
         <span className="thread-project-line">
           {projectMark}
           <strong>{session.projectName}</strong>
@@ -184,6 +192,7 @@ export const ThreadRow = memo(function ThreadRow({
         {actions}
         {onToggleSettled ? <button
           className="thread-settle"
+          tabIndex={tabIndex}
           {...tooltipProps("Settle thread")}
           aria-label={`Settle ${session.title}`}
           onClick={() => onToggleSettled(session.id)}

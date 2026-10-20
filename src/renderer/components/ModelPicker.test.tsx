@@ -255,6 +255,18 @@ describe("ModelPicker (K142 B: model first)", () => {
     expect(optionNames()).toEqual(["GPT-5.6 Luna, Codex, Plan"]);
   });
 
+  it("hides the highlighted model from the keyboard with ⌥⇧↵, as the eye does", () => {
+    const preferences = new PreferencesStore();
+    const onSelect = renderPicker({ preferences, runtime: "pi", runtimeBackends: backends, onSelectRuntime: vi.fn(), catalogs: cached([codexReady()]) });
+    fireEvent.click(railButton("OpenAI"));
+    expect(optionNames()[0]).toMatch(/^GPT-5.6 Sol/u);
+    fireEvent.keyDown(search(), { key: "Enter", altKey: true, shiftKey: true });
+    expect(preferences.getSnapshot().modelPreferences.pi?.hidden).toEqual(["openai-codex/gpt-5.6-sol", "openai/gpt-5.6-sol"]);
+    expect(preferences.getSnapshot().favouriteModels).toEqual([]);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(optionNames()).toEqual(["GPT-5.6 Luna, Codex, Plan"]);
+  });
+
   it("opens a draft bound for a runtime that lists nothing on that runtime, and moves a draft to one", () => {
     const onSelectRuntime = vi.fn();
     renderPicker({ runtime: "antigravity", catalogRuntime: "pi", runtimeBackends: backends, onSelectRuntime });

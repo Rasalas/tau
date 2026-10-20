@@ -242,15 +242,16 @@ export function sessionAge(timestamp: number, now = Date.now()): string {
   return `${Math.floor(hours / 24)}d`;
 }
 
-function RailRowAction({ action, session, organizer, actions }: {
+function RailRowAction({ action, session, organizer, actions, tabIndex }: {
   action: ThreadRailRowAction;
   session: UiSession;
   organizer: ThreadRailOrganizer;
   actions: WorkbenchActions;
+  tabIndex: number;
 }) {
   const [menu, setMenu] = useState<{ at: { x: number; y: number }; sections: MenuSection[] }>();
   return <>
-    <button type="button" aria-label={action.label} aria-haspopup="menu" aria-expanded={Boolean(menu)}
+    <button type="button" aria-label={action.label} aria-haspopup="menu" aria-expanded={Boolean(menu)} tabIndex={tabIndex}
       {...tooltipProps(action.label)}
       onClick={(event) => {
         event.stopPropagation();
@@ -273,6 +274,7 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   compact,
   modelProvider,
   startedAt,
+  cursor,
   onSelect,
   organizer,
   actions,
@@ -281,6 +283,8 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   actions: WorkbenchActions;
   id: string;
   active: boolean;
+  /** The row the arrow keys are on: the only one Tab stops at. */
+  cursor: boolean;
   activity: ThreadActivity;
   activityLabel?: string;
   activityHint?: string;
@@ -323,13 +327,14 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
       compact={compact}
       modelProvider={modelProvider}
       startedAt={startedAt}
+      tabIndex={cursor ? 0 : -1}
       onSelect={onSelect}
       onToggleSettled={readOnly ? undefined : () => {
         if (organizer) organizer.runMenu(session, activity === "settled" ? "unsettle" : "settle", actions);
         else preferences.toggleSettled(session.id);
       }}
       actions={!readOnly && organizer ? organizer.rowActions?.(session).map((action) =>
-        <RailRowAction key={action.id} action={action} session={session} organizer={organizer} actions={actions} />
+        <RailRowAction key={action.id} action={action} session={session} organizer={organizer} actions={actions} tabIndex={cursor ? 0 : -1} />
       ) : undefined}
     />
   );
@@ -400,8 +405,10 @@ const RailDrafts = memo(function RailDrafts({ actions, project, projects, listed
  * Another machine's thread among this machine's: the same card, with that
  * machine's mark before the provider marks. It opens there, and is settled there.
  */
-const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLookIn, onToggleSettled }: {
+const ExternalThreadRow = memo(function ExternalThreadRow({ thread, cursor, onOpen, onLookIn, onToggleSettled }: {
   thread: RailExternalThread;
+  /** The row the arrow keys are on: the only one Tab stops at. */
+  cursor: boolean;
   onOpen(thread: RailExternalThread): void;
   onLookIn(thread: RailExternalThread): void;
   onToggleSettled?(thread: RailExternalThread): void;
@@ -412,7 +419,7 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
   const activity: ThreadActivity = opening ? "ready" : unavailable ? "offline" : running ? "working" : waits ? "background" : settled ? "settled" : "idle";
   const label = opening ? "Opening…" : unavailable ? (running ? "Paused · offline" : "Offline") : running ? "Working" : waits ? "Waiting" : undefined;
   const lookIn = thread.lookIn && !unavailable && !opening
-    ? <button type="button" aria-label={`Look in on ${session.title} here`} {...tooltipProps("Read it in a tab here; the window stays on this machine")} onClick={() => onLookIn(thread)}><Eye size={13} /></button>
+    ? <button type="button" aria-label={`Look in on ${session.title} here`} tabIndex={cursor ? 0 : -1} {...tooltipProps("Read it in a tab here; the window stays on this machine")} onClick={() => onLookIn(thread)}><Eye size={13} /></button>
     : undefined;
   return (
     <div className={`rail-external${unavailable ? " unavailable" : ""}`} aria-disabled={unavailable ? true : undefined}>
@@ -426,6 +433,7 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, onOpen, onLo
         {...(label ? { activityLabel: label } : {})}
         {...(unavailable ? { activityHint: unavailable } : waits ? { activityHint: `Work on ${machine.name} wakes it again.` } : {})}
         hoverCard
+        tabIndex={cursor ? 0 : -1}
         actions={lookIn}
         {...(onToggleSettled && thread.toggleSettled && !unavailable && !opening ? { onToggleSettled: () => onToggleSettled(thread) } : {})}
         onSelect={() => { if (!unavailable && !opening) onOpen(thread); }}
@@ -528,6 +536,11 @@ const noSubscription = () => () => undefined;
 const noVersion = () => 0;
 const hasFiles = (transfer: DataTransfer | null) => Boolean(transfer && Array.from(transfer.types).includes("Files"));
 const rowIdOf = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>("[data-rail-thread]")?.dataset.railThread : undefined;
+/** This machine's row or another machine's, as the arrow keys walk them. */
+const rowKeyOf = (target: EventTarget | null) => {
+  const row = target instanceof Element ? target.closest<HTMLElement>("[data-rail-thread], [data-rail-external]") : null;
+  return row?.dataset.railThread ?? row?.dataset.railExternal;
+};
 
 type ActivitySets = Record<"running" | "waiting", ReadonlySet<string>>;
 
@@ -719,7 +732,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     return <RailThreadCard id={key} facts={facts} actions={actions} onClose={close} />;
   };
 
-  const renderRow = (session: UiSession, { activity: status, label, hint, icon, startedAt }: RailStatus, compact = false) => (
+  const renderRow = (session: UiSession, { activity: status, label, hint, icon, startedAt }: RailStatus, compact = false, cursor = session.id === cursorId) => (
     <ConnectedThreadRow
       key={session.id}
       id={session.id}
@@ -731,6 +744,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       compact={(compact || compactRows) && status !== "settled"}
       modelProvider={!draftOnScreen && session.id === activityState.activeThreadId ? snapshot?.model?.provider : undefined}
       startedAt={startedAt ?? activityState.runningStartedAt[session.id]}
+      cursor={cursor}
       onSelect={actions.switchSession}
       organizer={organizer}
       actions={actions}
@@ -784,6 +798,20 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const ownIds = outside.size ? orderIds.filter((id) => !outside.has(id)) : orderIds;
   const selected = selectedInOrder(selection, ownIds);
 
+  // The cursor's row is the list's one Tab stop; the arrows move focus with it,
+  // scrolling a row the virtual list has not drawn into view first.
+  const focusCursor = useRef(false);
+  const [cursorShown, setCursorShown] = useState(false);
+  useLayoutEffect(() => {
+    const button = listRef.current?.querySelector<HTMLElement>("[data-cursor] .thread-main");
+    setCursorShown(Boolean(button));
+    if (!focusCursor.current || !cursorId) return;
+    if (button) { focusCursor.current = false; button.focus(); return; }
+    const index = navigationRows.findIndex((row) => row.id === cursorId);
+    if (index >= 0) rowVirtualizer.scrollToIndex(index);
+    else focusCursor.current = false;
+  });
+
   /** A row's wrapper carries what the drag, the menu and the selection read; its classes show where a drop lands. */
   const rowClass = (sectionId: string, id: string, last: boolean): string => {
     const classes = ["rail-row"];
@@ -832,7 +860,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           if (external) {
             return (
               <div key={session.id} className={rowClass(section.id, session.id, index === rows.length - 1)} {...externalData(session.id)}>
-                <ExternalThreadRow thread={external} onOpen={openExternal} onLookIn={lookInExternal} {...(settleExternal ? { onToggleSettled: settleExternal } : {})} />
+                <ExternalThreadRow thread={external} cursor={external.key === cursorId} onOpen={openExternal} onLookIn={lookInExternal} {...(settleExternal ? { onToggleSettled: settleExternal } : {})} />
               </div>
             );
           }
@@ -928,8 +956,14 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         className={`session-list${drag ? " rail-dragging" : ""}`}
         aria-label="Threads"
         aria-busy={organizer?.isLoading?.() === true}
-        tabIndex={0}
+        // Focusable itself only while no row can take the Tab stop.
+        tabIndex={cursorShown ? -1 : 0}
         onPointerDown={onPointerDown}
+        onFocus={(event) => {
+          // A row that takes focus, by a click or by Tab, is where the arrows go on from.
+          const index = orderIds.indexOf(rowKeyOf(event.target) ?? "");
+          if (index >= 0 && index !== navigationIndex % orderIds.length) setNavigationIndex(index);
+        }}
         onClickCapture={(event) => {
           const target = event.target as Element;
           const id = rowIdOf(target);
@@ -966,8 +1000,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           if (!event.currentTarget.contains(target) || target.closest(".thread-row-actions")) return;
           if (event.key === "Escape" && selection.ids.size) { event.preventDefault(); event.stopPropagation(); clearSelection(); return; }
           if (!orderIds.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
+          const focused = orderIds.indexOf(rowKeyOf(target) ?? "");
+          // Enter on a draft, a shelf's heading or Show more is that button's own.
+          if (event.key === "Enter" && focused < 0 && target !== event.currentTarget) return;
           event.preventDefault();
-          const current = navigationIndex % orderIds.length;
+          // The focused row first: the cursor only stands in while the list itself has focus.
+          const current = focused >= 0 ? focused : navigationIndex % orderIds.length;
           if (event.key === "Enter") {
             const external = outside.get(orderIds[current]!);
             if (external) { if (!external.unavailable) external.open(actions); }
@@ -976,6 +1014,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           }
           const next = (current + (event.key === "ArrowDown" ? 1 : -1) + orderIds.length) % orderIds.length;
           setNavigationIndex(next);
+          focusCursor.current = true;
           // Shift and an arrow grow the selection from where it began; a plain arrow moves where it begins.
           if (outside.has(orderIds[next]!)) return;
           if (event.shiftKey) setSelection((selectionNow) => selectRange(selectionNow.anchor ? selectionNow : { ...selectionNow, anchor: orderIds[current]! }, orderIds[next]!, ownIds));
@@ -1020,7 +1059,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
                   <ShowMoreThreadRow remaining={row.remaining} all onClick={() => setOpenGroups((current) => new Set([...current, row.key]))} />
                 ) : (() => {
                   const external = outside.get(row.id);
-                  if (external) return <ExternalThreadRow thread={external} onOpen={openExternal} onLookIn={lookInExternal} {...(settleExternal ? { onToggleSettled: settleExternal } : {})} />;
+                  if (external) return <ExternalThreadRow thread={external} cursor={external.key === cursorId} onOpen={openExternal} onLookIn={lookInExternal} {...(settleExternal ? { onToggleSettled: settleExternal } : {})} />;
                   const status = activityFor(row.session.id);
                   return renderRow(row.session, status);
                 })()}
@@ -1061,7 +1100,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         const status = activityFor(dragged.id);
         // Over a machine the card rises above the pointer, so the row it would land on stays readable.
         return <div className="rail-drag-card" aria-hidden style={{ left: drag.x - drag.grab.x, top: drag.y - (drag.target ? 90 : drag.grab.y), width: drag.grab.width }}>
-          {renderRow(dragged, status)}
+          {renderRow(dragged, status, false, false)}
         </div>;
       })() : null}
       {drag?.label ? <div className="rail-drag-label" style={{ left: drag.x + 14, top: drag.y + 10 }}>{drag.label}</div> : null}

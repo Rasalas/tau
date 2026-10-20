@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Check, Copy, FileText, Sparkles, Terminal, X } from "lucide-react";
 import type { SystemPromptInspection } from "../../shared/contracts";
 import { useHostClient } from "../host-client-context";
+import { Dialog } from "./ui/Dialog";
+import "./system-prompt.css";
 
 export interface SystemPromptModalProps {
   threadId?: string;
@@ -9,6 +11,7 @@ export interface SystemPromptModalProps {
 }
 
 type TabKey = "effective" | "base" | "appends" | "context";
+const TAB_KEYS: TabKey[] = ["effective", "base", "appends", "context"];
 
 export function SystemPromptModal({ threadId, onClose }: SystemPromptModalProps) {
   const client = useHostClient();
@@ -17,17 +20,6 @@ export function SystemPromptModal({ threadId, onClose }: SystemPromptModalProps)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,249 +68,136 @@ export function SystemPromptModal({ threadId, onClose }: SystemPromptModalProps)
   const baseSource = inspection?.basePromptSource;
   const appends = inspection?.appends ?? [];
   const contextFiles = inspection?.contextFiles ?? [];
+  const ids = useId();
+  const tabs = useRef<Partial<Record<TabKey, HTMLButtonElement | null>>>({});
+  const tabLabels: Record<TabKey, ReactNode> = {
+    effective: <><Terminal size={12} aria-hidden="true" />Effective prompt</>,
+    base: <><Sparkles size={12} aria-hidden="true" />Base prompt</>,
+    appends: <>Appends ({appends.length})</>,
+    context: <><FileText size={12} aria-hidden="true" />Project context ({contextFiles.length})</>,
+  };
+  // Arrow keys move between the tabs, as a tab list does; Tab leaves for the panel.
+  const onTabKey = (event: React.KeyboardEvent) => {
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    const next = step ? TAB_KEYS[(TAB_KEYS.indexOf(tab) + step + TAB_KEYS.length) % TAB_KEYS.length]
+      : event.key === "Home" ? TAB_KEYS[0] : event.key === "End" ? TAB_KEYS.at(-1) : undefined;
+    if (!next) return;
+    event.preventDefault();
+    setTab(next);
+    tabs.current[next]?.focus();
+  };
 
   return (
-    <>
-      <button className="project-modal-scrim" aria-label="Close system prompt modal" onClick={onClose} />
-      <section
-        className="project-modal system-prompt-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Active Instructions and System Prompt"
-        style={{ maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column" }}
-      >
-        <header className="project-modal-title">
-          <span>
-            <strong>Active Instructions & System Prompt</strong>
-            <small>Inspect the live prompt, customizations, and AGENTS.md loaded for this session</small>
-          </span>
-          <button className="modal-close" onClick={onClose} aria-label="Close">
-            <X size={14} />
-          </button>
-        </header>
+    <Dialog className="project-modal system-prompt-modal" label="Active instructions and system prompt" onClose={onClose}>
+      <header className="project-modal-title">
+        <span>
+          <strong>Active instructions & system prompt</strong>
+          <small>Inspect the live prompt, customizations, and AGENTS.md loaded for this session</small>
+        </span>
+        <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+          <X size={14} />
+        </button>
+      </header>
 
-        <div style={{ padding: "12px 18px 0", borderBottom: "1px solid var(--line)" }}>
-          <div className="segmented" style={{ width: "100%", justifyContent: "flex-start" }}>
+      <div className="system-prompt-tabs">
+        <div className="segmented" role="tablist" aria-label="Prompt parts">
+          {TAB_KEYS.map((key) => (
             <button
-              className={tab === "effective" ? "active" : ""}
-              onClick={() => setTab("effective")}
+              key={key}
+              ref={(element) => { tabs.current[key] = element; }}
+              type="button"
+              role="tab"
+              id={`${ids}-tab-${key}`}
+              aria-selected={tab === key}
+              aria-controls={`${ids}-panel`}
+              tabIndex={tab === key ? 0 : -1}
+              className={tab === key ? "active" : ""}
+              onClick={() => setTab(key)}
+              onKeyDown={onTabKey}
             >
-              <Terminal size={12} style={{ marginRight: 5, verticalAlign: "middle" }} />
-              Effective Prompt
+              {tabLabels[key]}
             </button>
-            <button
-              className={tab === "base" ? "active" : ""}
-              onClick={() => setTab("base")}
-            >
-              <Sparkles size={12} style={{ marginRight: 5, verticalAlign: "middle" }} />
-              Base Prompt
-            </button>
-            <button
-              className={tab === "appends" ? "active" : ""}
-              onClick={() => setTab("appends")}
-            >
-              Appends ({appends.length})
-            </button>
-            <button
-              className={tab === "context" ? "active" : ""}
-              onClick={() => setTab("context")}
-            >
-              <FileText size={12} style={{ marginRight: 5, verticalAlign: "middle" }} />
-              Project Context ({contextFiles.length})
-            </button>
-          </div>
+          ))}
         </div>
+      </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 18px" }}>
-          {loading ? (
-            <p className="palette-empty" style={{ margin: "20px 0" }}>Loading active instructions…</p>
-          ) : error ? (
-            <div
-              role="alert"
-              style={{
-                padding: "10px 12px",
-                borderRadius: 6,
-                backgroundColor: "var(--danger-bg, #fee2e2)",
-                color: "var(--danger, #dc2626)",
-                fontSize: 12,
-              }}
-            >
-              {error}
-            </div>
-          ) : (
-            <>
-              {tab === "effective" ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
-                      {effectivePrompt.length} chars · ~{Math.round(effectivePrompt.length / 4)} tokens
-                    </span>
-                    <button
-                      className="chrome-button"
-                      style={{ fontSize: 11, padding: "4px 8px", display: "flex", alignItems: "center", gap: 4 }}
-                      onClick={() => handleCopy(effectivePrompt)}
-                    >
-                      {copied ? <Check size={12} /> : <Copy size={12} />}
-                      <span>{copied ? "Copied" : "Copy Prompt"}</span>
-                    </button>
-                  </div>
-                  <pre
-                    style={{
-                      margin: 0,
-                      padding: 12,
-                      background: "var(--well, #18181b)",
-                      borderRadius: 8,
-                      border: "1px solid var(--line-control)",
-                      fontFamily: "var(--mono)",
-                      fontSize: 11.5,
-                      lineHeight: 1.5,
-                      color: "var(--ink-2)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      maxHeight: "50vh",
-                      overflowY: "auto",
-                    }}
-                  >
-                    {effectivePrompt}
-                  </pre>
+      <div className="system-prompt-body" role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${tab}`}>
+        {loading ? (
+          <p className="palette-empty system-prompt-loading">Loading active instructions…</p>
+        ) : error ? (
+          <div role="alert" className="system-prompt-error">{error}</div>
+        ) : (
+          <>
+            {tab === "effective" ? (
+              <div className="system-prompt-section">
+                <div className="system-prompt-toolbar">
+                  <span className="system-prompt-meta">
+                    {effectivePrompt.length} chars · ~{Math.round(effectivePrompt.length / 4)} tokens
+                  </span>
+                  <button type="button" className="chrome-button system-prompt-copy" onClick={() => handleCopy(effectivePrompt)}>
+                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                    <span>{copied ? "Copied" : "Copy prompt"}</span>
+                  </button>
                 </div>
-              ) : null}
+                <pre className="system-prompt-text tall">{effectivePrompt}</pre>
+              </div>
+            ) : null}
 
-              {tab === "base" ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: 6,
-                      background: "var(--sunken)",
-                      fontSize: 12,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 4,
-                    }}
-                  >
-                    <strong>Prompt Source</strong>
-                    <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--muted)" }}>
-                      {baseSource ?? "Built-in harness default (~/.pi/agent or core harness)"}
-                    </span>
-                  </div>
-                  <pre
-                    style={{
-                      margin: 0,
-                      padding: 12,
-                      background: "var(--well)",
-                      borderRadius: 8,
-                      border: "1px solid var(--line-control)",
-                      fontFamily: "var(--mono)",
-                      fontSize: 11.5,
-                      lineHeight: 1.5,
-                      color: "var(--ink-2)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      maxHeight: "50vh",
-                      overflowY: "auto",
-                    }}
-                  >
-                    {basePrompt ?? "(Default Pi system prompt is active)"}
-                  </pre>
+            {tab === "base" ? (
+              <div className="system-prompt-section">
+                <div className="system-prompt-source">
+                  <strong>Prompt source</strong>
+                  <span className="system-prompt-meta">
+                    {baseSource ?? "Built-in harness default (~/.pi/agent or core harness)"}
+                  </span>
                 </div>
-              ) : null}
+                <pre className="system-prompt-text tall">{basePrompt ?? "(Default Pi system prompt is active)"}</pre>
+              </div>
+            ) : null}
 
-              {tab === "appends" ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {appends.length === 0 ? (
-                    <p className="palette-empty">No prompt appends configured (.tau/append-system-prompt.md or .pi/APPEND_SYSTEM.md).</p>
-                  ) : (
-                    appends.map((item, idx) => (
-                      <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", fontFamily: "var(--mono)" }}>
-                          {item.source ?? `Append section #${idx + 1}`}
-                        </div>
-                        <pre
-                          style={{
-                            margin: 0,
-                            padding: 10,
-                            background: "var(--well)",
-                            borderRadius: 6,
-                            border: "1px solid var(--line-control)",
-                            fontFamily: "var(--mono)",
-                            fontSize: 11.5,
-                            lineHeight: 1.4,
-                            color: "var(--ink-2)",
-                            whiteSpace: "pre-wrap",
-                            wordBreak: "break-word",
-                          }}
-                        >
-                          {item.text}
-                        </pre>
+            {tab === "appends" ? (
+              <div className="system-prompt-section">
+                {appends.length === 0 ? (
+                  <p className="palette-empty">No prompt appends configured (.tau/append-system-prompt.md or .pi/APPEND_SYSTEM.md).</p>
+                ) : (
+                  appends.map((item, idx) => (
+                    <div key={idx} className="system-prompt-file">
+                      <div className="system-prompt-meta strong">{item.source ?? `Append section #${idx + 1}`}</div>
+                      <pre className="system-prompt-text">{item.text}</pre>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
+
+            {tab === "context" ? (
+              <div className="system-prompt-section">
+                {contextFiles.length === 0 ? (
+                  <p className="palette-empty">No AGENTS.md or project instructions discovered in this workspace.</p>
+                ) : (
+                  contextFiles.map((file, idx) => (
+                    <div key={idx} className="system-prompt-file">
+                      <div className="system-prompt-file-head">
+                        <span>{file.path}</span>
+                        <button type="button" className="chrome-button system-prompt-copy" aria-label={`Copy ${file.path}`} onClick={() => handleCopy(file.content)}>
+                          Copy
+                        </button>
                       </div>
-                    ))
-                  )}
-                </div>
-              ) : null}
+                      <pre className="system-prompt-text short">{file.content}</pre>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
 
-              {tab === "context" ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  {contextFiles.length === 0 ? (
-                    <p className="palette-empty">No AGENTS.md or project instructions discovered in this workspace.</p>
-                  ) : (
-                    contextFiles.map((file, idx) => (
-                      <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            padding: "6px 10px",
-                            background: "var(--sunken)",
-                            borderRadius: 6,
-                          }}
-                        >
-                          <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 600, color: "var(--ink)" }}>
-                            {file.path}
-                          </span>
-                          <button
-                            className="chrome-button"
-                            style={{ fontSize: 11, padding: "2px 6px" }}
-                            onClick={() => handleCopy(file.content)}
-                          >
-                            Copy
-                          </button>
-                        </div>
-                        <pre
-                          style={{
-                            margin: 0,
-                            padding: 10,
-                            background: "var(--well)",
-                            borderRadius: 6,
-                            border: "1px solid var(--line-control)",
-                            fontFamily: "var(--mono)",
-                            fontSize: 11.5,
-                            lineHeight: 1.4,
-                            color: "var(--ink-2)",
-                            whiteSpace: "pre-wrap",
-                            wordBreak: "break-word",
-                            maxHeight: "35vh",
-                            overflowY: "auto",
-                          }}
-                        >
-                          {file.content}
-                        </pre>
-                      </div>
-                    ))
-                  )}
-                </div>
-              ) : null}
-            </>
-          )}
-        </div>
-
-        <footer style={{ padding: "10px 18px", borderTop: "1px solid var(--line)", display: "flex", justifyContent: "flex-end" }}>
-          <button className="chrome-button" onClick={onClose}>
-            Close
-          </button>
-        </footer>
-      </section>
-    </>
+      <footer className="system-prompt-footer">
+        <button type="button" className="chrome-button" onClick={onClose}>
+          Close
+        </button>
+      </footer>
+    </Dialog>
   );
 }

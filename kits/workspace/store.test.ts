@@ -556,6 +556,33 @@ describe("Workspace Kit files of the followed project", () => {
     expect(getFileTree).toHaveBeenCalledWith(undefined, "ws1_project-b");
     expect(getFileTree).toHaveBeenCalledWith("src", "ws1_project-b");
   });
+
+  it("says while the root listing loads and why it failed, until a later read succeeds", async () => {
+    let fail = true;
+    let answer: (() => void) | undefined;
+    const getFileTree = vi.fn(() => new Promise<unknown>((resolve, reject) => {
+      answer = () => (fail ? reject(new Error("The machine did not answer.")) : resolve([{ name: "a.ts", path: "a.ts", kind: "file" }]));
+    }));
+    const workspaceStore = storeOver({ getFileTree });
+    workspaceStore.bind({ notify: vi.fn() } as unknown as WorkbenchActions);
+    workspaceStore.update({ cwd: "/project", workspaceId: "ws1_project" });
+
+    const first = workspaceStore.refreshFiles();
+    expect(workspaceStore.getSnapshot().fileTreeLoading).toBe(true);
+    await vi.waitFor(() => expect(answer).toBeDefined());
+    answer!();
+    await first;
+    expect(workspaceStore.getSnapshot()).toMatchObject({ fileTreeLoading: false, fileTreeError: expect.stringContaining("The machine did not answer."), fileTree: [] });
+
+    fail = false;
+    answer = undefined;
+    const second = workspaceStore.refreshFiles();
+    await vi.waitFor(() => expect(answer).toBeDefined());
+    answer!();
+    await second;
+    expect(workspaceStore.getSnapshot().fileTreeError).toBeUndefined();
+    expect(workspaceStore.getSnapshot().fileTree.map((node) => node.name)).toEqual(["a.ts"]);
+  });
 });
 
 describe("Workspace Kit changes of the project on screen", () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ChevronDown, CornerDownRight, CornerLeftUp, Folder, FolderGit2, FolderOpen, House, Pin } from "lucide-react";
 import { errorMessage, useEscapeLayer, useHostCapabilities, type ProjectSourceProps } from "tau";
+import { modKeyLabel } from "../_shared/platform-keys.js";
 import { GIT_HOST_LABELS } from "../_git-hosts/hosts.js";
 import { GIT_HOST_MARKS } from "../_git-hosts/marks.js";
 import { foldersBelow, groupRepositories, homeRelative, isTypedPath, joinFolder, lastSegment, rankFolders, relativeFolder, splitTypedPath, withSeparator, type FolderMatch } from "./folder-finder.js";
@@ -21,7 +22,7 @@ interface Section {
 
 type View = "repositories" | "folders";
 
-const MOD_LABEL = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform) ? "⌘" : "Ctrl";
+const MOD_LABEL = modKeyLabel();
 const SECTION_LIMIT = 40;
 
 function Highlighted({ text, marks, offset = 0 }: { text: string; marks: readonly number[]; offset?: number }) {

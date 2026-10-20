@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, RotateCcw, X } from "lucide-react";
-import type { HostExtensionClient, PreferencesStore } from "tau";
+import { ConfirmDialog, useEscapeLayer, useFocusReturn, type HostExtensionClient, type PreferencesStore } from "tau";
 import { parseHex, toHex } from "./color.js";
 import { derivePalette } from "./palette.js";
 import { APPEARANCE_EXTENSION_ID as ID, SETTING_KEYS, type Appearance, type SaveThemeResult } from "./protocol.js";
@@ -20,7 +20,15 @@ export interface ThemeDraft {
   tokens: Record<string, string>;
 }
 
-interface EditorState { draft?: ThemeDraft; saving: boolean; error?: string }
+interface EditorState {
+  draft?: ThemeDraft;
+  /** The draft as it opened; any later draft holds edits a close would lose. */
+  opened?: ThemeDraft;
+  /** A close waits for the person to confirm dropping those edits. */
+  confirmDiscard?: boolean;
+  saving: boolean;
+  error?: string;
+}
 
 /** The one editor session of this window. The panel paints its draft on the whole window. */
 export class ThemeEditorStore {
@@ -30,8 +38,15 @@ export class ThemeEditorStore {
   getSnapshot = (): EditorState => this.state;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
 
-  open(draft: ThemeDraft): void { this.set({ draft, error: undefined, saving: false }); }
-  close(): void { this.set({ draft: undefined, error: undefined, saving: false }); }
+  open(draft: ThemeDraft): void { this.set({ draft, opened: draft, confirmDiscard: false, error: undefined, saving: false }); }
+  close(): void { this.set({ draft: undefined, opened: undefined, confirmDiscard: false, error: undefined, saving: false }); }
+
+  /** Closes at once when nothing changed since it opened; otherwise asks first. */
+  requestClose(): void {
+    const { draft, opened } = this.state;
+    if (draft && draft !== opened) this.set({ confirmDiscard: true });
+    else this.close();
+  }
 
   update(change: (draft: ThemeDraft) => ThemeDraft): void {
     if (this.state.draft) this.set({ draft: change(this.state.draft), error: undefined });
@@ -110,9 +125,17 @@ export function ThemeEditorPanel({ store, host, preferences, notify }: {
   preferences: PreferencesStore;
   notify(message: string, level?: "info" | "warning" | "error"): void;
 }) {
-  const { draft, saving, error } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const { draft, saving, error, confirmDiscard } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [allTokens, setAllTokens] = useState(false);
   const [filter, setFilter] = useState("");
+  const surface = useRef<HTMLElement>(null);
+  const open = Boolean(draft);
+  // It takes focus when it opens and gives it back when it closes; Escape is a close like its X.
+  useFocusReturn(open, surface);
+  useEscapeLayer(() => store.requestClose(), open);
+  useLayoutEffect(() => {
+    if (open) surface.current?.focus({ preventScroll: true });
+  }, [open]);
 
   // The draft is painted over the window until the editor closes.
   useEffect(() => {
@@ -123,18 +146,6 @@ export function ThemeEditorPanel({ store, host, preferences, notify }: {
     document.head.append(style);
     return () => style.remove();
   }, [draft]);
-
-  useEffect(() => {
-    if (!draft) return;
-    const close = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !(event.target instanceof Node) || !document.querySelector(".appearance-editor")?.contains(event.target)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      store.close();
-    };
-    window.addEventListener("keydown", close, true);
-    return () => window.removeEventListener("keydown", close, true);
-  }, [draft, store]);
 
   const groups = useMemo(() => {
     const needle = filter.trim().toLowerCase();
@@ -181,12 +192,12 @@ export function ThemeEditorPanel({ store, host, preferences, notify }: {
     }
   };
 
-  return createPortal(
-    <aside className="appearance-editor" role="dialog" aria-label="Theme editor" data-preview-overlay="" data-overlay="false">
+  return createPortal(<>
+    <aside ref={surface} className="appearance-editor" role="dialog" aria-label="Theme editor" tabIndex={-1} data-preview-overlay="" data-overlay="false">
       <header>
         <strong>Theme editor</strong>
         <span className="appearance-editor-spacer" />
-        <button type="button" className="appearance-icon-button" aria-label="Close the theme editor" onClick={() => store.close()}><X size={14} /></button>
+        <button type="button" className="appearance-icon-button" aria-label="Close the theme editor" onClick={() => store.requestClose()}><X size={14} /></button>
       </header>
       <div className="appearance-editor-body">
         <label className="appearance-editor-field">
@@ -236,10 +247,20 @@ export function ThemeEditorPanel({ store, host, preferences, notify }: {
       </div>
       <footer>
         {error ? <p className="appearance-editor-error" role="alert">{error}</p> : null}
-        <button type="button" className="text-button" onClick={() => store.close()}>Discard</button>
+        <button type="button" className="text-button" onClick={() => store.requestClose()}>Discard</button>
         <button type="button" className="appearance-primary" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save theme"}</button>
       </footer>
-    </aside>,
+    </aside>
+    {confirmDiscard ? <ConfirmDialog
+      title="Discard theme changes?"
+      message="The window goes back to the theme it had before. Save the theme to keep the changes."
+      confirmLabel="Discard"
+      cancelLabel="Keep editing"
+      destructive
+      onConfirm={() => store.close()}
+      onCancel={() => store.set({ confirmDiscard: false })}
+    /> : null}
+  </>,
     document.body,
   );
 }

@@ -461,11 +461,18 @@ export function ModelPicker({
     if (row.kind === "legacy") setExpandedLegacy((held) => toggled(held, row.key.replace(/^legacy:/u, "")));
     else setExpandedAll((held) => toggled(held, row.key.replace(/^more:/u, "")));
   };
+  /** Hides a model with every way to run it, or shows it again when all of them are hidden. */
+  const toggleHidden = (entry: ModelEntry) => {
+    const hide = !entry.ways.every((way) => way.hidden);
+    for (const way of entry.ways) if (way.hidden !== hide) preferences.toggleHiddenModel(way.runtime, modelKey(way.model));
+  };
   const activate = (row: Row | undefined, alt: boolean, add = false) => {
     if (!row) return;
     if (row.kind !== "entry") { toggleFold(row); return; }
     const way = wayOf(row);
-    if (alt) preferences.toggleFavouriteModel(way.key);
+    // ⌥⇧↵ hides the row's model, the eye's way from the keyboard; ⌥↵ pins it.
+    if (alt && add) toggleHidden(row.entry);
+    else if (alt) preferences.toggleFavouriteModel(way.key);
     else choose(way, add);
   };
   const selectView = (entry: ViewEntry) => {
@@ -585,10 +592,7 @@ export function ModelPicker({
     jump: (key) => jumps.get(key),
     level: (way) => THINKING_LABELS[recentLevel(way) ?? ""],
     onFavourite: (way) => preferences.toggleFavouriteModel(way.key),
-    onHide: (entry) => {
-      const hide = !entry.ways.every((way) => way.hidden);
-      for (const way of entry.ways) if (way.hidden !== hide) preferences.toggleHiddenModel(way.runtime, modelKey(way.model));
-    },
+    onHide: toggleHidden,
     showLegacy: Boolean(needle),
     more: (way) => {
       if (!draft && way.runtime !== threadRuntime) {

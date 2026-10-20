@@ -356,7 +356,7 @@ plan before every API offering, each group by its API price; context; newest,
 by models.dev's `releasedAt`), the filters (billing, what a model can do), "Show
 hidden models", adding a provider, "Pin models in Settings…" and "Refresh
 models". Keys: ↑↓ move in the list, ↵ takes the row, Tab and ⇧Tab step through
-the pills without leaving the search; ← (at its start) goes to the rail; ⌥↵ pins, ⌘1–9 reach the first nine favourites
+the pills without leaving the search; ← (at its start) goes to the rail; ⌥↵ pins, ⌥⇧↵ hides the model or shows it again, ⌘1–9 reach the first nine favourites
 (a favourite is a model with its way), ⌘⇧↑↓ step through the rail, and typing
 anywhere goes to the search, which runs across every provider and runtime (a
 runtime's name narrows the ways to it).

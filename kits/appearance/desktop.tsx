@@ -73,7 +73,7 @@ export const appearanceExtension: DesktopExtension = {
       group: "Appearance",
       access: "write",
       run: () => {
-        if (editor.getSnapshot().draft) editor.close();
+        if (editor.getSnapshot().draft) editor.requestClose();
         else editor.open(draftFromWindow(document.documentElement.dataset.theme === "light" ? "light" : "dark"));
       },
     });

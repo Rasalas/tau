@@ -549,14 +549,18 @@ export function DangerAction({ id, title, description, actionLabel, confirmTitle
   id?: string;
 }) {
   const [asking, setAsking] = useState(false);
+  const reasonId = useId();
+  // A disabled button takes no focus, so its reason is written out, not only a tooltip.
+  const reason = disabled ? disabledReason : undefined;
   return (
     <div className="tau-danger-action" id={id} tabIndex={id ? -1 : undefined}>
       <div>
         <h3>{title}</h3>
         {description ? <p>{description}</p> : null}
+        {reason ? <p id={reasonId} className="tau-danger-action-reason">{reason}</p> : null}
       </div>
-      <span {...tooltipProps(disabled ? disabledReason : undefined)}>
-        <Button variant="danger" disabled={disabled} busy={busy} onClick={() => setAsking(true)}>{actionLabel}</Button>
+      <span {...tooltipProps(reason)}>
+        <Button variant="danger" disabled={disabled} busy={busy} aria-describedby={reason ? reasonId : undefined} onClick={() => setAsking(true)}>{actionLabel}</Button>
       </span>
       {asking ? (
         <ConfirmDialog

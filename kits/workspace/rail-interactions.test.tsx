@@ -130,6 +130,9 @@ describe("rail selection", () => {
     fireEvent.keyDown(list, { key: "ArrowDown", shiftKey: true });
     expect(selectedIds()).toEqual(["a", "b", "c"]);
     expect(document.querySelector("[data-cursor]")?.getAttribute("data-rail-thread")).toBe("c");
+    // Focus moved with the cursor and opened the row's card; the first Escape closes it, the next ends the selection.
+    fireEvent.keyDown(list, { key: "Escape" });
+    expect(selectedIds()).toEqual(["a", "b", "c"]);
     fireEvent.keyDown(list, { key: "Escape" });
     expect(selectedIds()).toEqual([]);
   });
@@ -142,6 +145,39 @@ describe("rail selection", () => {
     fireEvent.keyDown(list, { key: "ArrowDown" });
     fireEvent.keyDown(list, { key: "ArrowDown", shiftKey: true });
     expect(selectedIds()).toEqual(["c", "d"]);
+  });
+
+  it("is one Tab stop: the arrows move focus from row to row and Enter opens the focused one", async () => {
+    const { main, row, switchSession } = await renderRail(threads, {
+      rowActions: () => [{ id: "snooze", label: "Snooze thread", icon: <span>clock</span>, menu: () => [] }],
+    });
+    const list = screen.getByRole("navigation", { name: "Threads" });
+    await waitFor(() => expect(list.tabIndex).toBe(-1));
+    expect(threads.map((thread) => main(thread.id).tabIndex)).toEqual([0, -1, -1, -1]);
+    expect(within(row("b")).getByRole("button", { name: "Settle Thread b" }).tabIndex).toBe(-1);
+    expect(within(row("b")).getByRole("button", { name: "Snooze thread" }).tabIndex).toBe(-1);
+    act(() => main("a").focus());
+    fireEvent.keyDown(main("a"), { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(main("b")));
+    expect(threads.map((thread) => main(thread.id).tabIndex)).toEqual([-1, 0, -1, -1]);
+    expect(within(row("b")).getByRole("button", { name: "Settle Thread b" }).tabIndex).toBe(0);
+    fireEvent.keyDown(main("b"), { key: "Enter" });
+    await waitFor(() => expect(switchSession.mock.calls.at(-1)?.[0]).toBe("/sessions/b.jsonl"));
+  });
+
+  it("opens the row that has focus, not the one the arrows left the cursor on", async () => {
+    const { main, switchSession } = await renderRail(threads);
+    const list = screen.getByRole("navigation", { name: "Threads" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(main("b")));
+    // A click or Tab puts focus on another row; the cursor follows it.
+    act(() => main("d").focus());
+    await waitFor(() => expect(main("d").tabIndex).toBe(0));
+    fireEvent.keyDown(main("d"), { key: "Enter" });
+    await waitFor(() => expect(switchSession.mock.calls.at(-1)?.[0]).toBe("/sessions/d.jsonl"));
+    fireEvent.keyDown(main("d"), { key: "ArrowUp" });
+    await waitFor(() => expect(document.activeElement).toBe(main("c")));
   });
 
   it("ends the selection when the project filter changes", async () => {

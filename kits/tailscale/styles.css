@@ -19,3 +19,4 @@
 .tailscale-address { margin: 8px 0 0; font-size: var(--text-sm); color: var(--ink-3); }
 .tailscale-agree { display: flex; align-items: flex-start; gap: 10px; margin: 12px 0 0; font-size: var(--text-sm); line-height: 1.45; color: var(--ink-2); }
 .tailscale-agree > .switch { margin-top: 1px; }
+.tailscale-footer-reason { flex: 1 1 160px; margin-left: 6px; color: var(--faint); font-size: var(--text-sm); line-height: 1.4; }

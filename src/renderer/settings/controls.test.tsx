@@ -230,6 +230,13 @@ describe("DangerAction", () => {
     fireEvent.click(confirm);
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
+
+  it("writes out why it is off, and the button points at that reason", () => {
+    render(<DangerAction title="Remove Hello" actionLabel="Remove…" confirmTitle="Remove Hello?" confirmMessage="It is deleted." disabled disabledReason="Read only: this needs a device with Full access." onConfirm={vi.fn()} />);
+    const button = screen.getByRole("button", { name: "Remove…" });
+    expect(screen.getByText("Read only: this needs a device with Full access.")).toBeTruthy();
+    expect(document.getElementById(button.getAttribute("aria-describedby")!)?.textContent).toBe("Read only: this needs a device with Full access.");
+  });
 });
 
 describe("SettingsState and ValueList", () => {

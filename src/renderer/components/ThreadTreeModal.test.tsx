@@ -31,6 +31,18 @@ describe("ThreadTreeModal", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("names its close button and keeps Tab inside", () => {
+    const onClose = vi.fn();
+    render(<ThreadTreeModal tree={tree} mode="navigate" onClose={onClose} onNavigate={() => {}} onFork={() => {}} />);
+    const dialog = screen.getByRole("dialog", { name: "Thread tree" });
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.click(close);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("forks only through user messages", () => {
     const onFork = vi.fn();
     render(<ThreadTreeModal tree={tree} mode="fork" onClose={() => {}} onNavigate={() => {}} onFork={onFork} />);
