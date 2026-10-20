@@ -7,6 +7,15 @@ import { createMemoryStorage, setClientStorage, type ClientStorage } from "../..
 import { ClientStorageProvider } from "../client-storage-context";
 import { ReviewMode, type ReviewCommitSlot } from "./ReviewMode";
 
+const builtRows = vi.hoisted(() => [] as string[]);
+vi.mock("./DiffView", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./DiffView")>();
+  return { ...actual, fileDiffRows: (...args: Parameters<typeof actual.fileDiffRows>) => {
+    if (args[1]) builtRows.push(args[0]);
+    return actual.fileDiffRows(...args);
+  } };
+});
+
 let storage: ClientStorage;
 
 /** Wraps a `<ReviewMode>` element in the same storage the test's `beforeEach` installed ambiently. */
@@ -465,6 +474,38 @@ describe("ReviewMode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Toggle file tree" }));
     expect(screen.getByRole("button", { name: "Toggle file tree" }).getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("searchbox", { name: "Filter changed files" })).toBeNull();
+  });
+
+  it("builds each loaded diff's rows once while the other files' diffs arrive", async () => {
+    const files = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"].map((path) => ({
+      path, name: path.slice(4), directory: "src", status: "modified" as const, added: 1, removed: 0,
+    }));
+    const changes: UiWorkspaceChanges = { branch: "feat/review", files, fileCount: files.length, added: files.length, removed: 0 };
+    // Each diff arrives on its own, after the ones before it rendered.
+    const pending = new Map<string, () => void>();
+    const loadDiff = (path: string) => new Promise<UiFileDiff>((resolve) => pending.set(path, () => resolve({
+      path, added: 1, removed: 0,
+      hunks: [{ header: "@@ -1 +1 @@", lines: [{ kind: "added" as const, newLine: 1, text: `${path} line;` }] }],
+    })));
+    builtRows.length = 0;
+    const { container } = render(withStorage(<ReviewMode
+      changes={changes}
+      selectedPath="src/a.ts"
+      busy={false}
+      primaryPush={false}
+      onSelect={() => undefined}
+      onBack={() => undefined}
+      onCommit={() => undefined}
+      onOpenInEditor={() => undefined}
+      loadDiff={loadDiff}
+    />));
+    for (const file of files) {
+      await waitFor(() => expect(pending.has(file.path)).toBe(true));
+      await act(async () => { pending.get(file.path)!(); });
+      await waitFor(() => expect(builtRows).toContain(file.path));
+    }
+    await waitFor(() => expect(container.textContent).toContain("src/a.ts line;"));
+    expect([...builtRows].sort()).toEqual(files.map((file) => file.path));
   });
 
   it("windows every file into one virtualized stream and jumps to a file on demand", async () => {

@@ -9,7 +9,7 @@ import { FileKindIcon } from "./FileKindIcon";
 import { StreamingMarkdownBlocks } from "./markdown-blocks";
 import { FRAGMENT_PREFIX, parseMarkdown, renderMarkdown, type MarkdownComponents, type MarkdownHtml } from "./markdown-pipeline";
 export type { MarkdownComponents } from "./markdown-pipeline";
-import { WorkbenchContext } from "../workbench-context";
+import { OpenFileContext } from "../workbench-context";
 import { useWorkspaceResources, transcriptFilePath, type WorkspaceResources } from "../workspace-resource-context";
 import { useFileLinkMenu } from "./file-link-menu";
 import { MediaLinkContext } from "./media-link-context";
@@ -306,7 +306,7 @@ function CodeBlock({ code, language, phase: givenPhase }: { code: string; langua
  * file on the stage, or brings its tab forward; a bare name names no file.
  */
 function FileChip({ path, name }: { path: string; name: string }) {
-  const openFile = useContext(WorkbenchContext)?.openFile;
+  const openFile = useContext(OpenFileContext);
   if (!openFile || !/[/\\]/u.test(path)) return <code className="md-file-chip" {...tooltipProps(path, { variant: "code" })}><FileKindIcon name={name} size={12} />{name}</code>;
   return <OpenableFileChip path={path} name={name} open={() => openFile(path.replace(/^\.\//u, ""))} />;
 }
@@ -447,7 +447,35 @@ const INLINE_COMPONENTS: MarkdownComponents = {
   },
 };
 
+/** Settled text the virtual transcript mounts again while the reader scrolls back and forth. */
+const TREE_CACHE_ENTRIES = 256;
+const TREE_CACHE_CHARS = 2_000_000;
+const treeCache = new Map<string, ReactElement>();
+let treeCacheChars = 0;
+
+/** Least recently used first; only core's own components, whose output depends on the text alone. */
+function cachedMarkdownTree(source: string, components: MarkdownComponents): ReactElement {
+  const key = `${components === INLINE_COMPONENTS ? "inline" : "block"}\0${source}`;
+  const cached = treeCache.get(key);
+  if (cached) {
+    treeCache.delete(key);
+    treeCache.set(key, cached);
+    return cached;
+  }
+  const tree = renderMarkdown(source, components, undefined, { headingIds: true });
+  if (source.length > TREE_CACHE_CHARS) return tree;
+  treeCache.set(key, tree);
+  treeCacheChars += key.length;
+  for (const oldest of treeCache.keys()) {
+    if (treeCache.size <= TREE_CACHE_ENTRIES && treeCacheChars <= TREE_CACHE_CHARS) break;
+    treeCache.delete(oldest);
+    treeCacheChars -= oldest.length;
+  }
+  return tree;
+}
+
 const MarkdownTree = memo(function MarkdownTree({ children, components = COMPONENTS, html }: { children: string; components?: MarkdownComponents; html?: MarkdownHtml | undefined }) {
+  if (!html && (components === COMPONENTS || components === INLINE_COMPONENTS)) return cachedMarkdownTree(children, components);
   return renderMarkdown(children, components, html, { headingIds: true });
 });
 

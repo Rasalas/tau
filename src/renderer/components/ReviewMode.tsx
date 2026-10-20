@@ -90,6 +90,17 @@ function sameDiff(left: UiFileDiff | undefined, right: UiFileDiff): boolean {
   });
 }
 
+/** A loaded diff's rows, built once: a diff that arrives later leaves the other files' rows alone. */
+const rowsByDiff = new WeakMap<UiFileDiff, DiffStreamRow[]>();
+function loadedDiffRows(path: string, diff: UiFileDiff): DiffStreamRow[] {
+  let rows = rowsByDiff.get(diff);
+  if (!rows) {
+    rows = fileDiffRows(path, diff, { collapsible: true });
+    rowsByDiff.set(diff, rows);
+  }
+  return rows;
+}
+
 /** Why no message was suggested, short enough for the line under the field. */
 function suggestionNote(error: unknown): string {
   const reason = error instanceof Error ? error.message.trim().replace(/\.$/u, "") : "";
@@ -420,7 +431,7 @@ export function ReviewMode({
     const error = diffErrors.get(file.path);
     return [
       { kind: "file", key: `${file.path}\0header`, path: file.path, file, ...(diff ? { diff } : {}) } satisfies DiffStreamRow,
-      ...isCollapsed(file.path) ? [] : fileDiffRows(file.path, diff, { collapsible: true, ...(error ? { error } : {}) }),
+      ...isCollapsed(file.path) ? [] : diff ? loadedDiffRows(file.path, diff) : fileDiffRows(file.path, undefined, { collapsible: true, ...(error ? { error } : {}) }),
       { kind: "separator", key: `${file.path}\0end`, path: "" } satisfies DiffStreamRow,
     ];
   }), [diffErrors, diffs, isCollapsed, paged.files]);

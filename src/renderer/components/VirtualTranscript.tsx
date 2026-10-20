@@ -5,7 +5,7 @@ import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import { collapseRetriedErrors } from "../../workbench/transcript-state";
 import { Message } from "./Message";
 import { CompletedWork } from "./CompletedWork";
-import { projectCompletedTurnWork } from "./completed-turn-work";
+import { CompletedTurnWorkCache, projectCompletedTurnWork } from "./completed-turn-work";
 import { WorkDisclosures } from "./work-disclosures";
 import {
   groupTranscriptActivitiesForMessageIds,
@@ -48,6 +48,7 @@ export interface VirtualTranscriptProps {
 }
 
 const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
+const NO_ALIASES: ReadonlyMap<string, string> = new Map();
 const ACTION_SELECTOR = ".message-actions button";
 
 /** The actions of a message's row, in reading order. */
@@ -147,12 +148,21 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     ...activities,
     ...(activity ? [{ id: "turn-activity", afterMessageId: activityAfterMessageId, fallbackToTail: true, content: activity }] : []),
   ], [activities, activity, activityAfterMessageId]);
+  // Settled turns keep their work and answer objects while the last one streams.
+  const [completedCache] = useState(() => new CompletedTurnWorkCache());
   const completed = useMemo(() => detail === undefined || detail === "focused"
-    ? projectCompletedTurnWork(collapsed, allActivities, isStreaming)
-    : { messages: collapsed, activities: allActivities, work: new Map(), aliases: new Map() },
-  [collapsed, allActivities, detail, isStreaming]);
+    ? projectCompletedTurnWork(collapsed, allActivities, isStreaming, completedCache)
+    : { messages: collapsed, activities: allActivities, work: new Map(), aliases: NO_ALIASES },
+  [collapsed, allActivities, completedCache, detail, isStreaming]);
   const messages = completed.messages as UiMessage[];
-  const sourcePositions = useMemo(() => new Map(transcriptMessages.map((message, index) => [message.id, index])), [transcriptMessages]);
+  const messageAnchors = useMemo(() => JSON.stringify([...completed.aliases]), [completed.aliases]);
+  const firstSourceId = transcriptMessages[0]?.id;
+  const lastSourceId = transcriptMessages.at(-1)?.id;
+  const sourcePositions = useMemo(
+    () => new Map(transcriptMessages.map((message, index) => [message.id, index])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messageScopeKey, transcriptMessages.length, firstSourceId, lastSourceId, lookupRevision, lookupRevision === undefined ? transcriptMessages : undefined],
+  );
   const pendingActivities = completed.activities;
   const completedDisclosures = useMemo(() => new WorkDisclosures(), [sessionKey]);
   const firstId = messages[0]?.id;
@@ -171,6 +181,8 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messageScopeKey, messages.length, firstId, lastId, lookupRevision]);
   // Each prompt's turn, by the prompt's id; ids and entry ids are all a divider's kits read.
+  // A turn whose messages are the same objects keeps its object, so its prompt row does not render again.
+  const previousTurns = useRef<ReadonlyMap<string, TranscriptTurn>>(new Map());
   const turns = useMemo(() => {
     const byPrompt = new Map<string, TranscriptTurn>();
     let turn: { number: number; messages: UiMessage[]; last: boolean } | undefined;
@@ -182,6 +194,12 @@ export const VirtualTranscript = memo(function VirtualTranscript({
       }
       turn?.messages.push(message);
     }
+    for (const [id, next] of byPrompt) {
+      const previous = previousTurns.current.get(id);
+      if (previous && previous.number === next.number && previous.last === next.last && previous.messages.length === next.messages.length
+        && previous.messages.every((message, index) => message === next.messages[index])) byPrompt.set(id, previous);
+    }
+    previousTurns.current = byPrompt;
     return byPrompt;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messageIndex, collapsed]);
@@ -539,7 +557,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     data-visible-start-index={visibleRangeStart}
     data-visible-end-index={visibleRangeEnd}
     data-focused-index={focusedIndex}
-    data-message-anchors={JSON.stringify([...completed.aliases])}
+    data-message-anchors={messageAnchors}
   >
     {copyError ? <div role="alert">{copyError}</div> : null}
     {rows.map((row) => {

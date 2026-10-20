@@ -16,6 +16,8 @@ export function transcriptRowKind(message: UiMessage, hasActivities: boolean, de
 
 /** Before any row of a kind is measured; roughly one line of text plus the row's chrome. */
 const DEFAULT_ROW_SIZE = 120;
+/** Measured rows kept across every thread the transcript has shown. */
+export const MAX_MEASURED_ROWS = 5_000;
 
 interface MeasuredRow {
   kind: string;
@@ -43,12 +45,21 @@ export class TranscriptRowSizes {
   record(key: string, kind: string, size: number): void {
     const previous = this.rows.get(key);
     if (previous?.size === size && previous.kind === kind) return;
-    if (previous) this.remove(previous);
+    if (previous) {
+      this.remove(previous);
+      this.rows.delete(key);
+    }
     const stats = this.kinds.get(kind) ?? { total: 0, count: 0 };
     stats.total += size;
     stats.count += 1;
     this.kinds.set(kind, stats);
     this.rows.set(key, { kind, size, generation: previous?.generation ?? this.generation });
+    // The transcript outlives thread switches; the rows measured longest ago go first.
+    for (const [oldest, row] of this.rows) {
+      if (this.rows.size <= MAX_MEASURED_ROWS) break;
+      this.remove(row);
+      this.rows.delete(oldest);
+    }
   }
 
   /** The measured size of `key`, else the mean of its kind. */

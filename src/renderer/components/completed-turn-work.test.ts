@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import { wakeMessageText } from "../../shared/message-turns";
-import { projectCompletedTurnWork } from "./completed-turn-work";
+import { CompletedTurnWorkCache, projectCompletedTurnWork } from "./completed-turn-work";
 import { completedWorkMetadata, type TranscriptActivity } from "./transcript-activity";
 
 const messages: UiMessage[] = [
@@ -70,6 +70,33 @@ describe("completed turn projection", () => {
     const projection = projectCompletedTurnWork([messages[0]!, { ...messages[2]!, thinking: "Check escaping" }], [], false);
     expect(projection.messages[1]).toMatchObject({ id: "final", text: "The parser is correct", thinking: undefined });
     expect(projection.work.get("prompt")?.messages[0]).toMatchObject({ id: "final:thinking", text: "", thinking: "Check escaping" });
+  });
+
+  it("keeps every settled turn's objects while the last turn streams", () => {
+    const settled: UiMessage[] = Array.from({ length: 20 }, (_, turn) => [
+      { id: `prompt-${turn}`, role: "user" as const, text: "Ask", timestamp: turn * 10 },
+      { id: `progress-${turn}`, role: "assistant" as const, text: "Reading", timestamp: turn * 10 + 1 },
+      { id: `final-${turn}`, role: "assistant" as const, text: "Done", thinking: "Because", timestamp: turn * 10 + 2 },
+    ]).flat();
+    const activities: TranscriptActivity[] = settled.filter((message) => message.id.startsWith("progress-"))
+      .map((message) => ({ id: `tools-${message.id}`, afterMessageId: message.id, foldWithTurn: true, content: "Read" }));
+    const cache = new CompletedTurnWorkCache();
+    const live: UiMessage = { id: "prompt-live", role: "user", text: "Next", timestamp: 1_000 };
+    const frame = (text: string) => projectCompletedTurnWork([
+      ...settled,
+      live,
+      { id: "live", role: "assistant", text, timestamp: 1_001 },
+    ], [...activities], true, cache);
+    const first = frame("Stre");
+    const next = frame("Streaming");
+    expect(next.messages.slice(0, -1).every((message, index) => message === first.messages[index])).toBe(true);
+    expect([...next.work].every(([id, work]) => work === first.work.get(id))).toBe(true);
+    expect(next.aliases).toBe(first.aliases);
+    expect(next.messages.at(-1)?.text).toBe("Streaming");
+    expect(first.messages.find((message) => message.id === "final-0")).toMatchObject({ thinking: undefined });
+    // Without a cache every frame makes new ones, which is what made each settled answer render again.
+    expect(projectCompletedTurnWork(settled, activities, false).work.get("prompt-0"))
+      .not.toBe(projectCompletedTurnWork(settled, activities, false).work.get("prompt-0"));
   });
 
   it("leaves persistent cards, approvals, questions and interrupted tools out of folding", () => {

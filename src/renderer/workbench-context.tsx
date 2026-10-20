@@ -37,6 +37,11 @@ export const WorkbenchContext = createContext<WorkbenchContextValue | undefined>
 export const ObservatoryContext = createContext<ObservatoryContextValue | undefined>(undefined);
 export const WorkbenchShellContext = createContext<WorkbenchShellContextValue | undefined>(undefined);
 export const ThreadStoreContext = createContext<ThreadStore | undefined>(undefined);
+/**
+ * `WorkbenchContextValue.openFile` on its own. The workbench value changes with
+ * every flush of tool output; a file chip that only opens files reads this.
+ */
+export const OpenFileContext = createContext<WorkbenchContextValue["openFile"] | undefined>(undefined);
 
 export function useWorkbench(): WorkbenchContextValue {
   const value = useContext(WorkbenchContext);

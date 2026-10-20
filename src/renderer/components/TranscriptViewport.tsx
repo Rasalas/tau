@@ -76,6 +76,14 @@ function populateTranscriptMessageLookup(
   });
 }
 
+function sameTurnEntries(left: readonly TranscriptTurnNavigationEntry[], right: readonly TranscriptTurnNavigationEntry[]): boolean {
+  return left.length === right.length && left.every((entry, index) => {
+    const other = right[index]!;
+    return entry.messageId === other.messageId && entry.messageIndex === other.messageIndex
+      && entry.turnNumber === other.turnNumber && entry.preview === other.preview;
+  });
+}
+
 function virtualizerVisibleRange(node: HTMLDivElement): TranscriptVisibleRange | undefined {
   const content = node.querySelector<HTMLElement>(".virtual-transcript");
   const startIndex = Number.parseInt(content?.dataset.visibleStartIndex ?? "", 10);
@@ -205,14 +213,18 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     [messageScopeKey, messages.length, firstId, lastId, lookupRevision, lookupRevision === undefined ? messages : undefined],
   );
   const [turnEntries, setTurnEntries] = useState<TranscriptTurnNavigationEntry[]>([]);
+  const latestMessages = useRef(messages);
+  latestMessages.current = messages;
+  // `lookup` changes with the ordered ids and the prompts, never for a streamed delta.
   useEffect(() => {
     // Keep the first transcript paint on the existing virtualizer path. Prompt
     // previews are useful after that paint, but building hundreds of them is
     // unnecessary work on the mount-critical path.
     let frame: number | undefined;
     const update = () => {
-      populateTranscriptMessageLookup(messages, lookup);
-      setTurnEntries(buildTranscriptTurnNavigation(messages));
+      populateTranscriptMessageLookup(latestMessages.current, lookup);
+      const next = buildTranscriptTurnNavigation(latestMessages.current);
+      setTurnEntries((current) => sameTurnEntries(current, next) ? current : next);
     };
     if (typeof window.requestAnimationFrame === "function") {
       frame = window.requestAnimationFrame(update);
@@ -222,7 +234,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     return () => {
       if (frame !== undefined) window.cancelAnimationFrame(frame);
     };
-  }, [lookup, lookupRevision, messages]);
+  }, [lookup]);
   const showTurnNavigation = shouldShowTranscriptTurnNavigation(turnEntries);
   const turnEntriesRef = useRef(turnEntries);
   useLayoutEffect(() => { turnEntriesRef.current = turnEntries; }, [turnEntries]);
@@ -286,7 +298,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       turnMarkerFrame.cancel();
       if (updateVisibleTurnRef.current === update) updateVisibleTurnRef.current = () => {};
     };
-  }, [messages, navigation.subscribeResize, navigation.subscribeScroll, scrollRef, turnEntries, turnMarkerFrame]);
+  }, [navigation.subscribeResize, navigation.subscribeScroll, scrollRef, turnEntries, turnMarkerFrame]);
 
   const selectTurn = useCallback((messageId: string) => {
     // Reflect the explicit choice immediately; the scroll listener will refine

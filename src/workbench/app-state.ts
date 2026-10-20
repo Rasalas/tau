@@ -284,15 +284,22 @@ export function conversationMessagesFor(
   return pendingNewThread ? unconfirmed : withUnconfirmed(messages, unconfirmed);
 }
 
-/** Splits the host's reported context usage over transcript and tool output. */
+const kiloTokensByTools = new WeakMap<readonly UiToolRun[], number>();
+
 /** The live turn's tool output in estimated tokens, rounded to the thousands the context meter shows. */
 export function toolOutputKiloTokens(tools: readonly UiToolRun[]): number {
+  // The store's snapshot is read on every render and every flush; the tool list is immutable.
+  const cached = kiloTokensByTools.get(tools);
+  if (cached !== undefined) return cached;
   // A deferred output counts by its length, as it would with its text.
-  return Math.round(tools.reduce((total, tool) => total + (tool.output === undefined && tool.outputLength !== undefined
+  const value = Math.round(tools.reduce((total, tool) => total + (tool.output === undefined && tool.outputLength !== undefined
     ? Math.ceil(tool.outputLength / 4)
     : estimateTokens(tool.output ?? "")), 0) / 1000);
+  kiloTokensByTools.set(tools, value);
+  return value;
 }
 
+/** Splits the host's reported context usage over transcript and tool output. */
 export function contextBreakdownFor(
   usage: UiContextUsage | undefined,
   messageTokens: number,

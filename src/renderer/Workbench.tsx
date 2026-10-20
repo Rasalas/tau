@@ -86,6 +86,7 @@ import type { TranscriptHistoryController } from "../workbench/transcript-histor
 import type { useThreadDropController } from "./use-thread-drop-controller";
 import {
   ObservatoryContext,
+  OpenFileContext,
   ThreadStoreContext,
   WorkbenchContext,
   WorkbenchShellContext,
@@ -302,10 +303,10 @@ export interface WorkbenchModel {
   /** The toast stack; notices reach it through `setNotice`. */
   toasts: ToastStore;
   actions: WorkbenchActions;
-  /** Both contexts without their tool runs, which the workbench adds from `view`. */
-  context: Omit<WorkbenchContextValue, "tools">;
+  /** Both contexts without their tool runs and events, which the workbench adds from `view`. */
+  context: Omit<WorkbenchContextValue, "tools" | "events">;
   shellContext: WorkbenchShellContextValue;
-  observatoryContext: Omit<ObservatoryContextValue, "tools">;
+  observatoryContext: Omit<ObservatoryContextValue, "tools" | "events">;
   layout: WorkbenchLayout;
   thread: WorkbenchThread;
   composer: WorkbenchComposer;
@@ -1081,21 +1082,25 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
 });
 
 /**
- * Tool runs join the two contexts here. A flush of tool output re-renders this
- * and the contexts' consumers; the workbench below hands in the same children.
+ * Tool runs and timeline events join the two contexts here. A flush of tool
+ * output or a new event re-renders this and the contexts' consumers; the
+ * workbench below hands in the same children.
  */
 function WorkbenchProviders({ model, threadStore, children }: { model: WorkbenchModel; threadStore: ThreadStore; children: React.ReactNode }) {
   const { tools } = useSyncExternalStore(model.view.subscribeToTools, model.view.getToolView);
-  const context = useMemo(() => ({ ...model.context, tools }), [model.context, tools]);
-  const observatory = useMemo(() => ({ ...model.observatoryContext, tools }), [model.observatoryContext, tools]);
+  const events = useSyncExternalStore(model.view.subscribeToEvents, model.view.getEvents);
+  const context = useMemo(() => ({ ...model.context, tools, events }), [model.context, tools, events]);
+  const observatory = useMemo(() => ({ ...model.observatoryContext, tools, events }), [model.observatoryContext, tools, events]);
   const runtimeBackends = model.shellContext.snapshot?.runtimeBackends;
   useEffect(() => declareRuntimeMarks(runtimeBackends), [runtimeBackends]);
   return <ThreadStoreContext.Provider value={threadStore}>
     <WorkbenchShellContext.Provider value={model.shellContext}>
       <WorkbenchContext.Provider value={context}>
-        <AppPageContext.Provider value={model.layout.pages}>
-          <ObservatoryContext.Provider value={observatory}>{children}</ObservatoryContext.Provider>
-        </AppPageContext.Provider>
+        <OpenFileContext.Provider value={model.context.openFile}>
+          <AppPageContext.Provider value={model.layout.pages}>
+            <ObservatoryContext.Provider value={observatory}>{children}</ObservatoryContext.Provider>
+          </AppPageContext.Provider>
+        </OpenFileContext.Provider>
       </WorkbenchContext.Provider>
     </WorkbenchShellContext.Provider>
   </ThreadStoreContext.Provider>;

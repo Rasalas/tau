@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
-import { TranscriptRowSizes, transcriptRowKind } from "./transcript-row-sizes";
+import { MAX_MEASURED_ROWS, TranscriptRowSizes, transcriptRowKind } from "./transcript-row-sizes";
 
 const message = (role: UiMessage["role"], thinking?: string): UiMessage => ({ id: "m", role, text: "", timestamp: 0, ...(thinking ? { thinking } : {}) });
 
@@ -39,5 +39,18 @@ describe("transcript row sizes", () => {
     sizes.record("a", "user", 90);
     expect(sizes.measuredBefore("a", second)).toBe(true);
     expect(sizes.measuredBefore("b", second)).toBe(false);
+  });
+
+  it("forgets the rows measured longest ago once threads have measured more than it keeps", () => {
+    const sizes = new TranscriptRowSizes();
+    sizes.record("first", "user", 500);
+    sizes.record("kept", "user", 500);
+    for (let index = 0; index < MAX_MEASURED_ROWS - 1; index += 1) {
+      sizes.record(`other-${index}`, "user", 100);
+      if (index === 0) sizes.record("kept", "user", 400);
+    }
+    expect(sizes.measuredBefore("first", Number.MAX_SAFE_INTEGER)).toBe(false);
+    expect(sizes.size("kept", "user")).toBe(400);
+    expect(sizes.size("unmeasured", "user")).toBe(100);
   });
 });

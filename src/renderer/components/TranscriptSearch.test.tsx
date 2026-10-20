@@ -87,4 +87,20 @@ describe("TranscriptSearch", () => {
     press("Escape");
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it("lowercases only the message a streamed frame replaced", async () => {
+    const history = Array.from({ length: 2_000 }, (_, index) => message(`h${index}`, `Settled ${index}`));
+    const view = render(<TranscriptSearch messages={[...history, message("live", "Quartz")]} onJump={vi.fn()} onClose={() => undefined} />);
+    await type("quartz");
+    expect(count()).toBe("1 of 1");
+    const lower = vi.spyOn(String.prototype, "toLowerCase");
+    try {
+      view.rerender(<TranscriptSearch messages={[...history, message("live", "Quartz grows")]} onJump={vi.fn()} onClose={() => undefined} />);
+      // React lowercases names of its own; the settled history alone would be 2,000 calls.
+      expect(lower.mock.calls.length).toBeLessThan(1_000);
+    } finally {
+      lower.mockRestore();
+    }
+    expect(count()).toBe("1 of 1");
+  });
 });

@@ -112,9 +112,25 @@ export function writeBootstrapCache(
       if (active && !sessions.some((thread) => thread.id === active.id)) sessions.unshift(active);
       raw = serialize();
     }
-    while (byteLength(raw) > MAX_BYTES && retained.messages.length) {
-      retained = boundedSnapshot({ ...retained, messages: retained.messages.slice(1), historyCompleteness: "unknown" });
-      raw = serialize();
+    if (byteLength(raw) > MAX_BYTES && retained.messages.length) {
+      // The fewest oldest messages to drop, found by halving: one serialization
+      // per step instead of one per dropped message.
+      const retainedWindow = retained;
+      const without = (count: number) => boundedSnapshot({ ...retainedWindow, messages: retainedWindow.messages.slice(count), historyCompleteness: "unknown" });
+      let low = 1;
+      let high = retainedWindow.messages.length;
+      let fitting: string | undefined;
+      while (low <= high) {
+        const count = Math.floor((low + high) / 2);
+        retained = without(count);
+        const candidate = serialize();
+        if (byteLength(candidate) <= MAX_BYTES) {
+          fitting = candidate;
+          high = count - 1;
+        } else low = count + 1;
+      }
+      if (fitting === undefined) return;
+      raw = fitting;
     }
     if (byteLength(raw) <= MAX_BYTES) storage.set(CACHE_KEY, raw);
   } catch {
