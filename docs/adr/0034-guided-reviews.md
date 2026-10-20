@@ -55,6 +55,12 @@ around a change. The run therefore starts a thread from the `pr-guide` definitio
   host command for callers that name an inline definition, a parent thread and a
   revision to start from, and `discard-changes` opens to the same caller. The
   definition is a built-in in Review Kit, not a file in `.tau/agents/`.
+- Runs live in Review Kit's memory. Its next activation (a reload, an update, the
+  kit turned off and on) lists the agents it spawned through Agents Kit's
+  `spawned`, stops each guide agent it holds no run for, discards that agent's
+  read-only worktree and fails the request's run with "Stopped because Review was
+  reloaded", so the tab offers Write guide again. A guide handed in before the
+  reload stays.
 
 Writing is explicit: opening the tab never spends a run. The agent's own text is
 not trusted: the host holds the guide to the change before it stores it.

@@ -154,14 +154,18 @@ export function readComposerDraft(storage: ClientStorage, key?: DraftKey | strin
   return key ? readComposerEntry(storage, key) ?? "" : "";
 }
 
-export function writeComposerDraft(storage: ClientStorage, key: DraftKey | string | undefined, text: string): void {
-  if (!key) return;
-  if (typeof key === "string" && key.startsWith("new:")) {
-    const pending = pendingForKey(storage, key);
-    if (pending) writeNewThreadDraft(storage, { ...pending, draft: text || undefined });
-    return;
-  }
-  writeComposerEntry(storage, key, text || undefined);
+/** False when storage refused the text (a full quota): the draft lives only in memory until a later write succeeds. */
+export function writeComposerDraft(storage: ClientStorage, key: DraftKey | string | undefined, text: string): boolean {
+  if (!key) return true;
+  try {
+    if (typeof key === "string" && key.startsWith("new:")) {
+      const pending = pendingForKey(storage, key);
+      if (pending) writeNewThreadDraft(storage, { ...pending, draft: text || undefined });
+      return true;
+    }
+    writeComposerEntry(storage, key, text || undefined);
+    return true;
+  } catch { return false; }
 }
 
 const isStringRecord = (value: unknown): value is Record<string, string> =>

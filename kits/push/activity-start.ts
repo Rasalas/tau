@@ -55,9 +55,13 @@ export class ActivityStarts {
     this.started = this.started.filter((row) => row.device !== device);
     await this.save();
   }
+  /** Runs at every turn's activity push; the file is written only when a phone or a start dropped out. */
   async retain(devices: ReadonlySet<string>, now: number): Promise<void> {
-    this.registrations = this.registrations.filter((row) => devices.has(row.device) && row.expiresAt > now);
-    this.started = this.started.filter((row) => devices.has(row.device) && row.at > now - 8 * 60 * 60_000);
+    const registrations = this.registrations.filter((row) => devices.has(row.device) && row.expiresAt > now);
+    const started = this.started.filter((row) => devices.has(row.device) && row.at > now - 8 * 60 * 60_000);
+    if (registrations.length === this.registrations.length && started.length === this.started.length) return;
+    this.registrations = registrations;
+    this.started = started;
     await this.save();
   }
   state(row: ActivityRegistration): ActivityUpdate["state"] | undefined { return this.started.find((start) => start.device === row.device && start.activityId === row.activityId)?.state; }

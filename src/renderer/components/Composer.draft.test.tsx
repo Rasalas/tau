@@ -30,7 +30,7 @@ const snapshot: HostSnapshot = {
 
 const DRAFT_KEY = createDraftKey("session:session");
 
-function renderComposer(onSubmit: () => Promise<SubmissionResult>, storage: ClientStorage, initialSnapshot = snapshot) {
+function renderComposer(onSubmit: () => Promise<SubmissionResult>, storage: ClientStorage, initialSnapshot = snapshot, props: { onChange?(text: string): void; onNotify?(message: string, level?: "info" | "warning" | "error"): void } = {}) {
   render(
     <ClientStorageProvider storage={storage}>
       <RendererServicesProvider services={createRendererServices()}>
@@ -48,6 +48,7 @@ function renderComposer(onSubmit: () => Promise<SubmissionResult>, storage: Clie
           onSetModel={() => {}}
           onSetThinking={() => {}}
           onCompactContext={() => {}}
+          {...props}
         />
       </RendererServicesProvider>
     </ClientStorageProvider>,
@@ -135,5 +136,29 @@ describe("Composer draft persistence", () => {
     await waitFor(() => expect(screen.getByText("no")).toBeTruthy());
     expect(readComposerDraft(storage, DRAFT_KEY)).toBe("retry me");
     expect(loadStoredPromptHistory(storage)).toEqual([]);
+  });
+
+  it("keeps typing and warns once when storage refuses the draft, until a write succeeds again", () => {
+    const storage = createMemoryStorage();
+    const set = storage.set;
+    let full = true;
+    storage.set = (key, value) => { if (full) throw new Error("QuotaExceededError"); set(key, value); };
+    const onChange = vi.fn();
+    const onNotify = vi.fn();
+    const textarea = renderComposer(async () => ({ accepted: true }), storage, snapshot, { onChange, onNotify });
+
+    fireEvent.change(textarea, { target: { value: "a", selectionStart: 1 } });
+    fireEvent.change(textarea, { target: { value: "ab", selectionStart: 2 } });
+    expect(textarea.value).toBe("ab");
+    expect(onChange).toHaveBeenLastCalledWith("ab");
+    expect(onNotify).toHaveBeenCalledTimes(1);
+    expect(onNotify).toHaveBeenCalledWith(expect.stringContaining("Draft not saved"), "warning");
+
+    full = false;
+    fireEvent.change(textarea, { target: { value: "abc", selectionStart: 3 } });
+    expect(readComposerDraft(storage, DRAFT_KEY)).toBe("abc");
+    full = true;
+    fireEvent.change(textarea, { target: { value: "abcd", selectionStart: 4 } });
+    expect(onNotify).toHaveBeenCalledTimes(2);
   });
 });

@@ -1799,6 +1799,8 @@ export function createAgentsHostExtension(options: {
           const source = typeof fields.source === "string" && fields.source ? fields.source.slice(0, 64) : "tau.review";
           return spawn({ sessionId: parent.sessionId, cwd: parent.cwd }, { prompt: fields.prompt, title: fields.title, model: fields.model, workspace: "worktree" }, undefined, source, { definition, ...(startAt ? { startAt } : {}), ...(thinkingLevel ? { thinkingLevel } : {}), ...(beforePrompt ? { beforePrompt } : {}), ...(onStartFailed ? { onStartFailed } : {}) });
         }, { long: true, callers: [REVIEW_KIT_ID] }),
+        // The agents a kit's `spawn` started, and only its own: after a reload it finds what it left running.
+        context.registerCommand("spawned", (_input, call) => ({ agents: call.extension ? book.state().links.filter((link) => link.spawnedBy === call.extension) : [] }), { callers: [REVIEW_KIT_ID] }),
       ];
 
       // Both reads finish before the extension is active, so the first thing

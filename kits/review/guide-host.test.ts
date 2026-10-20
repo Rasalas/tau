@@ -7,7 +7,7 @@ import type { UiFileDiff } from "tau";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { createBitbucketProvider } from "./provider-bitbucket.js";
 import type { ProviderTools } from "./provider.js";
-import { isGuideSession, registerGuides } from "./guide-host.js";
+import { isGuideSession, registerGuides, type Guides } from "./guide-host.js";
 import { GUIDE_AGENT, GUIDE_DIFF_TOOL, GUIDE_EVENT, GUIDE_SUBMIT_TOOL, type GuideEvent, type GuideResult, type GuideWriteResult } from "./guide-protocol.js";
 import type { SourceControl } from "./provider-registry.js";
 import { PROVIDERS, type RequestService, type PullRequestDetail, type PullRequestFiles } from "./protocol.js";
@@ -47,6 +47,7 @@ async function harness(options: Options = {}) {
   });
   const stop = vi.fn(async (_input: unknown) => ({}));
   const discard = vi.fn(async (_input: unknown) => ({ detail: "" }));
+  const spawned = vi.fn(async (): Promise<{ agents: unknown[] }> => ({ agents: [] }));
   const notify = vi.fn(async (_input: unknown) => undefined);
   const fetchHead = vi.fn(async () => undefined);
   const catalogRead = vi.fn();
@@ -68,13 +69,16 @@ async function harness(options: Options = {}) {
   };
   const workspace = async () => ({ root: "/repo", base: "main", remote: { name: "origin", url: `git@${host}:example/project.git` } });
   let ids = 0;
-  const registry: HostExtensionRegistry = await activateHostKit({
+  let guides: Guides | undefined;
+  const kit: Parameters<typeof activateHostKit>[0] = {
     id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"],
     activate: (context) => {
-      const guides = registerGuides(context, sources, reads, workspace, { fetchHead, wait: async () => undefined, runId: () => `run-${++ids}`, now: () => Date.parse("2026-10-12T10:00:00Z") });
-      return () => guides.dispose();
+      const current = registerGuides(context, sources, reads, workspace, { fetchHead, wait: async () => undefined, runId: () => `run-${++ids}`, now: () => Date.parse("2026-10-12T10:00:00Z") });
+      guides = current;
+      return () => current.dispose();
     },
-  }, {
+  };
+  const registry: HostExtensionRegistry = await activateHostKit(kit, {
     stateDir,
     settings: async () => ({ options: { "review-guides": options.enabled ?? true }, values: { "review-guide-runtime": options.writer ?? "", "review-guide-model": options.model ?? "", "review-guide-effort": options.effort ?? "", "review-guide-instructions": options.instructions ?? "" } }),
     thread: ((id: string) => id === "parent" ? { sessionId: "parent", cwd: "/repo" } : id === "guide-thread" ? { sessionId: id, cwd: "/wt", model: { provider: "anthropic", id: "haiku" } } : undefined) as never,
@@ -87,6 +91,7 @@ async function harness(options: Options = {}) {
     context.registerCommand("spawn", (input) => spawn(input), { callers: ["tau.review"] });
     context.registerCommand("stop-agent", (input) => stop(input), { callers: ["tau.review"] });
     context.registerCommand("discard-changes", (input) => discard(input), { callers: ["tau.review"] });
+    context.registerCommand("spawned", () => spawned(), { callers: ["tau.review"] });
   } });
   await registry.activate({ id: "tau.push", name: "Push", permissions: [], activate: (context) => { context.registerCommand("notify", (input) => notify(input), { callers: ["tau.review"] }); } });
   cleanups.push(() => registry.deactivate("tau.review"));
@@ -102,7 +107,9 @@ async function harness(options: Options = {}) {
     return { registered, handlers, activeTools, find: (name: string) => registered.find((entry) => entry.name === name)! };
   };
   const run = (entry: HostMcpTool, params: unknown) => entry.execute("id", params as never, undefined as never, undefined as never, undefined as never);
-  return { beforeSpawnReturn: (callback: () => Promise<void>) => { duringSpawn = callback; }, stateDir, catalogRead, call, write, spawn, stop, discard, notify, fetchHead, events, heads, tool, guideTools, run, ended: (outcome: "completed" | "failed" = "completed") => observer!.runEnded!("guide-thread", outcome) };
+  /** Review Kit deactivated and activated again, as a reload or an update does; resolves once its sweep is over. */
+  const reload = async () => { await registry.deactivate("tau.review"); await registry.activate(kit); await guides!.swept; };
+  return { beforeSpawnReturn: (callback: () => Promise<void>) => { duringSpawn = callback; }, stateDir, catalogRead, call, write, reload, spawn, spawned, stop, discard, notify, fetchHead, events, heads, tool, guideTools, run, ended: (outcome: "completed" | "failed" = "completed") => observer!.runEnded!("guide-thread", outcome) };
 }
 
 const submission = { runId: "run-1", stops: [{ title: "The contract", summary: "Shape first.", excerpts: [{ path: "a.ts", side: "new", start: 1, end: 11, caption: "shape" }], notes: [{ path: "a.ts", line: 10, title: "why", body: "because" }], questions: ["Why?"] }] };
@@ -546,5 +553,44 @@ describe("Bitbucket guides through the registry", () => {
     const result = await h.call<GuideResult>("guide-get", { url: "https://bitbucket.org/example/project/pull-requests/42" });
     expect(result.guide?.headSha).toBe("a".repeat(40));
     expect(result.guide?.stops[0]?.excerpts[0]).toMatchObject({ start: 10, end: 11 });
+  });
+});
+
+
+describe("guide agents left by an earlier activation", () => {
+  const agent = (patch: Record<string, unknown> = {}) => ({
+    id: "guide-thread", threadId: "guide-thread", parentThreadId: "parent", agent: GUIDE_AGENT, title: "Review guide for #42", projectPath: "/repo",
+    spawnedAt: Date.parse("2026-10-12T09:00:00Z"), status: "running", workspace: { mode: "worktree", path: "/wt", branch: "tau/guide" }, ...patch,
+  });
+
+  it("stops a running one after a reload, discards its worktree and fails its request's run with the reason", async () => {
+    const h = await harness();
+    expect((await h.write()).outcome).toBe("started");
+    h.spawned.mockResolvedValue({ agents: [
+      agent(),
+      agent({ id: "other", threadId: "other", agent: "reviewer", title: "Review #43" }),
+      agent({ id: "done", threadId: "done", title: "Review guide for #43", status: "completed", workspace: { mode: "worktree", path: "/wt2", settled: "discarded" } }),
+    ] });
+    h.events.length = 0;
+    await h.reload();
+    expect(h.stop.mock.calls).toEqual([[{ threadId: "guide-thread" }]]);
+    expect(h.discard.mock.calls).toEqual([[{ threadId: "guide-thread" }]]);
+    const result = await h.call<GuideResult>("guide-get", { url: URL });
+    expect(result.run).toMatchObject({ state: "failed", headSha: "head-1", detail: "Stopped because Review was reloaded. Write the guide again." });
+    expect(h.events).toEqual([expect.objectContaining({ url: URL, kind: "failed", parentThreadId: "parent" })]);
+    expect((await h.write()).outcome).toBe("started");
+  });
+
+  it("discards the worktree of one that ended and keeps the guide it handed in", async () => {
+    const h = await harness();
+    await h.write();
+    await h.run(h.guideTools().find(GUIDE_SUBMIT_TOOL), submission);
+    h.spawned.mockResolvedValue({ agents: [agent({ status: "completed" }), agent({ id: "late", threadId: "late" })] });
+    await h.reload();
+    expect(h.stop.mock.calls).toEqual([[{ threadId: "late" }]]);
+    expect(h.discard.mock.calls).toEqual(expect.arrayContaining([[{ threadId: "guide-thread" }], [{ threadId: "late" }]]));
+    const result = await h.call<GuideResult>("guide-get", { url: URL });
+    expect(result.guide?.headSha).toBe("head-1");
+    expect(result.run).toBeNull();
   });
 });

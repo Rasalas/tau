@@ -91,7 +91,7 @@ body[data-profile="compact"] :is(textarea, select, input:not([type="checkbox"], 
 body[data-profile="compact"] .send-button { width: var(--touch-target); height: var(--touch-target); border: 4px solid transparent; background-clip: padding-box; }
 body[data-profile="compact"] .send-button.send-mode { width: auto; padding: 0 14px; border-radius: 999px; }
 body[data-profile="compact"] .send-split.with-options > .send-mode { padding-right: 10px; border-radius: 999px 0 0 999px; }
-body[data-profile="compact"] .send-button.send-mode-options { width: 36px; border-radius: 0 999px 999px 0; }
+body[data-profile="compact"] .send-button.send-mode-options { width: var(--touch-target); border-radius: 0 999px 999px 0; }
 /* Held for the send menu, so no selection or callout under the finger. */
 body[data-profile="compact"] .send-button { -webkit-touch-callout: none; user-select: none; }
 /* A finger gets the ring and the square, not the desktop's word. */

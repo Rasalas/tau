@@ -1,6 +1,7 @@
 import type { HostClient } from "../../src/workbench/host-client";
 import type { UsageLimitsSummary } from "../../kits/usage/protocol";
 import { ThreadBoard, widgetSnapshot, widgetUsage, type WidgetAccount, type WidgetSnapshot } from "./widgets";
+import type { Visibility } from "./machines";
 
 export interface ActivityToken { hostId: string; threadId: string; token: string; topic: string; relay?: { handle: string; keyId: string; key: string } }
 export interface ActivityPort {
@@ -13,9 +14,10 @@ export interface ActivityPort {
 
 /** The snapshot is written this long after the last change, so a burst of events is one write. */
 export const SNAPSHOT_DEBOUNCE_MS = 500;
+const BEAT_MS = 120_000;
 
 /** Each host has its own source, lifetime and cleanup. Serialized writes cannot resurrect a revoked host. */
-export function followActivities(hostId: string, client: Pick<HostClient, "onHostEvent" | "bootstrap" | "invokeHostExtension">, port: ActivityPort, now = Date.now, machine = ""): { stop(): void; revoke(): Promise<void> } {
+export function followActivities(hostId: string, client: Pick<HostClient, "onHostEvent" | "bootstrap" | "invokeHostExtension">, port: ActivityPort, now = Date.now, machine = "", visibility?: Visibility): { stop(): void; revoke(): Promise<void> } {
   const board = new ThreadBoard(now);
   let accounts: WidgetAccount[] | undefined;
   let active = true;
@@ -50,7 +52,14 @@ export function followActivities(hostId: string, client: Pick<HostClient, "onHos
   }
   void refreshUsage();
   // The same beat keeps the Live Activity from reading as stale while the app follows the host.
-  const timer = setInterval(() => { void refreshUsage(); write(); }, 120_000);
-  const stop = () => { active = false; off(); offTokens?.(); clearInterval(timer); clearTimeout(pending); };
+  // In the background the host's pushes keep it, so the beat rests and catches up on return.
+  const beat = () => { void refreshUsage(); write(); };
+  let timer = visibility && !visibility.visible() ? undefined : setInterval(beat, BEAT_MS);
+  const offVisibility = visibility?.subscribe(() => {
+    if (!active) return;
+    if (!visibility.visible()) { clearInterval(timer); timer = undefined; }
+    else if (!timer) { beat(); timer = setInterval(beat, BEAT_MS); }
+  });
+  const stop = () => { active = false; off(); offTokens?.(); offVisibility?.(); clearInterval(timer); clearTimeout(pending); };
   return { stop, revoke: async () => { stop(); await writes; await port.clear(hostId); } };
 }

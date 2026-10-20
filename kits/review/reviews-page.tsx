@@ -589,7 +589,7 @@ function FileDiff({ host, review, path, lines }: { host: HostExtensionClient; re
   useEffect(() => {
     let live = true;
     host.invoke("file-diff", { workspace: review.workspace, relPath: path, options: { scope: "branch", baseRef: review.target } })
-      .then((answer) => { if (live) setDiff(answer as UiFileDiff); }, (reason) => { if (live) setError(errorMessage(reason)); });
+      .then((answer) => { if (live) { setError(undefined); setDiff(answer as UiFileDiff); } }, (reason) => { if (live) setError(errorMessage(reason)); });
     return () => { live = false; };
   }, [host, review.workspace, review.target, review.tip, path]);
   if (error) return <p className="rv-diff-error">{error}</p>;
