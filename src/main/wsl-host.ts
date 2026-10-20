@@ -39,6 +39,8 @@ export function wslPairingChannel(child: ChildProcessWithoutNullStreams, signal?
     const abort = () => fail(new Error("WSL pairing cancelled."));
     const timer = setTimeout(() => fail(new Error("The WSL host did not offer a pairing link in time.")), timeoutMs);
     signal?.addEventListener("abort", abort, { once: true });
+    // A host that left closes the pipe; EPIPE must not reach the window process.
+    child.stdin.on("error", () => undefined);
     child.on("error", fail);
     child.on("exit", (code) => { if (!settled) fail(new Error(`WSL pairing exited with ${code}. Check the distro's Tau host log.`)); });
     child.stdout.on("data", (chunk: Buffer) => {

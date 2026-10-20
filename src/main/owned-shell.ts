@@ -3,6 +3,9 @@ import { access } from "node:fs/promises";
 import { createBashToolDefinition, getShellConfig, type BashOperations, type ExtensionFactory, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { spawnOwnedShellProcess } from "./owned-process.js";
 
+/** How long output after the shell's exit is still read before its status is returned. */
+const DRAIN_LIMIT_MS = 1_000;
+
 /** Keeps the tool formatting; only process ownership changes. */
 export function ownedBashOperations(settings: Pick<SettingsManager, "getShellPath">): BashOperations {
   return {
@@ -29,11 +32,14 @@ export function ownedBashOperations(settings: Pick<SettingsManager, "getShellPat
       const timer = timeout === undefined ? undefined : setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeout * 1_000);
       try {
         const result = await exited;
-        // A background child can hold the pipes open after its shell exits.
+        // A background child can hold the pipes open after its shell exits; one that keeps writing does not hold the call.
         await new Promise<void>((resolve) => {
           let idle = setTimeout(done, 100);
+          const limit = setTimeout(done, DRAIN_LIMIT_MS);
           const received = () => { clearTimeout(idle); idle = setTimeout(done, 100); };
           function done() {
+            clearTimeout(idle);
+            clearTimeout(limit);
             child.stdout.removeListener("data", received);
             child.stderr.removeListener("data", received);
             resolve();

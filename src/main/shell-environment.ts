@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { posix, win32 } from "node:path";
@@ -68,10 +68,28 @@ export function envValue(env: NodeJS.ProcessEnv, name: string, platform: NodeJS.
 
 const pathDelimiter = (platform: NodeJS.Platform) => platform === "win32" ? ";" : ":";
 
-const runWithExecFile: CommandRunner = (command, args, timeoutMs, env) => new Promise((resolve, reject) => {
-  execFile(command, [...args], { env, timeout: timeoutMs, maxBuffer: 1024 * 1024, encoding: "utf8", windowsHide: true }, (error, stdout) => {
-    if (error) reject(error);
-    else resolve(stdout);
+/**
+ * Runs a command with a deadline of its own: an interactive shell ignores
+ * SIGTERM and what its rc file started can hold the pipes open, so at the
+ * deadline its whole process group is killed and the answer is a failure.
+ */
+export const runWithDeadline: CommandRunner = (command, args, timeoutMs, env) => new Promise((resolve, reject) => {
+  const group = process.platform !== "win32";
+  const child = spawn(command, [...args], { env, stdio: ["pipe", "pipe", "ignore"], windowsHide: true, detached: group });
+  let stdout = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => { if (stdout.length < 1024 * 1024) stdout += chunk; });
+  const timer = setTimeout(() => {
+    try {
+      if (group && child.pid) process.kill(-child.pid, "SIGKILL");
+      else child.kill("SIGKILL");
+    } catch { child.kill("SIGKILL"); }
+    reject(new Error(`${command} did not answer within ${timeoutMs} ms.`));
+  }, timeoutMs);
+  child.once("error", (error) => { clearTimeout(timer); reject(error); });
+  child.once("close", (code, signal) => {
+    clearTimeout(timer);
+    if (code === 0) resolve(stdout);
+    else reject(new Error(`${command} exited with ${code ?? signal}.`));
   });
 });
 
@@ -137,7 +155,7 @@ export async function captureLoginShellEnvironment(
   options: ShellEnvironmentOptions = {},
 ): Promise<Record<string, string>> {
   const env = options.env ?? process.env;
-  const run = options.run ?? runWithExecFile;
+  const run = options.run ?? runWithDeadline;
   const timeoutMs = options.timeoutMs ?? 5_000;
   for (const shell of loginShellCandidates(env, options.shell)) {
     try {
@@ -186,7 +204,7 @@ function powerShellCandidates(env: NodeJS.ProcessEnv): string[] {
 /** The PATH the registry holds now, which a long-running Explorer may not have passed on yet. */
 export async function readWindowsRegistryPath(options: ShellEnvironmentOptions = {}): Promise<Partial<Record<RegistryScope, string>>> {
   const env = options.env ?? process.env;
-  const run = options.run ?? runWithExecFile;
+  const run = options.run ?? runWithDeadline;
   const encoded = Buffer.from(windowsPathScript(), "utf16le").toString("base64");
   for (const shell of powerShellCandidates(env)) {
     try {
@@ -296,7 +314,7 @@ async function refreshShellEnvironment(options: ShellEnvironmentOptions): Promis
   const platform = options.platform ?? process.platform;
   if (platform === "win32") return installWindowsEnvironment(env, options);
   const installed: string[] = [];
-  const run = options.run ?? runWithExecFile;
+  const run = options.run ?? runWithDeadline;
   const shell = await captureLoginShellEnvironment(LOGIN_SHELL_ENV_NAMES, options);
   let pathSource: ShellEnvironmentResult["pathSource"] = shell.PATH ? "login-shell" : "process";
   let shellPath: string | undefined = shell.PATH || undefined;

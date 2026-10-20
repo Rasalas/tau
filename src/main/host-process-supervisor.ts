@@ -513,7 +513,22 @@ export class HostProcessSupervisor {
       }
       this.options.logger?.info("host-process.service-gone", { installed });
       this.stopServiceCheck();
-      const own = await this.spawnHost();
+      let own: RunningHost;
+      try {
+        own = await this.restart();
+      } catch (error: unknown) {
+        if (this.stopping) return;
+        // Counted like a crash: the next check tries again until it failed too often in a minute.
+        const now = Date.now();
+        this.restarts = [...this.restarts.filter((at) => now - at < RESTART_WINDOW_MS), now];
+        this.options.logger?.error("host-process.restart-failed", error);
+        if (this.restarts.length > MAX_RESTARTS) {
+          this.options.onFatal?.({ message: `Tau's host could not be restarted: ${String(error)}`, logPath: this.logPath });
+        } else {
+          this.startServiceCheck();
+        }
+        return;
+      }
       if (own.url !== running.url) this.options.onUrlChanged?.(own.url);
     } catch (error: unknown) {
       this.options.logger?.error("host-process.service-check-failed", error);
@@ -571,13 +586,16 @@ export class HostProcessSupervisor {
     let errors = "";
     const started = new Promise<{ url: string; tokenPath: string }>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`The host did not report a socket within ${this.startTimeout()}ms.`)), this.startTimeout());
+      const log = (chunk: Buffer | string): void => { if (!logFailed) logStream.write(String(chunk)); };
       const read = (chunk: Buffer | string): void => {
         const text = String(chunk);
-        if (!logFailed) logStream.write(text);
+        log(text);
         output += text.slice(0, 4_000);
         const announced = parseHostAnnouncement(output);
         if (announced) {
           clearTimeout(timer);
+          // Announced once; later output only goes to the log.
+          child.stdout?.off("data", read).on("data", log);
           resolve(announced);
         }
       };
@@ -587,7 +605,8 @@ export class HostProcessSupervisor {
         errors = `${errors}${String(chunk)}`.slice(-4_000);
       });
       child.once("error", (error) => { clearTimeout(timer); reject(error); });
-      child.once("exit", (code) => {
+      // After the pipes closed: stderr's last lines may come after the exit.
+      child.once("close", (code) => {
         clearTimeout(timer);
         // It says which host owns the folder; that is the whole message.
         const busy = code === DATA_FOLDER_BUSY_EXIT_CODE ? errors.trim().split(/\r?\n/u).at(-1) : undefined;
@@ -613,11 +632,9 @@ export class HostProcessSupervisor {
     this.running = running;
     await this.writeDescriptor(running);
     this.options.logger?.info("host-process.started", { pid: running.pid, url, log: this.logPath });
-    child.on("exit", (code, signal) => {
-      // The log stream holds a file handle; a host that is gone needs none.
-      logStream.end();
-      this.onExit(running.pid, code, signal);
-    });
+    // The log stream holds a file handle; a host that is gone needs none once its last stderr (a crash stack) is in.
+    child.once("close", () => logStream.end());
+    child.on("exit", (code, signal) => this.onExit(running.pid, code, signal));
     return running;
   }
 
