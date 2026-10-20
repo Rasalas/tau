@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { Network } from "lucide-react";
-import { getClientStorage, type DesktopExtension, type EnvironmentTarget, type PlatformEnvironments, type WorkbenchActions } from "tau";
+import { getClientStorage, UPDATE_CENTER_SERVICE, type DesktopExtension, type EnvironmentTarget, type PlatformEnvironments, type WorkbenchActions } from "tau";
 import { createAutoRunOnHook } from "./auto.js";
 import { createBringChoice, createBringProjectHook, createProjectIdentities, REMOTE_WORK_EXTENSION_ID } from "./bring-project.js";
 import { followArrival, readPendingArrival } from "./machines.js";
@@ -13,6 +13,7 @@ import { createMachinesPage } from "./settings.js";
 import { createMachineToolsSection } from "./runtime-tools-section.js";
 import { createPhoneMachinesPage, usePhoneMachines } from "./phone-machines.js";
 import { createUpdatePlanSection } from "./update-plan-section.js";
+import { createUpdateController } from "./update-controller.js";
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -80,8 +81,10 @@ export const environmentsExtension: DesktopExtension = {
     // A browser has no machines; a phone's are its paired hosts.
     const environments = context.environments;
     if (!environments) return;
+    const updates = createUpdateController(environments);
+    context.provideService(UPDATE_CENTER_SERVICE, updates);
     context.registerSettingsSection({ id: "environments.update-everything", page: MACHINES_SETTINGS_PAGE, profiles: ["desktop"],
-      Component: createUpdatePlanSection(environments), rows: [{ id: "setting-update-everything", label: "Update everything", keywords: ["tools", "machines", "app", "updates", "restart"] }] });
+      Component: createUpdatePlanSection(environments, updates), rows: [{ id: "setting-update-everything", label: "Update everything", keywords: ["tools", "machines", "app", "updates", "restart"] }] });
     let machineImport: MachineImportService | undefined;
     const listeners = new Set<() => void>();
     context.useService<MachineImportService>(MACHINE_IMPORT_SERVICE, (service) => {
@@ -178,7 +181,7 @@ export const environmentsExtension: DesktopExtension = {
       agentThreadsSource.set(service);
       return () => agentThreadsSource.set(undefined);
     });
-    return stopMarks;
+    return () => { stopMarks(); updates.dispose(); };
   },
 };
 

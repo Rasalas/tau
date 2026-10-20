@@ -23,6 +23,17 @@ const marker = (overrides: Partial<InFlightTurn> = {}): InFlightTurn => ({
 const mine = (overrides: Partial<InFlightTurn> = {}): InFlightTurn => ({ ...marker(overrides), writer: { pid: process.pid } });
 
 describe("TurnsInFlight", () => {
+  it("persists an update's choice on unfinished work and new turns, then disarms after failure", async () => {
+    const { filePath, turns } = await store();
+    turns.record(marker());
+    await turns.prepareUpdateRestart(false);
+    expect((await new TurnsInFlight({ filePath }).load())[0]?.resumeAfterUpdate).toBe(false);
+    turns.record(marker({ sessionId: "new-thread" }));
+    await turns.flush();
+    expect((await new TurnsInFlight({ filePath }).load()).every((entry) => entry.resumeAfterUpdate === false)).toBe(true);
+    await turns.prepareUpdateRestart(undefined);
+    expect((await new TurnsInFlight({ filePath }).load()).every((entry) => entry.resumeAfterUpdate === undefined)).toBe(true);
+  });
   it("persists each continuation before delivery and transfers its count to the new marker", async () => {
     const { filePath, turns } = await store();
     await turns.continuing(marker({ continuationCount: 1 }), async () => {

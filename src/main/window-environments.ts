@@ -710,7 +710,9 @@ export class WindowEnvironments {
    */
   async updateMachine(machine: string, action: HostUpdateAction): Promise<HostUpdateStatus> {
     const { id, watched } = this.reachable(machine);
-    const call = typeof action === "object"
+    const call = typeof action === "object" && "install" in action
+      ? watched.monitor.call<unknown>(HOST_UPDATE_METHODS.install, [{ resumeInterrupted: action.resumeInterrupted }], 10 * 60_000)
+      : typeof action === "object"
       ? watched.monitor.call<unknown>(HOST_UPDATE_METHODS.settings, [{ automatic: action.automatic }])
       : watched.monitor.call<unknown>(action === "install" ? HOST_UPDATE_METHODS.install : action === "check" ? HOST_UPDATE_METHODS.check : HOST_UPDATE_METHODS.status, [], action === "status" ? undefined : 10 * 60_000);
     const status = decodeHostUpdateStatus(await call);

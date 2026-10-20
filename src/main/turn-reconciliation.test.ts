@@ -48,6 +48,18 @@ function harness(options: {
 }
 
 describe("reconcileInFlightTurns", () => {
+  it.each([true, false])("uses only the update's continuation choice, resume=%s", async (resumeAfterUpdate) => {
+    const { port, thread } = harness({ markers: [marker({ resumeAfterUpdate })], continueAfterRestart: !resumeAfterUpdate });
+    const result = await reconcileInFlightTurns(port);
+    expect(thread.prompt).toHaveBeenCalledTimes(resumeAfterUpdate ? 1 : 0);
+    expect(result.continued).toEqual(resumeAfterUpdate ? ["thread-1"] : []);
+  });
+
+  it("still holds open questions during update continuation", async () => {
+    const { port, thread } = harness({ markers: [marker({ resumeAfterUpdate: true, waitingForAnswer: true })] });
+    expect((await reconcileInFlightTurns(port)).interrupted).toEqual(["thread-1"]);
+    expect(thread.prompt).not.toHaveBeenCalled();
+  });
   it("does nothing without markers", async () => {
     const { port } = harness({ markers: [] });
     expect(await reconcileInFlightTurns(port)).toEqual({ continued: [], interrupted: [] });

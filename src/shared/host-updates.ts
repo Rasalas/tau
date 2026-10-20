@@ -61,7 +61,8 @@ export interface HostUpdateSettings {
 }
 
 /** What a window asks of another machine's Tau (`environments-update`): a look, a check, an install, or turning automatic updates on or off. */
-export type HostUpdateAction = "status" | "check" | "install" | { automatic: boolean };
+export interface HostUpdateInstallOptions { resumeInterrupted?: boolean }
+export type HostUpdateAction = "status" | "check" | "install" | { install: true; resumeInterrupted: boolean } | { automatic: boolean };
 
 /** The protocol's method names; `update-status` is also the push event's type. */
 export const HOST_UPDATE_METHODS = {

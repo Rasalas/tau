@@ -22,7 +22,7 @@ import { decodeManagedRoute } from "./managed-connections.js";
 import type { SavedEnvironment as HostMachineEntry, HostMachine, MachinesOverview, MachinePairResult } from "./machine-protocol.js";
 import type { HostResources, HostReadiness } from "./host-resources.js";
 import type { ConnectSetup, ConnectStatus } from "./connect.js";
-import type { HostUpdateStatus, HostUpdateSettings } from "./host-updates.js";
+import type { HostUpdateStatus, HostUpdateSettings, HostUpdateAction } from "./host-updates.js";
 import type { UiDiscoveredHosts } from "./discovery.js";
 import {
   decodeEnvironmentOpenTarget,
@@ -284,7 +284,11 @@ export const HOST_FACTORY_COMMANDS = attachCommandMetadata(HOST_FACTORY_COMMAND_
   }),
   "update-install": command<HostUpdateStatus>()({
     audit: { label: "started a Tau update" },
-    decode: (_params) => [] as const,
+    decode: (params) => {
+      const input = decodeObject("update-install", params[0]);
+      if (input.resumeInterrupted !== undefined && typeof input.resumeInterrupted !== "boolean") throw failure("update-install: resumeInterrupted must be a boolean.");
+      return [typeof input.resumeInterrupted === "boolean" ? { resumeInterrupted: input.resumeInterrupted } : {}] as const;
+    },
   }),
   "update-settings": command<HostUpdateStatus>()({
     audit: { label: "changed automatic updates" },
@@ -406,7 +410,12 @@ export const HOST_FACTORY_COMMANDS = attachCommandMetadata(HOST_FACTORY_COMMAND_
   }),
   "environments-update": command<HostUpdateStatus>()({
     audit: { label: "updated a machine's Tau" },
-    decode: (params) => { const action = params[1]; const automatic = (action as { automatic?: unknown } | null)?.automatic;
+    decode: (params): readonly [string, HostUpdateAction] => { const action = params[1]; const automatic = (action as { automatic?: unknown } | null)?.automatic;
+    if ((action as { install?: unknown } | null)?.install === true) {
+      const resumeInterrupted = (action as { resumeInterrupted?: unknown }).resumeInterrupted;
+      if (typeof resumeInterrupted !== "boolean") throw failure("environments-update: resumeInterrupted must be a boolean.");
+      return [environmentText("environments-update", "machine", params[0], 200), { install: true as const, resumeInterrupted }] as const;
+    }
     if (action !== "status" && action !== "check" && action !== "install" && typeof automatic !== "boolean") throw failure("environments-update: action must be status, check, install or { automatic }.");
     return [environmentText("environments-update", "machine", params[0], 200), typeof automatic === "boolean" ? { automatic } : action as "status" | "check" | "install"] as const; },
   }),

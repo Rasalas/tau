@@ -8,6 +8,7 @@ import type { PreferencesStore } from "./preferences";
 import { ConfirmDialog, Dialog } from "./deferred-surfaces";
 import { isMacPlatform } from "./keybindings";
 import { armPasteAsText, disarmPasteAsText, isPasteAsTextChord } from "./paste-as-text";
+import { openReleaseNotes } from "./release-notes";
 
 /** "Tau X is installed" goes after this long unread, or at the next click elsewhere; About and the app menu keep the update's place. */
 export const RELEASE_NOTES_TOAST_MS = 8_000;
@@ -100,7 +101,7 @@ export function useWindowShell(options: WindowShellOptions): { handle(event: Win
         ...(readable ? { description: "See what changed in this release." } : {}),
         timeoutMs: RELEASE_NOTES_TOAST_MS,
         actions: readable
-          ? [{ label: "What’s new", opens: true, run: () => setNotes(release) }]
+          ? [{ label: "What’s new", opens: true, run: () => { if (!openReleaseNotes(release.version)) setNotes(release); } }]
           : release.url ? [{ label: "Release notes", opens: true, run: () => latest.current.openExternal(release.url!) }] : [],
         onClose: () => {
           stopWatching();

@@ -44,6 +44,7 @@ export interface WindowUpdatePort {
 }
 
 export interface HostUpdaterOptions {
+  prepareRestart?(resume: boolean | undefined): Promise<void>;
   version: string;
   arch: string;
   platform: NodeJS.Platform;
@@ -109,6 +110,7 @@ export class HostUpdater {
   private lastTurnEnd: number;
   /** Someone asked for this install; it goes as soon as no turn runs. */
   private requested = false;
+  private resumeInterrupted = true;
   /** A version whose install failed is not retried on its own; asking again does. */
   private failedVersion: string | undefined;
   private work: Promise<unknown> = Promise.resolve();
@@ -217,13 +219,14 @@ export class HostUpdater {
    * "Update now": downloads when needed and installs as soon as no turn runs.
    * Where a Tau window on this machine installs, it is asked to.
    */
-  install(): Promise<HostUpdateStatus> {
+  install(options: { resumeInterrupted?: boolean } = {}): Promise<HostUpdateStatus> {
     return this.serialize(async () => {
       if (this.phase === "unsupported") throw new Error(this.reason ?? "This copy of Tau cannot update itself.");
       if (this.phase === "installing" || this.phase === "installed") return this.status();
       await this.checkNow();
       if (!this.latest || compareVersions(this.options.version, this.latest) >= 0) return this.status();
       this.requested = true;
+      this.resumeInterrupted = options.resumeInterrupted ?? true;
       this.backgroundWait = undefined;
       if (this.installer === "host" && !this.staged) await this.download();
       await this.maybeInstall();
@@ -421,10 +424,13 @@ export class HostUpdater {
   private async installThroughWindow(): Promise<void> {
     this.set("installing", "A Tau window on this machine installs it and restarts.");
     try {
+      await this.options.prepareRestart?.(this.resumeInterrupted);
       const result = await this.options.window!.install();
       this.options.log.info("host-update.window", result);
       if (!result.started) this.set("downloading", result.reason ?? "The Tau window on this machine downloads it and installs it then.");
     } catch (error) {
+      await this.options.prepareRestart?.(undefined);
+      this.resumeInterrupted = true;
       this.requested = false;
       this.set("failed", `The Tau window did not install it: ${message(error)}`);
     }
@@ -443,7 +449,9 @@ export class HostUpdater {
     this.options.log.info("host-update.installing", { version: staged.version, method: this.options.installer!.method });
     this.set("installing");
     try {
+      await this.options.prepareRestart?.(this.resumeInterrupted);
       const after = await this.options.installer!.install(staged);
+      this.resumeInterrupted = true;
       this.requested = false;
       // A detached installer (Windows) still needs the file and removes it itself.
       if (after === "exit") this.staged = undefined;
@@ -459,6 +467,8 @@ export class HostUpdater {
         this.set("installed", `Tau ${staged.version} is installed; it runs from the next start.`);
       }
     } catch (error) {
+      await this.options.prepareRestart?.(undefined);
+      this.resumeInterrupted = true;
       this.requested = false;
       this.failedVersion = staged.version;
       this.options.log.warn("host-update.install.failed", error);
@@ -498,12 +508,12 @@ export function createUpdateMethods(updater: () => HostUpdater | undefined): Rec
   return {
     [HOST_UPDATE_METHODS.status]: bindHostCommand(HOST_FACTORY_COMMANDS["update-status"], async () => need().status()),
     [HOST_UPDATE_METHODS.check]: bindHostCommand(HOST_FACTORY_COMMANDS["update-check"], async () => need().check()),
-    [HOST_UPDATE_METHODS.install]: bindHostCommand(HOST_FACTORY_COMMANDS["update-install"], async (_params, context) => {
+    [HOST_UPDATE_METHODS.install]: bindHostCommand(HOST_FACTORY_COMMANDS["update-install"], async (params, context) => {
       const service = need();
       if (!isHostOwner(context.principal) && !service.status().devicesMayInstall) {
         throw Object.assign(new Error("This machine's owner does not let paired devices install updates (Settings → About there)."), { code: HOST_ERROR.forbidden });
       }
-      return service.install();
+      return service.install(params[0]);
     }),
     [HOST_UPDATE_METHODS.settings]: bindHostCommand(HOST_FACTORY_COMMANDS["update-settings"], async (params, context) => {
       const patch = params[0];

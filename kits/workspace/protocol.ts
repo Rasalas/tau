@@ -2,6 +2,7 @@
 // (esbuild, through `tau/host-extension`), by the desktop half (`tau`) and by
 // other kits. Both bundlers erase `import type` without resolving it.
 import type {
+  UpdateCoordinator,
   RegionProps,
   CommitResult,
   DiffLoadOptions,
@@ -524,6 +525,7 @@ export interface ProjectOrderService {
 
 /** What the kit knows about the project the workbench is showing. */
 export interface WorkspaceKitState {
+  updateCoordinator?: UpdateCoordinator | undefined;
   /** The project the store follows: the draft's project while a new thread is pending, else the thread's. */
   cwd?: string;
   /** How the host names that project; what every command sends back. */

@@ -217,6 +217,10 @@ export class PiHost {
   private readonly turns: TurnDelivery;
 
   private readonly turnsInFlight: TurnsInFlight;
+
+  prepareUpdateRestart(resume: boolean | undefined): Promise<void> {
+    return this.turnsInFlight.prepareUpdateRestart(resume);
+  }
   /** The composer's queue and the limit marks, kept by the host so both outlive a restart. */
   readonly queue: QueuedMessages;
   readonly controls: ThreadControls;

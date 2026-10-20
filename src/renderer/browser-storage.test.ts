@@ -20,6 +20,16 @@ class MemoryWebStorage {
 beforeEach(() => vi.stubGlobal("localStorage", new MemoryWebStorage()));
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
+it("coordinates persisted work through the browser's cross-window lock", async () => {
+  const request = vi.fn(async (_name: string, work: () => Promise<unknown>) => work());
+  vi.stubGlobal("navigator", { locks: { request } });
+  const first = createLocalStorageAdapter();
+  const second = createLocalStorageAdapter();
+  expect(await first.withLock!("updates", async () => 42)).toBe(42);
+  await second.withLock!("updates", async () => undefined);
+  expect(request.mock.calls.map(([name]) => name)).toEqual(["tau.storage:updates", "tau.storage:updates"]);
+});
+
 describe("client storage on a page that shows another machine", () => {
   it("keeps unconfirmed messages with their own host", () => {
     const own = createLocalStorageAdapter();

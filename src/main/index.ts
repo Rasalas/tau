@@ -336,6 +336,7 @@ const appShell = createAppShell({
   releaseNotes: {
     pending: async () => releaseNotes?.pending(),
     seen: async (version) => releaseNotes?.seen(version),
+    get: async (version, fromVersion) => releaseNotes?.get(version, fromVersion) ?? [],
   },
 });
 const quitShortcut = createQuitShortcut({

@@ -145,6 +145,8 @@ export { compareVersions, updateAvailable } from "../shared/runtime-version";
 export { describeHostUpdate, hostUpdatePending, machineBehind } from "../shared/host-updates";
 export type { HostUpdatePhase, HostUpdateStatus } from "../shared/host-updates";
 export { useHostUpdate, useMachineUpdates, type MachineUpdate, type MachineUpdates } from "./machine-updates";
+export { UPDATE_CENTER_SERVICE, type UpdateCoordinator, type UpdateCenterView, type UpdateStep } from "../workbench/update-center";
+export { UpdateCenter } from "./components/UpdateCenter";
 // Signing in from a Providers card (API 1.12.0): the vocabulary, and the account rows as one chunk loaded on first use.
 export { SIGN_IN_COMMANDS, SIGN_IN_EVENT, signInActive } from "../shared/sign-in";
 export type * from "../shared/sign-in";
