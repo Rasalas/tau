@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { deviceReadPaths, type DeviceReadPaths } from "../_filesystem/device-read-paths.js";
+import { deviceReadPaths, hasFullFileAccess, type DeviceReadPaths } from "../_filesystem/device-read-paths.js";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
 import { commandInvocation, THREAD_TEXTS_COMMAND } from "tau/host-extension";
 import { rankFuzzy } from "./fuzzy.js";
@@ -158,7 +158,7 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
           const available = await findRipgrep();
           if (!input.query) return { matches: [], truncated: false, engine: available ? "ripgrep" : "walker" };
           const cwd = await projectRoot(fields.cwd);
-          const paths = call.owner ? undefined : await deviceReadPaths(cwd);
+          const paths = hasFullFileAccess(call) ? undefined : await deviceReadPaths(cwd);
           // The walker can skip protected Home ignore files before opening them.
           const rg = paths?.containsHome ? undefined : available;
           const engine = rg ? "ripgrep" : "walker";
@@ -202,7 +202,7 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
       context.registerCommand("files", async (raw, call): Promise<FileSearchResult> => {
         const fields = record(raw);
         const cwd = await projectRoot(fields.cwd);
-        const paths = call.owner ? undefined : await deviceReadPaths(cwd);
+        const paths = hasFullFileAccess(call) ? undefined : await deviceReadPaths(cwd);
         const listed = await projectFiles(cwd, paths);
         const files: string[] = [];
         for (const path of listed) if (!paths || await paths.resolve(join(cwd, path))) files.push(path);

@@ -232,7 +232,7 @@ describe("ThreadIndex", () => {
       project: { name: "Tau", icon: "data:image/svg+xml,first" },
     };
     const backend = { kind: "machine", listThreads: async () => [record] } as HostRuntimeBackendProvider;
-    const { index, events } = makeIndex({ sessionsDir, backends: [backend] });
+    const { index, events, updates } = makeIndex({ sessionsDir, backends: [backend] });
     try {
       await index.refresh("changed-index");
       events.length = 0;
@@ -241,8 +241,10 @@ describe("ThreadIndex", () => {
       expect(events).toContainEqual(expect.objectContaining({ type: "thread-index" }));
       expect(index.snapshot().projects.find((project) => project.workspaceId === "remote")?.icon).toBe(record.project.icon);
       events.length = 0;
+      updates.length = 0;
       await index.refresh("changed-index");
       expect(events).toEqual([]);
+      expect(updates).toEqual([]);
       index.publishName("/remote", "Local folder");
       expect(index.byId("rex~one")?.projectName).toBe("Tau");
     } finally {

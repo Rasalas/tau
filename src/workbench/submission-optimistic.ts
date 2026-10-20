@@ -18,6 +18,7 @@ export interface BuildOptimisticMessageInput {
   submittedAt?: number;
   sequence?: number;
   newThreadRequestId?: NewThreadRequestId;
+  identity?: ClientTurnIdentity;
 }
 
 export interface BuildOptimisticMessageResult {
@@ -41,8 +42,8 @@ export function buildOptimisticMessage(input: BuildOptimisticMessageInput): Buil
     : input.skillDraft ? skillPresentationForDraft(input.skillDraft) : undefined;
   const submittedAt = input.submittedAt ?? Date.now();
   const sequence = input.sequence ?? 0;
-  const logicalTurnId = `turn-${submittedAt}-${sequence}`;
-  const clientMessageId = createClientMessageId();
+  const logicalTurnId = input.identity?.clientTurnId ?? `turn-${submittedAt}-${sequence}`;
+  const clientMessageId = input.identity?.clientMessageId ?? createClientMessageId();
 
   const optimistic: UiMessage = {
     id: `local-${clientMessageId}`,
@@ -53,6 +54,7 @@ export function buildOptimisticMessage(input: BuildOptimisticMessageInput): Buil
     ...optimisticSkill,
     images: attachments.flatMap((attachment) => attachment.kind === "image" ? [{ mimeType: attachment.mimeType, data: attachment.data }] : []),
     timestamp: submittedAt,
+    submission: { state: "sending" },
   };
 
   const clientTurn: ClientTurnIdentity = {

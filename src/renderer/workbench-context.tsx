@@ -16,6 +16,7 @@ export interface WorkbenchContextValue {
   openFile(path: string, options?: { pin?: boolean; view?: "source" | "diff"; line?: number; trace?: boolean }): void;
   /** Renderer resource navigation, separate from legacy extension openFile actions. */
   openWorkspaceFile?(relativePath: string, origin: WorkspaceResourceOrigin | null): void;
+  retryMessage?(messageId: string): Promise<void>;
   applySnapshot(snapshot: HostSnapshot): void;
   handleHostEvent(event: HostEvent): void;
 }
@@ -42,6 +43,8 @@ export const ThreadStoreContext = createContext<ThreadStore | undefined>(undefin
  * every flush of tool output; a file chip that only opens files reads this.
  */
 export const OpenFileContext = createContext<WorkbenchContextValue["openFile"] | undefined>(undefined);
+/** A stable send action, independent of streamed tools and transcript updates. */
+export const RetryMessageContext = createContext<WorkbenchContextValue["retryMessage"]>(undefined);
 
 export function useWorkbench(): WorkbenchContextValue {
   const value = useContext(WorkbenchContext);

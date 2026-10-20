@@ -21,7 +21,8 @@ describe("Delivery marks on user messages", () => {
 
   it("draws no mark on a message sent the usual way", () => {
     const view = render(<Message message={sent()} />);
-    expect(view.container.querySelector(".message-delivery")).toBeNull();
+    expect(view.container.querySelector(".message-delivery[data-delivery]")).toBeNull();
+    expect(screen.getByRole("img", { name: "Sent" })).toBeTruthy();
   });
 });
 

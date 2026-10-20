@@ -70,6 +70,17 @@ describe("inline visualization surface", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open visualization source" }));
     expect(fixture.resources.openFile).toHaveBeenCalledWith("visuals/missing.html");
   });
+  it("retries a failed visualization on the same connection without reopening the thread", async () => {
+    const load = vi.fn().mockRejectedValueOnce(new Error("The connection to the machine dropped."))
+      .mockResolvedValue({ url: "tau-ext://resources/recovered" });
+    fixture.resources = resources(load);
+    render(<InlineVisualization reference={{ path: "visuals/a.html" }} />);
+    await screen.findByText("The connection to the machine dropped.", { exact: false });
+    fireEvent.click(screen.getByRole("button", { name: "Retry visualization" }));
+    await waitFor(() => expect(screen.getByTitle("Visualization").getAttribute("src")).toBe("tau-ext://resources/recovered"));
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenLastCalledWith("visuals/a.html", "light");
+  });
   it("releases an asynchronous response after the originating surface unmounts", async () => {
     const release = vi.fn();
     let finish!: (value: { url: string; release: () => void }) => void;

@@ -1,6 +1,10 @@
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, relative, sep } from "node:path";
+import type { HostCommandCall } from "tau/host-extension";
+
+/** Full file access is separate from permission to manage the machine. */
+export const hasFullFileAccess = (call: Pick<HostCommandCall, "owner" | "fullAccess">): boolean => call.owner || call.fullAccess === true;
 
 const inside = (path: string) => !isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`);
 const gitInternals = (path: string) => path.split(/[\\/]/u).includes(".git");

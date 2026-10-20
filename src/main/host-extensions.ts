@@ -8,6 +8,7 @@ import type { PricedUsage, UsageTally } from "./usage-pricing.js";
 import { join } from "node:path";
 import type { ExtensionFactory, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
+  ClientTurnIdentity,
   ExtensionPackageSummary,
   ExtensionUiAnswer,
   ExtensionUiPrompt,
@@ -375,6 +376,8 @@ export interface HostStartedThread {
 /** How `sessions.send` delivers a message. */
 export interface HostThreadSendOptions {
   delivery?: "prompt" | "steer" | "queue";
+  /** Preserve the composer's delivery identity across a machine hop. */
+  identity?: ClientTurnIdentity;
   /** The thread that sent the message; the queue shows where it came from. */
   from?: string;
   /** Attachments checked as a composer's are. Runtimes without native file input receive host-local file paths in the prompt. New in API 1.47.0. */
@@ -1331,6 +1334,8 @@ export interface HostCommandCall {
   readonly device?: string;
   /** The caller may manage this host (ADR 0024): the host itself, its own window, or the host token from this machine. */
   readonly owner: boolean;
+  /** File reads have Full access, independently of permission to manage connections. */
+  readonly fullAccess?: true;
   /** The kit whose host half called, through `invokeHostExtension`; absent for a client and the host. */
   readonly extension?: string;
 }
@@ -1340,8 +1345,12 @@ export type HostExtensionCommandHandler = (input: unknown, call: HostCommandCall
 /** What a command learns of the principal behind it; `extension` is the calling kit, resolved by the registry. */
 export function commandCall(principal: HostInvocationPrincipal, extension?: string): HostCommandCall {
   if (principal.kind === "host-core") return { owner: true };
-  if (principal.kind !== "workbench-client") return { owner: false, ...(extension ? { extension } : {}) };
-  return { ...(principal.pairedClient ? { device: principal.pairedClient } : {}), owner: isHostOwner(principal) };
+  if (principal.kind !== "workbench-client") {
+    const caller = currentInvocationPrincipal();
+    return { owner: false, ...(extension ? { extension } : {}), ...(caller?.kind !== "workbench-client" || !caller.readOnly ? { fullAccess: true as const } : {}) };
+  }
+  const owner = isHostOwner(principal);
+  return { ...(principal.pairedClient ? { device: principal.pairedClient } : {}), owner, ...(!owner && !principal.readOnly ? { fullAccess: true as const } : {}) };
 }
 
 /** A topic narrows an event to the clients that watch it; 1 to 256 characters. */
@@ -2017,7 +2026,7 @@ export class HostExtensionRegistry {
 
   private async authorizeReadInput(record: ActiveHostExtension, extensionId: string, command: string, input: unknown, principal: HostInvocationPrincipal): Promise<string | undefined> {
     const client = principal.kind === "host-extension" ? currentInvocationPrincipal() : principal;
-    if (!record.readCommands.has(command) || !client || client.kind !== "workbench-client" || isHostOwner(client)) return;
+    if (!record.readCommands.has(command) || !client || client.kind !== "workbench-client" || !client.readOnly || isHostOwner(client)) return;
     try {
       const resources = this.services.browserResources as (HostBrowserResources & { [CHECK_BROWSER_RESOURCE]?: (path: string, extension: string, connection: string) => boolean }) | undefined;
       const fields = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};

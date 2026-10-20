@@ -459,7 +459,7 @@ describe("isolated host extensions", () => {
     await registry.activate(extension);
     try {
       await expect(registry.invoke("acme.worker", "caller", undefined, { kind: "workbench-client", connection: "c1", pairedClient: "p1" })).resolves.toEqual({
-        call: { device: "p1", owner: false },
+        call: { device: "p1", owner: false, fullAccess: true },
         devices: [{ id: "p1", name: "iPhone", access: "full" }],
       });
     } finally {

@@ -258,6 +258,8 @@ export class ThreadRuntimeLifecycle {
     if (this.port.safeMode) throw new Error("Only the Pi runtime is available in Tau safe mode.");
     const provider = this.port.requireBackend(kind);
     let owned: ThreadRuntime | undefined;
+    let opening = true;
+    const pendingEvents: ThreadRuntimeEvent[] = [];
     const backend = await provider.open(threadId, cwd, { resume: options.resume !== false, ...(options.tools ? { tools: options.tools } : {}) }, {
       projectName: this.port.projects.name(cwd),
       projectLabel: this.port.projects.knownLabel(cwd),
@@ -270,7 +272,9 @@ export class ThreadRuntimeLifecycle {
         }
       },
       onEvent: (event) => {
-        if (!owned || !this.discarded.has(owned)) this.port.emitRuntimeEvent(threadId, event);
+        if (owned && this.discarded.has(owned)) return;
+        if (opening) pendingEvents.push(event);
+        else this.port.emitRuntimeEvent(threadId, event);
       },
       priceUsage: (tallies) => this.port.priceUsage(tallies),
       executionPolicy: () => this.port.executionPolicy(cwd),
@@ -292,7 +296,13 @@ export class ThreadRuntimeLifecycle {
     const state = backend.state();
     thread.adapterTitle = state.title;
     thread.adapterTitleSource = state.titleSource;
-    if (options.adopt !== false) await this.port.adopt(thread);
+    if (options.adopt !== false) {
+      await this.port.adopt(thread);
+      // Resuming can join a turn whose start predates this host's subscription.
+      if (state.streaming && !pendingEvents.some((event) => event.type === "turn-started")) this.port.emitRuntimeEvent(threadId, { type: "turn-started" });
+    }
+    opening = false;
+    for (const event of pendingEvents) this.port.emitRuntimeEvent(threadId, event);
     return thread;
   }
 

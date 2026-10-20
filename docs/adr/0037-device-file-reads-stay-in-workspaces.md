@@ -1,5 +1,19 @@
 # ADR 0037: Device file reads stay inside admitted workspaces
 
+## Amendment, 2026-10-20: Full access includes file reads
+
+The path restrictions below now apply to Read-only devices. A device paired
+with Full access may read outside the workspace, hidden Home entries and Git
+internals. It already has authority to execute commands there; applying a
+stricter rule to its Files, Search and project metadata reads made remote
+worktrees under `~/.tau` unusable without adding a meaningful boundary.
+
+Full file access does not make a device the owner. Connection management,
+access-key management and other owner-only operations still require the local
+owner connection. Host command handlers receive `fullAccess: true` separately
+from `owner`; older hosts without that field retain the stricter behavior.
+Read-only devices keep the canonical-path, workspace and symlink checks below.
+
 ## Status
 
 Accepted, 2026-10-12. Amends ADR 0024's promise that Read-only devices see

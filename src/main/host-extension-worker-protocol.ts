@@ -130,6 +130,7 @@ export interface WorkerPairedDevice {
 export interface WorkerCommandCall {
   device?: string;
   owner: boolean;
+  fullAccess?: true;
   extension?: string;
 }
 export const CONFIG_HOOKS = ["changed"] as const;

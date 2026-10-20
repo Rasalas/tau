@@ -166,6 +166,14 @@ describe("off-screen core thread methods", () => {
     expect(sendToThread).toHaveBeenCalledWith("s1", "hello", delivery ?? "prompt");
   });
 
+  it("passes a remote sender's identity to the delivered prompt", async () => {
+    const sendToThread = vi.fn(async () => undefined);
+    const table = methodsFor({ sendToThread } as unknown as PiHost);
+    const identity = { clientTurnId: "turn-1", clientMessageId: "message-1" };
+    await invokeHostMethod(table, "send-to-thread", ["s1", "hello", "prompt", identity]);
+    expect(sendToThread).toHaveBeenCalledWith("s1", "hello", "prompt", undefined, [], undefined, identity);
+  });
+
   it.each([
     ["start-thread", []],
     ["start-thread", [null]],

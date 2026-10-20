@@ -343,6 +343,27 @@ describe("Workspace Kit host extension", () => {
     } finally { await registry.deactivate("tau.workspace"); }
   });
 
+  it("loads inline HTML and result images from a Full-access machine's hidden-home worktree", async () => {
+    const home = await workspace();
+    vi.mocked(homedir).mockReturnValue(home);
+    const project = join(home, ".t3", "worktrees", "tau", "preview");
+    await mkdir(join(project, ".scratch"), { recursive: true });
+    const html = "<h1>Visible remote visualization</h1>";
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=", "base64");
+    await writeFile(join(project, ".scratch", "preview.html"), html);
+    await writeFile(join(project, ".scratch", "preview.png"), png);
+    const registry = await activated(project, { knownWorkspacePath: async (id) => {
+      if (id === "ws1_remote") return project;
+      throw new Error("Unknown workspace");
+    } });
+    const full = { kind: "workbench-client", connection: "other-machine", pairedClient: "device" } as const;
+    try {
+      await expect(registry.invoke("tau.workspace", "read-visualization", { workspace: "ws1_remote", relPath: ".scratch/preview.html" }, full)).resolves.toEqual({ html });
+      await expect(registry.invoke("tau.workspace", "read-linked-file", { workspace: "ws1_remote", path: ".scratch/preview.png" }, full)).resolves.toMatchObject({ kind: "image", dataUrl: `data:image/png;base64,${png.toString("base64")}` });
+      await expect(registry.invoke("tau.workspace", "read-visualization", { workspace: "ws1_remote", relPath: ".scratch/preview.html" }, { ...full, readOnly: true })).rejects.toMatchObject({ code: "forbidden" });
+    } finally { await registry.deactivate("tau.workspace"); }
+  });
+
   it("lets a device read project dotfiles but protects home secrets even with Home as the workspace", async () => {
     const home = await workspace();
     vi.mocked(homedir).mockReturnValue(home);

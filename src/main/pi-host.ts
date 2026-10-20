@@ -286,7 +286,7 @@ export class PiHost {
       purgeThread: (sessionId) => this.purgeThread(sessionId),
       pendingHostExtensions: () => this.pendingHostExtensions,
       deliverQueued: (sessionId, message) => this.deliverQueued(sessionId, message),
-      sendToThread: (sessionId, text, delivery, from, attachments, wake) => this.sendToThread(sessionId, text, delivery, from, attachments, wake),
+      sendToThread: (sessionId, text, delivery, from, attachments, wake, identity) => this.sendToThread(sessionId, text, delivery, from, attachments, wake, identity),
     });
     this.agentDir = components.agentDir;
     this.sessionsDirOverride = components.sessionsDirOverride;
@@ -1061,22 +1061,22 @@ export class PiHost {
     return this.sessionControl.recover(thread);
   }
 
-  async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = [], wake?: QueuedMessage["wake"]): Promise<void> {
+  async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = [], wake?: QueuedMessage["wake"], identity?: ClientTurnRequest): Promise<void> {
     const thread = await this.runtimes.reopen(sessionId);
     if (!thread.runtimeAdapter.capabilities.fileAttachments) {
       const files = promptFiles(attachments);
       if (files.length) text = `${text}\n\nAttached files:\n${files.map((file) => `- ${file.path}`).join("\n")}`;
       attachments = attachments.filter((attachment) => attachment.kind === "image");
     }
-    if (delivery === "queue") await this.queue.submit(thread.threadId, { ...markWake(text, wake), attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}) });
-    else await (delivery === "steer" ? this.steer(text, attachments, thread.threadId) : this.prompt(text, attachments, thread.threadId));
+    if (delivery === "queue") await this.queue.submit(thread.threadId, { ...markWake(text, wake), attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}), ...(identity ? { identity: clientIdentityForRequest(identity) } : {}) });
+    else await (delivery === "steer" ? this.steer(text, attachments, thread.threadId, identity) : this.prompt(text, attachments, thread.threadId, identity));
   }
 
   /** A queued message is prepared when it leaves, against the thread as it is then. */
   private async deliverQueued(sessionId: string, message: QueuedMessage): Promise<void> {
     const prepared = message.skillDraft ? await this.preparePrompt(message.text, sessionId, message.skillDraft) : undefined;
     // A wake is not the user's message; the user's own carry a "sent from the queue" mark.
-    const identity = message.wake ? undefined : { clientTurnId: randomUUID(), clientMessageId: randomUUID() };
+    const identity = message.wake ? undefined : message.identity ?? { clientTurnId: randomUUID(), clientMessageId: randomUUID() };
     await this.prompt(message.skillDraft ? message.text : message.text.trim(), message.attachments, sessionId, identity, prepared, identity ? { delivery: "queued" } : {});
   }
 

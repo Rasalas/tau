@@ -55,6 +55,14 @@ function fixture() {
 }
 
 describe("machine kit routing", () => {
+  it("keeps workspace identities returned inside a remote worktree listing on that machine", async () => {
+    const f = fixture();
+    const rootWorkspace = "ws1_remote_root";
+    f.call.mockResolvedValueOnce([{ workspace, rootWorkspace }]);
+    await invokeHostMethod(f.methods, "host-extension", ["tau.workspace", "worktree-list", { workspace }]);
+    expect(f.routes.routeOf("tau.workspace", { workspace: rootWorkspace }, "workspace-info")).toEqual({ machine, input: { workspace: rootWorkspace } });
+  });
+
   it("sends Files read with the active thread's original workspace to its machine, never the local kit", async () => {
     const f = fixture();
     const input = { workspace, relPath: "README.md" };

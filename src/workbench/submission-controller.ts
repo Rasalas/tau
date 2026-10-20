@@ -1,5 +1,6 @@
 import type {
   NewThreadRequestId,
+  ClientTurnIdentity,
   HostSnapshot,
   SubmissionResult,
   UiModel,
@@ -11,6 +12,8 @@ import type {
 } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
+import { skillFields } from "../shared/prepared-prompt";
+import { isConnectionDropped } from "../shared/connection-dropped-error";
 import {
   isCurrentTranscriptSubmission,
   mergeNewThreadRecoveryAttachments,
@@ -20,6 +23,7 @@ import {
   type NewThreadSubmissionCompletion,
   type NewThreadSubmissionRecovery,
   type TranscriptSubmissionIdentity,
+  type OptimisticUserMessage,
 } from "./app-state";
 import { allocateAttachmentId, createDraftKey, type ComposerScopeStore, type DraftKey } from "./composer-scope-store";
 import type { ClientStorage } from "./client-storage";
@@ -35,7 +39,6 @@ import type { DraftThreads } from "./draft-threads";
 import type { NewThreadController } from "./new-thread-controller";
 import {
   buildOptimisticMessage,
-  addOptimisticMessage,
   removeOptimisticMessage,
   retargetOptimisticMessage,
 } from "./submission-optimistic";
@@ -122,7 +125,7 @@ export interface SubmissionControllerPorts {
   turn: TranscriptTurnPort;
   host: HostUpdatePort;
   /** Parks the message in the host's queue for the thread; rejects when the host refused it. */
-  enqueueFollowUp(threadId: string, item: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft; deliverAt?: number }): Promise<void>;
+  enqueueFollowUp(threadId: string, item: { text: string; attachments: UiPromptAttachment[]; skillDraft?: UiSkillDraft; deliverAt?: number; identity?: ClientTurnIdentity }): Promise<void>;
 }
 
 /** The adapters for delivery load with the controller, after the first send. */
@@ -140,7 +143,8 @@ export function createSubmissionController(ports: Omit<SubmissionControllerPorts
     enqueueFollowUp: async (threadId, item) => {
       const client = ports.client();
       if (!client) throw new Error("Queued messages need a connection to the machine.");
-      if (item.deliverAt === undefined) await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
+      if (item.identity) await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft, item.deliverAt, item.identity);
+      else if (item.deliverAt === undefined) await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
       else await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft, item.deliverAt);
     },
   });
@@ -249,13 +253,14 @@ export class SubmissionController {
       this.ports.scopes.moveScope(createDraftKey(scope), createDraftKey(nextScope));
       if (newThread.current()?.draftId === pending.draftId) newThread.set(next);
       if (nextScope) retargetOptimisticMessage(this.ports.view, optimisticId, nextScope);
+      this.ports.view.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimisticId ? { ...entry, draft: { ...next, draft: undefined } } : entry));
       return next;
     } finally {
       clear();
     }
   };
 
-  submit = async (input: SubmissionInput): Promise<SubmissionResult> => {
+  submit = async (input: SubmissionInput, retry?: OptimisticUserMessage): Promise<SubmissionResult> => {
     const { client: getClient, view, threads, scopes, environment, newThread, turn, host } = this.ports;
     const { skillDraft } = input;
     const alternate = input.delivery === "alternate";
@@ -273,40 +278,64 @@ export class SubmissionController {
     }
     const client = getClient();
     let pendingNewThread = newThread.current();
-    const newThreadRequestId = newThread.requestId();
-    // A planned message waits in the thread's queue for its time, whether or not a turn runs.
-    if (deliverAt !== undefined) {
-      const planFor = view.getSnapshot();
-      if (pendingNewThread || !planFor) return { accepted: false, message: "Send the first message before planning one." };
+    const newThreadRequestId = retry?.requestId ?? newThread.requestId();
+    const snapshot = view.getSnapshot();
+    const visibleStreaming = threads.getActivity().isStreaming || snapshot?.isCompacting === true;
+    if (deliverAt !== undefined && (pendingNewThread || !snapshot)) return { accepted: false, message: "Send the first message before planning one." };
+    const queueIt = deliverAt !== undefined || Boolean(retry && delivery === "followUp")
+      || shouldQueueSubmission({ isPendingNewThread: Boolean(pendingNewThread), hasSnapshot: Boolean(snapshot), visibleStreaming, delivery });
+    const built = buildOptimisticMessage({ text, attachments, skillDraft, sequence: this.turnSequence++, newThreadRequestId, ...(retry ? {
+      identity: { clientTurnId: retry.message.clientTurnId!, clientMessageId: retry.message.clientMessageId! }, submittedAt: retry.message.timestamp,
+    } : {}) });
+    let optimistic = built.optimistic;
+    const { clientTurn, logicalTurnId, clientMessageId } = built;
+    const initialScope = draftKey(snapshot?.sessionId, pendingNewThread) ?? `session:${snapshot?.sessionId ?? "unknown"}`;
+    // Machine selection and prompt preparation may each need a remote request.
+    // Keep the submitted message visible throughout both waits.
+    view.setOptimisticMessages((current) => {
+      const entry = { scope: initialScope, message: optimistic, input: queueIt && deliverAt === undefined ? { ...input, delivery: "followUp" as const } : input, requestId: newThreadRequestId,
+        ...(pendingNewThread ? { draft: { ...pendingNewThread, draft: undefined } } : {}),
+        ...(!pendingNewThread && !queueIt ? { sent: { text, attachments } } : {}),
+      };
+      return current.some((item) => item.message.id === optimistic.id)
+        ? current.map((item) => item.message.id === optimistic.id ? entry : item) : [...current, entry];
+    });
+    const markSent = () => view.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
+      ? { ...entry, message: { ...entry.message, submission: { state: "sent" as const } } } : entry));
+    const retainFailure = (error: unknown): SubmissionResult => {
+      const message = errorMessage(error);
+      view.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id
+        ? { ...entry, message: { ...entry.message, submission: { state: "failed" as const, error: message } } } : entry));
+      return { accepted: false, retained: true, message };
+    };
+    const uncertainDelivery = (error: unknown) => isConnectionDropped(error) || error instanceof Error && "code" in error && error.code === "timeout";
+    if (queueIt && snapshot) {
       try {
-        await this.ports.enqueueFollowUp(planFor.sessionId, { ...formatQueuedFollowUp(input.text, attachments, skillDraft), deliverAt });
+        await this.ports.enqueueFollowUp(snapshot.sessionId, { ...formatQueuedFollowUp(input.text, attachments, skillDraft), ...(deliverAt !== undefined ? { deliverAt } : {}), identity: clientTurn });
       } catch (error) {
-        return { accepted: false, message: errorMessage(error) };
+        const confirmed = threads.getThread(snapshot.sessionId)?.queued?.some((message) => message.id === `queued-${clientMessageId}`);
+        if (!confirmed && (retry || uncertainDelivery(error))) return retainFailure(error);
+        if (!confirmed) {
+          removeOptimisticMessage(view, optimistic.id);
+          return { accepted: false, message: errorMessage(error) };
+        }
       }
+      removeOptimisticMessage(view, optimistic.id);
       environment.accepted();
       return { accepted: true };
     }
+
     try {
       if (pendingNewThread && !pendingNewThread.sessionId && await this.claimNewThread(pendingNewThread, text, alternate, attachments, skillDraft)) {
+        removeOptimisticMessage(view, optimistic.id);
         environment.accepted();
         this.ports.drafts.startedElsewhere(pendingNewThread.draftId);
         return { accepted: true };
       }
     } catch (error) {
+      if (uncertainDelivery(error)) return retainFailure(error);
+      removeOptimisticMessage(view, optimistic.id);
       return { accepted: false, message: errorMessage(error) };
-    }
-    const snapshot = view.getSnapshot();
-    const visibleStreaming = threads.getActivity().isStreaming || snapshot?.isCompacting === true;
-    // Enter during a run parks the message above the composer. It is prepared
-    // and sent as a plain prompt once the thread settles, or steered on demand.
-    if (shouldQueueSubmission({ isPendingNewThread: Boolean(pendingNewThread), hasSnapshot: Boolean(snapshot), visibleStreaming, delivery })) {
-      try {
-        await this.ports.enqueueFollowUp(snapshot!.sessionId, formatQueuedFollowUp(input.text, attachments, skillDraft));
-      } catch (error) {
-        return { accepted: false, message: errorMessage(error) };
-      }
-      environment.accepted();
-      return { accepted: true };
     }
     let prepared: PreparedPrompt | undefined;
     if (client) {
@@ -319,6 +348,8 @@ export class SubmissionController {
           pendingNewThread && !pendingNewThread.sessionId ? pendingNewThread.workspaceId ?? pendingNewThread.projectPath : undefined,
         );
       } catch (error) {
+        if (uncertainDelivery(error)) return retainFailure(error);
+        removeOptimisticMessage(view, optimistic.id);
         // ComposerScopeStore keeps the captured draft when a submission is
         // rejected, including edits made while preflight was in flight.
         // Re-seeding here would overwrite those newer edits.
@@ -326,28 +357,15 @@ export class SubmissionController {
         return { accepted: false, message: errorMessage(error) };
       }
     }
-    const {
-      optimistic,
-      clientTurn,
-      logicalTurnId,
-      clientMessageId,
-      visiblePrompt,
-    } = buildOptimisticMessage({
-      text,
-      attachments,
-      skillDraft,
-      prepared,
-      sequence: this.turnSequence++,
-      newThreadRequestId,
-    });
+    if (prepared) {
+      optimistic = { ...optimistic, text: prepared.visibleText, skill: undefined, skills: undefined, ...skillFields(prepared) };
+      view.setOptimisticMessages((current) => current.map((entry) => entry.message.id === optimistic.id ? { ...entry, message: optimistic } : entry));
+    }
+    const visiblePrompt = prepared?.visibleText ?? built.visiblePrompt;
     // A draft may move to another project before its thread exists: this is
     // where Workspace Kit creates the worktree a new thread runs in (ADR 0017).
     // The prompt shows while the gate works and follows the draft if it moves.
-    let shownBeforeGate = false;
     if (pendingNewThread && !pendingNewThread.sessionId) {
-      const gateScope = draftKey(undefined, pendingNewThread);
-      if (gateScope) addOptimisticMessage(view, gateScope, optimistic);
-      shownBeforeGate = gateScope !== undefined;
       try {
         pendingNewThread = await this.prepareNewThreadWorkspace(pendingNewThread, text, optimistic.id);
       } catch (error) {
@@ -390,20 +408,28 @@ export class SubmissionController {
     const cancelTranscriptTurn = () => { turn.set(undefined, logicalTurnId); };
     /** Undo the optimistic row and the turn when a delivery never reached the runtime. */
     const rejectSubmission = (error: unknown): SubmissionResult => {
+      const sessionId = pendingNewThread?.sessionId ?? snapshot?.sessionId;
+      const messages = sessionId === view.getSnapshot()?.sessionId
+        ? view.getTranscript().messages
+        : sessionId ? view.details.get(sessionId)?.messages : undefined;
+      if (messages?.some((message) => matchesTranscriptTurnMessage(message, {
+        turnId: logicalTurnId, clientMessageId, messageId: optimistic.id,
+        text: optimistic.text, timestamp: optimistic.timestamp,
+      }))) return { accepted: true };
       const currentSubmission = isCurrentSubmission();
       cancelTranscriptTurn();
+      if (retry || uncertainDelivery(error)) return retainFailure(error);
       removeOptimisticMessage(view, optimistic.id);
       if (currentSubmission) this.ports.notify(errorMessage(error), "error", SEND_FAILED_NOTICE);
       return { accepted: false, message: errorMessage(error) };
     };
     const submittedDraftKey = draftKey(snapshot?.sessionId, pendingNewThread);
-    const optimisticScope = submittedDraftKey ?? `session:${snapshot?.sessionId ?? "unknown"}`;
     if (!pendingNewThread && visibleStreaming) {
-      addOptimisticMessage(view, optimisticScope, optimistic, { text, attachments });
       startTranscriptTurn(snapshot?.sessionId);
       try {
         if (!client) throw new Error("Steering requires a connected machine.");
         await client.steer(text, attachments, this.ports.hostSession.sessionIdFor(snapshot?.sessionId), clientTurn, prepared);
+        markSent();
       } catch (error) {
         return rejectSubmission(error);
       }
@@ -443,7 +469,6 @@ export class SubmissionController {
         this.ports.delivery.register(clientMessageId, recovery);
       }
       startTranscriptTurn(pending.sessionId, false, true);
-      if (!shownBeforeGate) addOptimisticMessage(view, optimisticScope, optimistic);
       try {
         if (!client) throw new Error("A new thread requires a connected machine.");
         if (pending.sessionId) {
@@ -601,10 +626,10 @@ export class SubmissionController {
       environment.unsettle(snapshot.sessionId);
     }
     startTranscriptTurn(snapshot?.sessionId);
-    addOptimisticMessage(view, optimisticScope, optimistic, { text, attachments });
     if (!client) return this.deliverInPreview();
     try {
       await client.sendPrompt(text, attachments, this.ports.hostSession.sessionIdFor(snapshot?.sessionId), clientTurn, prepared);
+      markSent();
       void environment.submitted({ prompt: visiblePrompt, snapshot })
         .catch((error) => this.ports.notify(errorMessage(error), "error"));
       return { accepted: true };

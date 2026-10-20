@@ -21,6 +21,7 @@ export function InlineVisualization({ reference }: { reference: VisualizationRef
   const [height, setHeight] = useState(600);
   const [expanded, setExpanded] = useState(false);
   const [readyUrl, setReadyUrl] = useState<string>();
+  const [attempt, setAttempt] = useState(0);
   const theme = useColorScheme();
   let path: string | undefined;
   try { path = visualizationRelativePath(reference.path, resources?.displayPath); } catch { /* Render guidance. */ }
@@ -46,7 +47,7 @@ export function InlineVisualization({ reference }: { reference: VisualizationRef
       setResult({ resources, path, theme, error: message });
     });
     return () => { cancelled = true; release?.(); };
-  }, [path, resources, theme]);
+  }, [attempt, path, resources, theme]);
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       // Untrusted frame can only suggest bounded layout, never trigger host commands.
@@ -72,7 +73,10 @@ export function InlineVisualization({ reference }: { reference: VisualizationRef
     : !resources.loadVisualization ? "This machine does not support inline visualizations. Update Tau on it to display this file."
     : current?.error;
   const title = reference.title || "Visualization";
-  const surface = error ? <div role="status">{error}{path && resources?.available ? <> <button type="button" className="text-button" style={{ minHeight: 32 }} onClick={() => resources.openFile(path)}>Open visualization source</button></> : null}</div>
+  const retry = () => { setResult(undefined); setReadyUrl(undefined); setAttempt((value) => value + 1); };
+  const surface = error ? <div role="status">{error}{path && resources?.available ? <>{" "}
+    {resources.loadVisualization ? <button type="button" className="text-button" style={{ minHeight: 32 }} aria-label="Retry visualization" onClick={retry}>Retry</button> : null}
+    {" "}<button type="button" className="text-button" style={{ minHeight: 32 }} onClick={() => resources.openFile(path)}>Open visualization source</button></> : null}</div>
     : current?.url ? <iframe key="visualization-frame" ref={frame} title={title} src={current.url} sandbox="allow-scripts" referrerPolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'" onError={() => setResult({ resources, path: path!, theme, error: "The visualization could not be displayed." })} style={{ display: "block", width: "100%", height, border: 0 }} />
       : <div role="status">Loading visualization…</div>;
   return <section className="inline-visualization" data-mode={reference.mode} style={{ width: "100%" }}>

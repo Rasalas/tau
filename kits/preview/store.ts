@@ -86,8 +86,14 @@ export function usePreviewState(store: PreviewStore = previewStore): PreviewStat
 export const workbenchActions = new Cell<WorkbenchActions | undefined>(undefined);
 
 /** Brings the panel forward when the agent points the preview at a new page or drives a new window. */
-export function PreviewFollower({ actions, workspacePreviewAvailable = false }: RegionProps): null {
+export function PreviewFollower({ actions, snapshot, workspacePreviewAvailable = false }: RegionProps): null {
   const state = usePreviewState();
+  const threadId = snapshot?.sessionId ?? actions.activeThread?.()?.sessionId;
+  useEffect(() => {
+    let current = true;
+    void previewKit.state().then((value) => { if (current && isPreviewState(value)) previewStore.set(readPreviewState(value)); }).catch(() => undefined);
+    return () => { current = false; };
+  }, [threadId]);
   useEffect(() => {
     workbenchActions.set(actions);
     return () => { if (workbenchActions.get() === actions) workbenchActions.set(undefined); };

@@ -6,7 +6,7 @@ import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/pro
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { deviceReadPaths } from "../_filesystem/device-read-paths.js";
+import { deviceReadPaths, hasFullFileAccess } from "../_filesystem/device-read-paths.js";
 import {
   assertAllowedCloneSource,
   gitExecutable,
@@ -327,8 +327,8 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { long: true });
       // Project sources: browse, pick, clone. Opening the result is core's job.
       context.registerCommand("list-directories", async (input, call) => {
-        const listing = await listDirectories(optionalString(input, "path")?.trim() || (call.owner ? undefined : cwd()), (path) => services.workspaceRef(path), !call.owner);
-        if (call.owner) return listing;
+        const listing = await listDirectories(optionalString(input, "path")?.trim() || (hasFullFileAccess(call) ? undefined : cwd()), (path) => services.workspaceRef(path), !hasFullFileAccess(call));
+        if (hasFullFileAccess(call)) return listing;
         const paths = await deviceReadPaths(listing.path);
         const directories = [];
         for (const directory of listing.directories) if (await paths.resolve(directory.path)) directories.push(directory);
@@ -336,11 +336,11 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read" });
       const folderIndex = createFolderIndexCache();
       context.registerCommand("find-folders", async (input, call) => {
-        const requested = optionalString(input, "path")?.trim() || (call.owner ? undefined : cwd());
+        const requested = optionalString(input, "path")?.trim() || (hasFullFileAccess(call) ? undefined : cwd());
         const root = requested ? expandHome(requested) : homedir();
         if (!isAbsolute(root)) throw new HostCommandError("Choose an absolute folder path.");
         // A device reads what a listing would show it; the walk itself skips hidden folders and symlinks.
-        if (!call.owner && !await (await deviceReadPaths(root)).resolve(root)) throw new HostCommandError("This folder is not shared with this device.");
+        if (!hasFullFileAccess(call) && !await (await deviceReadPaths(root)).resolve(root)) throw new HostCommandError("This folder is not shared with this device.");
         return folderIndex(root);
       }, { access: "read" });
       // The folder dialog waits on the user, well past the ordinary command timeout.
@@ -380,8 +380,8 @@ export function createWorkspaceHostExtension(): HostExtension {
         const relative = optionalRelativePath(input);
         if (relative) await workspacePaths.assertWorkspacePath(project, relative);
         const base = relative ? resolve(project, relative) : project;
-        const nodes = await readFileTree(base, relative ?? "", 0, { count: 0 }, !call.owner);
-        if (call.owner) return nodes;
+        const nodes = await readFileTree(base, relative ?? "", 0, { count: 0 }, !hasFullFileAccess(call));
+        if (hasFullFileAccess(call)) return nodes;
         const paths = await deviceReadPaths(project);
         const allowed = [];
         for (const node of nodes) if (await paths.resolve(join(base, node.name))) allowed.push(node);
@@ -440,7 +440,7 @@ export function createWorkspaceHostExtension(): HostExtension {
       context.registerCommand("publish-linked-media", async (input, call) => {
         if (!services.browserResources) throw new Error("This machine does not support media resources.");
         const project = await services.knownWorkspacePath(requiredString(input, "workspace"));
-        const resolved = await resolveLinkedFile(project, linkedFilePath(requiredString(input, "path")), call.owner, services);
+        const resolved = await resolveLinkedFile(project, linkedFilePath(requiredString(input, "path")), hasFullFileAccess(call), services);
         const path = await realpath(resolved.path);
         const mimeType = shareableType(path);
         if (!mimeType) throw new Error("This file has no supported media preview.");
@@ -451,7 +451,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const workspace = requiredString(input, "workspace");
         const project = await services.knownWorkspacePath(workspace);
         const path = linkedFilePath(requiredString(input, "path"));
-        const resolved = await resolveLinkedFile(project, path, call.owner, services);
+        const resolved = await resolveLinkedFile(project, path, hasFullFileAccess(call), services);
         const content = await readBoundedFileContent(resolved.path);
         return { ...content, ...(resolved.mainCheckoutPath ? { mainCheckoutPath: resolved.mainCheckoutPath } : {}) };
       }, { access: "read" });

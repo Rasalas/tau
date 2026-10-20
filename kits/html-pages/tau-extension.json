@@ -4,7 +4,7 @@
   "description": "Lets an agent show an interactive page, a chart, a diagram, a mockup or a gallery, right in the thread.",
   "version": "1.0.0",
   "engines": { "api": "^1.70.0" },
-  "permissions": ["sessions", "runtime:extend", "network", "process"],
+  "permissions": ["sessions", "runtime:extend", "network", "process", "machines"],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",
   "host": "./host.ts",

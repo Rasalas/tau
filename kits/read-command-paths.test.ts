@@ -113,7 +113,7 @@ describe("bundled read command path policy", () => {
       await expect(registry.invoke("test.read-policy", command, { path: "public.txt" }, phone)).resolves.toBe("read");
       await expect(registry.invoke("test.read-policy", command, { query: "/etc/passwd", text: "../outside" }, phone)).resolves.toBe("read");
       await expect(registry.invoke("test.read-policy", command, { path: outside }, { kind: "workbench-client" })).resolves.toBe("read");
-      await expect(registry.invoke("test.read-policy", command, { path: outside }, { ...phone, readOnly: undefined })).rejects.toMatchObject({ code: "forbidden" });
+      await expect(registry.invoke("test.read-policy", command, { path: outside }, { ...phone, readOnly: undefined })).resolves.toBe("read");
       expect(registry.isActive("test.read-policy")).toBe(true);
     } finally {
       await registry.deactivate("test.read-policy");

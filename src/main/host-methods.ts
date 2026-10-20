@@ -219,8 +219,8 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "run-shell-action": bindHostCommand(HOST_COMMANDS["run-shell-action"], async ([command, includeInContext, expectedCwd]) => (await host()).runShellAction(command, includeInContext, expectedCwd === undefined ? undefined : resolveWorkspace(await host(), expectedCwd))),
     "steer": bindHostCommand(HOST_COMMANDS["steer"], async (args) => (await host()).steer(...args)),
     "follow-up": bindHostCommand(HOST_COMMANDS["follow-up"], async (args) => (await host()).followUp(...args)),
-    "queue-message": bindHostCommand(HOST_COMMANDS["queue-message"], async ([sessionId, text, attachments, skillDraft, deliverAt]) => {
-      const queued = await (await host()).queue.submit(sessionId, { text, attachments: attachments ?? [], ...(skillDraft ? { skillDraft } : {}), ...(deliverAt !== undefined ? { deliverAt } : {}) });
+    "queue-message": bindHostCommand(HOST_COMMANDS["queue-message"], async ([sessionId, text, attachments, skillDraft, deliverAt, identity]) => {
+      const queued = await (await host()).queue.submit(sessionId, { text, attachments: attachments ?? [], ...(skillDraft ? { skillDraft } : {}), ...(deliverAt !== undefined ? { deliverAt } : {}), ...(identity ? { identity } : {}) });
       return { id: queued.id };
     }),
     "take-queued": bindHostCommand(HOST_COMMANDS["take-queued"], async ([sessionId, queuedId]) => (await host()).queue.take(sessionId, queuedId).map(({ id, text, attachments, skillDraft, wake, deliverAt }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}), ...(wake ? { wake } : {}), ...(deliverAt !== undefined ? { deliverAt } : {}) }))),
@@ -243,7 +243,12 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
       if (!path) throw new Error("The started thread is missing from the host's index.");
       return { ...started, path };
     }),
-    "send-to-thread": bindHostCommand(HOST_COMMANDS["send-to-thread"], async ([sessionId, text, delivery]) => { await (await host()).sendToThread(sessionId, text, delivery); return null; }),
+    "send-to-thread": bindHostCommand(HOST_COMMANDS["send-to-thread"], async ([sessionId, text, delivery, identity]) => {
+      const instance = await host();
+      if (identity) await instance.sendToThread(sessionId, text, delivery, undefined, [], undefined, identity);
+      else await instance.sendToThread(sessionId, text, delivery);
+      return null;
+    }),
     "prepared-thread-capability": bindHostCommand(HOST_COMMANDS["prepared-thread-capability"], async ([cwd]) => (await host()).getPreparedThreadCapability(cwd === undefined ? undefined : resolveWorkspace(await host(), cwd))),
     "fork-thread": bindHostCommand(HOST_CORE_COMMANDS["fork-thread"], async (params) => (await host()).forkThread(
       params[0],

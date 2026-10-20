@@ -84,6 +84,8 @@ export interface UiMessage {
   timestamp: number;
   /** On a user message: it was steered into a running turn, or sent from the queue (API 1.75.0). */
   delivery?: "steer" | "queued";
+  /** Local delivery state until a persisted user message replaces it. */
+  submission?: { state: "sending" | "sent" | "failed"; error?: string };
   /** True when the entry was executed locally and excluded from model context (e.g. !! command). */
   excludedFromContext?: boolean;
   /** Why the runtime stopped this answer, in the provider's words; the answer's text may be empty. */
@@ -923,10 +925,12 @@ export type HostEvent = GlobalHostEvent | ThreadHostEvent;
 /** After Restart: a check for a newer release (and Squirrel.Mac taking a download), its download, the quit. */
 export type AppUpdatePhase = "preparing" | "downloading" | "installing";
 
-/** The single result shape used by host, scoped composer store, and renderer. */
+/** The single result shape used by host, scoped composer store, and renderer.
+ * `retained` means an unconfirmed message stays in the chat instead of returning to the editor.
+ */
 export type SubmissionResult =
   | { accepted: true }
-  | { accepted: false; message: string };
+  | { accepted: false; message: string; retained?: true };
 
 /** What the host reports about one of its extensions, for settings and diagnostics. */
 export interface HostExtensionSummary {

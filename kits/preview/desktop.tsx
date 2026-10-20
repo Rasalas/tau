@@ -51,6 +51,7 @@ export const previewExtension: DesktopExtension = {
   name: "Preview",
   activate(plugin) {
     const disconnect = connectPreviewHost(plugin.host);
+    const stopState = plugin.host.watch?.(PREVIEW_STATE_EVENT);
     const stopMachine = followHostMachine(plugin.environments);
     plugin.registerPanel({ id: PREVIEW_PANEL, label: "Preview", Icon: Globe, order: 40, width: "wide", maximizable: true, profiles: ["desktop"], Component: DesktopPreviewPanel });
     // Elsewhere the page stays on the host: a browser and a phone show its frames and drive it from there.
@@ -177,6 +178,7 @@ export const previewExtension: DesktopExtension = {
       stopLinks();
       stopMachine();
       disconnect();
+      stopState?.();
     };
   },
 };

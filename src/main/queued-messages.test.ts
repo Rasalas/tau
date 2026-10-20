@@ -42,6 +42,31 @@ function bench(filePath?: string) {
 const text = (message: string) => ({ text: message, attachments: [] });
 
 describe("QueuedMessages", () => {
+  it("keeps the queued delivery identity across a host restart", async () => {
+    const file = await tempFile();
+    const first = bench(file);
+    await first.queue.restore();
+    first.busy.add("t");
+    const identity = { clientTurnId: "turn-one", clientMessageId: "message-one" };
+    const queued = await first.queue.submit("t", { ...text("one"), identity });
+    await first.queue.flush();
+    const restarted = bench(file);
+    await restarted.queue.restore();
+    const retry = await restarted.queue.submit("t", { ...text("one"), identity });
+    expect(retry).toMatchObject({ id: queued.id, identity });
+    expect(restarted.queue.list("t")).toHaveLength(1);
+  });
+
+  it("admits one queued copy for concurrent retries of the same submitted message", async () => {
+    const { queue, busy } = bench();
+    busy.add("t");
+    const identity = { clientTurnId: "turn-one", clientMessageId: "message-one" };
+    const [first, retry] = await Promise.all([queue.submit("t", { ...text("one"), identity }), queue.submit("t", { ...text("one"), identity })]);
+    expect(retry.id).toBe(first.id);
+    expect(queue.list("t")).toHaveLength(1);
+    expect(queue.list("t")[0]).toMatchObject({ identity });
+  });
+
   it("delivers an early message once after restoring a missing file", async () => {
     const file = await tempFile();
     const { queue, delivered } = bench(file);

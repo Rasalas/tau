@@ -124,6 +124,7 @@ export class EnvironmentMonitor {
   private pingId?: string;
   private wakeCheck?: { promise: Promise<void>; resolve(): void; reject(error: Error): void };
   private wakeGeneration = 0;
+  private readonly observedRuns = new Map<string, boolean>();
 
   constructor(private readonly options: EnvironmentMonitorOptions) {
     this.timers = new ConnectionTimers({
@@ -292,7 +293,17 @@ export class EnvironmentMonitor {
         .then((value) => { const update = decodeHostUpdateStatus(value); if (update && this.socket === socket) this.set({ update }); }, () => undefined);
       if (this.options.bootstrap === false) return;
       void this.request<HostBootstrap>(socket, "bootstrap", BOOTSTRAP_TIMEOUT_MS)
-        .then((bootstrap) => { if (this.socket === socket) this.set({ index: bootstrap.threadIndex, lastSeenAt: this.now() }); })
+        .then((bootstrap) => {
+          if (this.socket !== socket) return;
+          const running = new Set(Object.keys(bootstrap.threadIndex.runs ?? {}));
+          // Status pushes can overtake the bootstrap response. Their newer
+          // verdict must survive the snapshot taken before them.
+          for (const [id, active] of this.observedRuns) {
+            if (active) running.add(id);
+            else running.delete(id);
+          }
+          this.set({ index: bootstrap.threadIndex, running, lastSeenAt: this.now() });
+        })
         .catch((error: unknown) => this.options.logger?.warn("environment.bootstrap.failed", { url, error: error instanceof Error ? error.message : String(error) }));
       return;
     }
@@ -321,6 +332,7 @@ export class EnvironmentMonitor {
       const index = applyIndexUpdate(this.state.index, event.update as IndexUpdate);
       if (index) this.set({ index, lastSeenAt: this.now() });
     } else if (event.type === "agent-status" && typeof event.sessionId === "string") {
+      this.observedRuns.set(event.sessionId, event.running === true);
       const running = new Set(this.state.running);
       if (event.running === true) running.add(event.sessionId);
       else running.delete(event.sessionId);
@@ -334,7 +346,7 @@ export class EnvironmentMonitor {
     return new Promise<T>((resolve, reject) => {
       const timer = this.timer(() => {
         this.pending.delete(id);
-        reject(new Error(`${method}: no answer in ${timeoutMs}ms`));
+        reject(Object.assign(new Error(`${method}: no answer in ${timeoutMs}ms`), { code: "timeout" }));
       }, timeoutMs);
       this.pending.set(id, ({ value, error, code }) => {
         this.clear(timer);
@@ -446,6 +458,7 @@ export class EnvironmentMonitor {
   }
 
   private drop(): void {
+    this.observedRuns.clear();
     this.wakeCheck?.reject(new Error("The connection dropped while checking it after sleep."));
     this.wakeCheck = undefined;
     this.clear(this.pingTimer);
@@ -453,7 +466,7 @@ export class EnvironmentMonitor {
     this.pingTimer = undefined;
     this.deadline = undefined;
     this.pingSentAt = undefined;
-    for (const settle of this.pending.values()) settle({ error: "The connection dropped." });
+    for (const settle of this.pending.values()) settle({ error: "The connection dropped.", code: "connection-dropped" });
     this.pending.clear();
     const socket = this.socket;
     this.socket = undefined;

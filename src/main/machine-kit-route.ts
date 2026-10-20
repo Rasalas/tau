@@ -3,15 +3,16 @@ import type { HostPushEvent } from "../shared/host-transport.js";
 import type { HostMachines } from "./host-machines.js";
 import type { HostMachineRoutingAdapter, HostMachineRoutingContribution } from "./host-machine-routing.js";
 import { machineKitError } from "../shared/machine-compatibility.js";
+import { isWorkspaceId } from "../shared/workspace-identity.js";
 type Identity = { sessionId: string; backendKind: string };
 type Route = { machine: string; input: unknown };
 type Client = { topics: readonly string[]; emit(event: HostPushEvent): void; stops: Array<() => void>; key: string };
 const fields = (input: unknown): Record<string, unknown> => input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
-const CREATED_KEPT = 200;
+const WORKSPACES_KEPT = 200;
 
 /** Generic transport and workspace identity; feature policies live in their kits. */
 export class MachineKitRoute {
-  private readonly createdOn = new Map<string, string>();
+  private readonly workspaceHomes = new Map<string, string>();
   private readonly clients = new Map<string, Client>();
   private readonly adapters = new Map<string, { contribution: HostMachineRoutingContribution; adapter: HostMachineRoutingAdapter; stop: () => void }>();
   private connected = new Set<string>();
@@ -66,7 +67,7 @@ export class MachineKitRoute {
   private homeOf(workspaceId: string): { id: string; name: string } | undefined {
     const machines = this.deps.machines();
     if (!machines) return undefined;
-    const created = this.createdOn.get(workspaceId);
+    const created = this.workspaceHomes.get(workspaceId);
     for (const machine of machines.list()) {
       if (machine.id === created) return machine;
       const index = machines.index(machine.id);
@@ -118,15 +119,22 @@ export class MachineKitRoute {
     const input = typeof item.sessionId === "string" && item.sessionId.startsWith(prefix) ? { ...item, sessionId: item.sessionId.slice(prefix.length) } : route.input;
     const revision = adapter?.beforeCall?.(route.machine);
     const result = await this.remoteCall(route.machine, extensionId, command, input);
-    const created = fields(result).workspaceId;
-    if (typeof created === "string" && created) {
-      this.createdOn.delete(created);
-      this.createdOn.set(created, route.machine);
-      if (this.createdOn.size > CREATED_KEPT) this.createdOn.delete(this.createdOn.keys().next().value!);
-    }
+    this.rememberWorkspaces(route.machine, result);
     const translated = adapter?.remoteResult ? await adapter.remoteResult(route.machine, command, route.input, result, readLocal, revision) : this.localIds(route.machine, result);
     this.refresh();
     return translated;
+  }
+
+  /** Worktree lists also name roots that need not have a thread in the peer's index. */
+  private rememberWorkspaces(machine: string, value: unknown, depth = 0): void {
+    if (depth > 16 || !value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value)) {
+      if ((key === "workspaceId" || key === "workspace" || key === "rootWorkspace") && typeof item === "string" && isWorkspaceId(item)) {
+        this.workspaceHomes.delete(item);
+        this.workspaceHomes.set(item, machine);
+        if (this.workspaceHomes.size > WORKSPACES_KEPT) this.workspaceHomes.delete(this.workspaceHomes.keys().next().value!);
+      } else if (item && typeof item === "object") this.rememberWorkspaces(machine, item, depth + 1);
+    }
   }
 
   private localIds(machine: string, value: unknown): unknown {

@@ -59,6 +59,15 @@ describe("the home machine's thread commands", () => {
     expect(h.send).toHaveBeenCalledExactlyOnceWith("saved", "look", { delivery: "queue", attachments: [image] });
   });
 
+  it("preserves the sender's message identity for transcript confirmation", async () => {
+    const h = await home();
+    const identity = { clientTurnId: "turn-1", clientMessageId: "message-1" };
+    await h.invoke("thread-send", { sessionId: "saved", text: "look", attachments: [image], identity });
+    expect(h.send).toHaveBeenCalledExactlyOnceWith("saved", "look", { delivery: "prompt", attachments: [image], identity });
+    await expect(h.invoke("thread-send", { sessionId: "saved", text: "look", identity: { clientTurnId: "turn-1" } })).rejects.toThrow("invalid delivery identity");
+    expect(h.send).toHaveBeenCalledTimes(1);
+  });
+
   it("never takes a path: a file attachment is refused before anything is sent", async () => {
     const h = await home();
     const file = { kind: "file", name: "passwd", mimeType: "text/plain", path: "/etc/passwd", size: 1 };

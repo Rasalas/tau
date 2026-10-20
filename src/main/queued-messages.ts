@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { UiPromptAttachment, UiQueuedMessage, UiQueuedPrompt, UiSkillDraft, UiWake } from "../shared/contracts.js";
+import type { ClientTurnIdentity, UiPromptAttachment, UiQueuedMessage, UiQueuedPrompt, UiSkillDraft, UiWake } from "../shared/contracts.js";
+import { RequestReceipts } from "./request-receipts.js";
 import { combineWakes, wakeMessageText } from "../shared/message-turns.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 
@@ -8,6 +9,7 @@ const VERSION = 1;
 /** One message waiting for its thread's turn to end. */
 export interface QueuedMessage extends UiQueuedPrompt {
   queuedAt: number;
+  identity?: ClientTurnIdentity;
   /** The thread that sent it, when another thread's agent did. */
   fromThreadId?: string;
   /** Not the user's: a kit woke the thread. Stop drops it; the user's own messages stay. */
@@ -79,17 +81,25 @@ function decodeWake(value: unknown): UiWake | undefined {
   return typeof wake?.source === "string" && typeof wake.label === "string" ? { source: wake.source, label: wake.label } : undefined;
 }
 
+function decodeIdentity(value: unknown): ClientTurnIdentity | undefined {
+  const item = value as Partial<ClientTurnIdentity> | undefined;
+  return typeof item?.clientTurnId === "string" && typeof item.clientMessageId === "string"
+    ? { clientTurnId: item.clientTurnId, clientMessageId: item.clientMessageId } : undefined;
+}
+
 function decodeMessage(value: unknown): QueuedMessage | undefined {
   const item = value as Record<string, unknown> | undefined;
   if (!item || typeof item.id !== "string" || typeof item.text !== "string") return undefined;
   const attachments = Array.isArray(item.attachments) ? item.attachments.flatMap((entry) => decodeAttachment(entry) ?? []) : [];
   const skillDraft = decodeSkill(item.skillDraft);
   const wake = decodeWake(item.wake);
+  const identity = decodeIdentity(item.identity);
   return {
     id: item.id,
     text: item.text,
     attachments,
     queuedAt: typeof item.queuedAt === "number" ? item.queuedAt : 0,
+    ...(identity ? { identity } : {}),
     ...(skillDraft ? { skillDraft } : {}),
     ...(typeof item.fromThreadId === "string" ? { fromThreadId: item.fromThreadId } : {}),
     ...(wake ? { wake } : {}),
@@ -121,6 +131,7 @@ function decodeQueues(value: unknown): Map<string, QueuedMessage[]> {
  * itself: it becomes an ordinary message of the held queue.
  */
 export class QueuedMessages {
+  private readonly receipts = new RequestReceipts<QueuedMessage>();
   private readonly queues = new Map<string, QueuedMessage[]>();
   /** Threads whose queue waits for the user, not for the turn. */
   private readonly held = new Set<string>();
@@ -211,13 +222,17 @@ export class QueuedMessages {
 
   /** `add` for a caller that may be refused: a thread whose runtime is off takes no message (ADR 0033). */
   async submit(sessionId: string, message: Omit<QueuedMessage, "id" | "queuedAt">): Promise<QueuedMessage> {
-    await this.port.admit?.(sessionId);
-    return this.add(sessionId, message);
+    return this.receipts.run(sessionId, message.identity?.clientMessageId, async () => {
+      const existing = message.identity && this.list(sessionId).find((item) => item.identity?.clientMessageId === message.identity!.clientMessageId);
+      if (existing) return existing;
+      await this.port.admit?.(sessionId);
+      return this.add(sessionId, message);
+    });
   }
 
   /** Queues a message; a thread with nothing running gets it at once. */
   add(sessionId: string, message: Omit<QueuedMessage, "id" | "queuedAt">): QueuedMessage {
-    const queued: QueuedMessage = { ...message, id: `queued-${randomUUID()}`, queuedAt: Date.now() };
+    const queued: QueuedMessage = { ...message, id: `queued-${message.identity?.clientMessageId ?? randomUUID()}`, queuedAt: Date.now() };
     this.write(sessionId, [...this.list(sessionId), queued]);
     if (planned(queued)) this.arm();
     void this.pump(sessionId);

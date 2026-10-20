@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentRuntimeAdapter, HostExtension, HostMachineServices, HostRuntimeBackendProvider, ThreadRuntimeBackend, UiSession } from "tau/host-extension";
+import type { AgentRuntimeAdapter, HostEvent, HostExtension, HostMachineServices, HostPushEvent, HostRuntimeBackendProvider, ThreadRuntimeBackend, UiSession } from "tau/host-extension";
 import { PiHost, ProjectHistory, WorkspaceIdentity, externalThreadPath } from "../../src/main/test-support/machine-backend-harness.js";
 import { createEnvironmentsHostExtension } from "./host.js";
 
@@ -54,6 +54,8 @@ async function fixture() {
     index: () => ({ projects: [], sessions: [remote] }), running: () => new Set(), subscribeIndex: () => () => undefined,
     followThread: vi.fn(() => () => undefined),
   };
+  let followed: ((event: HostPushEvent) => void) | undefined;
+  machines.followThread = vi.fn((_machine, _session, listener) => { followed = listener; return () => { followed = undefined; }; });
   const initial: HostRuntimeBackendProvider = {
     kind: "fixture", adapter, listThreads: async () => [], lookup: async () => undefined, composerCommands: () => [],
     open: async (threadId, cwd) => initialBackend(threadId, cwd),
@@ -65,7 +67,8 @@ async function fixture() {
   const open = async () => {
     const history = new ProjectHistory(join(root, "projects.json"));
     await history.load();
-    const host = new PiHost(local, () => undefined, history, false, false, {
+    const events: HostEvent[] = [];
+    const host = new PiHost(local, (event) => events.push(event), history, false, false, {
       hostExtensions: [initialKit, createEnvironmentsHostExtension()], defaultBackendKind: "fixture", kitStateDir: join(root, "kit-state"),
       machines, workspaceIdentity: new WorkspaceIdentity("abcdef0123456789abcdef0123456789"),
       createModelRuntime: async () => ({ getAvailable: async () => [], getModels: () => [], getModel: () => undefined, isUsingSubscription: () => false }) as never,
@@ -75,12 +78,24 @@ async function fixture() {
     cleanups.push(dispose);
     await host.start();
     await expect.poll(() => host.threadPath(`${machine.id}~${remote.id}`)).toBe(externalThreadPath("machine", `${machine.id}~${remote.id}`));
-    return { host, dispose };
+    return { host, dispose, events };
   };
-  return { remote, machine, request, machines, open, proxyId: `${machine.id}~${remote.id}` };
+  return { remote, machine, request, machines, open, push: (event: HostPushEvent) => followed?.(event), proxyId: `${machine.id}~${remote.id}` };
 }
 
 describe("machine provider in the real host", () => {
+  it("opens an already running remote thread with a stable run and forwards thinking after joining mid-answer", async () => {
+    const f = await fixture();
+    f.machines.running = () => new Set([f.remote.id]);
+    const { host, events } = await f.open();
+    await host.switchSession(externalThreadPath("machine", f.proxyId));
+    expect((await host.bootstrap()).threadIndex.runs).toHaveProperty(f.proxyId);
+    f.push({ type: "assistant-thinking", sessionId: f.remote.id, id: "mid-answer", delta: "checking the code" });
+    await expect.poll(() => events.some((event) => event.type === "assistant-thinking" && event.sessionId === f.proxyId && event.delta === "checking the code")).toBe(true);
+    expect((await host.snapshot()).isStreaming).toBe(true);
+    expect((await host.bootstrap()).threadIndex.runs).toHaveProperty(f.proxyId);
+  });
+
   it("keeps a remote worktree's project name and icon through indexing and activation", async () => {
     const f = await fixture();
     const icon = "data:image/svg+xml;base64,PHN2Zy8+";
