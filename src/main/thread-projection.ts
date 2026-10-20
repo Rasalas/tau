@@ -115,11 +115,12 @@ export class ThreadProjection {
     });
   }
 
-  messages(thread: ThreadRuntime): UiMessage[] {
+  /** `branchMessages`: the thread's, when the caller has just read them. */
+  messages(thread: ThreadRuntime, branchMessages?: unknown[]): UiMessage[] {
     const messages: UiMessage[] = [];
     if (isPiBackend(thread)) {
       const mapping = this.mapping(thread);
-      messages.push(...this.branchMessages(thread)
+      messages.push(...(branchMessages ?? this.branchMessages(thread))
         .map((message, index) => mapMessage(message, index, mapping))
         .filter((message): message is UiMessage => isVisibleMessage(message, mapping.pinned)));
     }
@@ -220,7 +221,8 @@ export class ThreadProjection {
     const attached = this.attachedSnapshot();
     if (attached) return { ...this.attachedHostSnapshot(), models };
     if (!thread) throw new Error("Pi runtime is not ready");
-    const messages = this.messages(thread);
+    const branchMessages = isPiBackend(thread) ? this.branchMessages(thread) : [];
+    const messages = this.messages(thread, branchMessages);
     const firstUserMessage = messages.find((message) => message.role === "user");
     if (!isPiBackend(thread)) {
       const externalState = thread.state;
@@ -258,7 +260,6 @@ export class ThreadProjection {
         ...(externalView.usage ? { usage: externalView.usage } : {}),
       };
     }
-    const branchMessages = this.branchMessages(thread);
     const state = thread.state;
     const view = thread.backend.catalogView();
     return {

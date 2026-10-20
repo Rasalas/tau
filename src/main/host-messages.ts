@@ -370,8 +370,9 @@ export function nextVisibleMessageId(
   sourceEntryId: string,
   pinned?: ReadonlySet<string>,
 ): string | undefined {
-  const sourceIndex = entries.findIndex((entry) => entry && typeof entry === "object"
-    && (entry as { id?: unknown }).id === sourceEntryId);
+  // The source is a message just finished, near the end of the branch.
+  let sourceIndex = entries.length - 1;
+  while (sourceIndex >= 0 && !(entries[sourceIndex] && typeof entries[sourceIndex] === "object" && (entries[sourceIndex] as { id?: unknown }).id === sourceEntryId)) sourceIndex -= 1;
   if (sourceIndex < 0) return undefined;
   for (let index = sourceIndex + 1; index < entries.length; index += 1) {
     const entry = entries[index];

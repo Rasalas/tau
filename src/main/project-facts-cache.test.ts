@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ProjectFactsCache } from "./project-facts-cache.js";
 
 function cache() {
@@ -77,6 +77,34 @@ describe("ProjectFactsCache", () => {
     await settle();
     expect(labels.at(-1)).toEqual({ cwd: "/repo", label: "feature" });
     expect(background.every((name) => name === "project-label")).toBe(true);
+  });
+
+  it("asks for a listed project's label at most every few minutes, and again once a label provider arrives", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const { facts, labels } = cache();
+      let asked = 0;
+      facts.add({ label: async () => { asked += 1; return "main"; } });
+      expect(facts.listedLabel("/repo")).toBeUndefined();
+      await settle();
+      expect(facts.listedLabel("/repo")).toBe("main");
+      vi.advanceTimersByTime(60_000);
+      facts.listedLabel("/repo");
+      await settle();
+      expect(asked).toBe(1);
+      facts.label("/repo");
+      await settle();
+      expect(asked).toBe(2);
+      facts.add({ label: async () => undefined });
+      facts.listedLabel("/repo");
+      await settle();
+      expect(asked).toBe(3);
+      vi.advanceTimersByTime(3 * 60_000);
+      facts.listedLabel("/repo");
+      await settle();
+      expect(asked).toBe(4);
+      expect(labels).toEqual([{ cwd: "/repo", label: "main" }]);
+    } finally { vi.useRealTimers(); }
   });
 
   it("logs a failing label provider and leaves the path unlabelled", async () => {

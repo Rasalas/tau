@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HostPushLog, helloReply } from "./host-push-log.js";
 import { HOST_TRANSPORT_VERSION } from "../shared/host-transport.js";
 import { HostPushFilter } from "./host-push-scope.js";
@@ -38,6 +38,30 @@ describe("host push log", () => {
     expect(log.since(0)).toEqual({ resync: false, missed: [{ seq: 3, event: event("shared") }] });
     log.record(event("next"));
     expect(log.since(0).resync).toBe(true);
+  });
+
+  it("leaves the replay budget to replayable pushes when relays are large", () => {
+    const size = Buffer.byteLength(JSON.stringify({ seq: 1, event: event("a") }));
+    const log = new HostPushLog(size * 2 + 64);
+    log.record(event("a"));
+    log.record(event("b"));
+    for (let index = 0; index < 3; index += 1) log.record(event("x".repeat(10_000)), { replay: false });
+    expect(log.since(0)).toEqual({ resync: false, missed: [{ seq: 1, event: event("a") }, { seq: 2, event: event("b") }] });
+  });
+
+  it("serializes a push once and reuses the text for sending and replay", () => {
+    const log = new HostPushLog();
+    const first = log.record(event("a"));
+    const second = log.record(delta("s1", "hello"));
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      expect(log.eventText(first)).toBe(JSON.stringify(first.event));
+      stringify.mockClear();
+      expect(log.eventText(second)).toBe('{"type":"assistant-delta","sessionId":"s1","id":"a","delta":"hello"}');
+      expect(JSON.parse(`[${log.pushesText(log.since(0).missed)}]`)).toEqual([first, second]);
+      expect(stringify).not.toHaveBeenCalled();
+    } finally { stringify.mockRestore(); }
+    expect(log.eventText({ seq: 1, event: event("not recorded") })).toBe(JSON.stringify(event("not recorded")));
   });
 
   it("numbers pushes from one", () => {

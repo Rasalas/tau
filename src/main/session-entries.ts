@@ -1,5 +1,11 @@
 /** Helpers over Pi's raw session entries that core needs for its own events. */
 
+/** The last entry that matches; the one asked about is near the end, so the branch is not copied. */
+function newest(entries: readonly unknown[], matches: (entry: unknown) => boolean): unknown {
+  for (let index = entries.length - 1; index >= 0; index--) if (matches(entries[index])) return entries[index];
+  return undefined;
+}
+
 /**
  * Resolves an assistant's durable session-entry id without depending on the
  * runtime that owns the branch. The host uses this after `message_end` has
@@ -7,8 +13,7 @@
  * the convenience wrapper below.
  */
 export function assistantAnchorForBranch(entries: readonly unknown[], message: unknown): string | undefined {
-  const branch = [...entries].reverse();
-  const exact = branch.find((entry) => {
+  const exact = newest(entries, (entry) => {
     if (!entry || typeof entry !== "object") return false;
     const item = entry as { type?: unknown; id?: unknown; message?: unknown };
     return item.type === "message"
@@ -21,7 +26,7 @@ export function assistantAnchorForBranch(entries: readonly unknown[], message: u
   if (exact && typeof (exact as { id?: unknown }).id === "string") return (exact as { id: string }).id;
   if (!message || typeof message !== "object") return undefined;
   const value = message as { timestamp?: unknown; stopReason?: unknown };
-  const fallback = branch.find((entry) => {
+  const fallback = newest(entries, (entry) => {
     if (!entry || typeof entry !== "object") return false;
     const item = entry as { type?: unknown; id?: unknown; message?: unknown };
     if (item.type !== "message" || typeof item.id !== "string" || !item.message || typeof item.message !== "object") return false;

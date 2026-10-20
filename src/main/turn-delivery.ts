@@ -262,7 +262,7 @@ export class TurnDelivery {
       const state = thread.state;
       thread.adapterTitle = state.title;
       thread.adapterTitleSource = state.titleSource;
-      await this.port.index.refreshShell(thread, true);
+      await this.port.index.refreshShell(thread, true, thread.adapterMessages);
     } catch (error) {
       if (thread.restartGeneration !== restartGeneration) return;
       const aborted = error instanceof Error && error.name === "AbortError";

@@ -17,10 +17,22 @@ export interface LifecycleMeasurement {
   ipcBytes: number;
 }
 
-/** Small instrumentation collector used by the host and repeatable fixtures. */
+/** What a long-running host keeps; the benchmark reads a handful. */
+const MAX_MEASUREMENTS = 100;
+
+/**
+ * Small instrumentation collector used by the host and repeatable fixtures.
+ * Counting IPC bytes serializes every reply a second time, so only the host
+ * benchmark (`TAU_MEASURE_LIFECYCLE_IPC=1`) and tests ask for it.
+ */
 export class HostLifecycleInstrumentation {
   private readonly measurements: LifecycleMeasurement[] = [];
   private active?: { mode: LifecycleMode; scenario: LifecycleScenario; startedAt: number; phases: LifecyclePhase[]; subprocesses: number; ipcBytes: number };
+  private readonly measureIpc: boolean;
+
+  constructor(options: { measureIpc?: boolean } = {}) {
+    this.measureIpc = options.measureIpc ?? process.env.TAU_MEASURE_LIFECYCLE_IPC === "1";
+  }
 
   isActive(): boolean { return this.active !== undefined; }
 
@@ -36,7 +48,7 @@ export class HostLifecycleInstrumentation {
 
   countSubprocess(): void { if (this.active) this.active.subprocesses += 1; }
   recordIpc(payload: unknown): void {
-    if (!this.active) return;
+    if (!this.active || !this.measureIpc) return;
     try { this.active.ipcBytes += Buffer.byteLength(JSON.stringify(payload), "utf8"); } catch { /* diagnostics never break lifecycle */ }
   }
 
@@ -53,6 +65,7 @@ export class HostLifecycleInstrumentation {
       ipcBytes: active.ipcBytes,
     };
     this.measurements.push(measurement);
+    if (this.measurements.length > MAX_MEASUREMENTS) this.measurements.splice(0, this.measurements.length - MAX_MEASUREMENTS);
     return measurement;
   }
 

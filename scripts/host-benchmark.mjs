@@ -9,6 +9,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { evaluateHostBudgets, medianMs } from "./host-budget.mjs";
 
 const root = process.cwd();
+// The report's phases carry the bytes each start sent; a production host does not count them.
+process.env.TAU_MEASURE_LIFECYCLE_IPC ??= "1";
 const mode = process.argv.includes("--full") ? "full" : "safe";
 const check = process.argv.includes("--check");
 const outputIndex = process.argv.indexOf("--output");

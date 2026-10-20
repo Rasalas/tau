@@ -155,4 +155,20 @@ describe("ThreadProjection transcript", () => {
     };
     expect(reads(200)).toBe(reads(2));
   });
+
+  it("maps the branch once for a snapshot or a page, not again for its visible messages", () => {
+    const branch = [
+      { type: "message", id: "u", message: { role: "user", content: [{ type: "text", text: "question" }], timestamp: 1 } },
+      { type: "message", id: "a", message: { role: "assistant", content: [{ type: "text", text: "answer" }], timestamp: 2 } },
+    ];
+    const entries = vi.fn(() => branch);
+    const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => undefined);
+    const thread = piThread(entries, {});
+    const raw = projection.branchMessages(thread);
+    entries.mockClear();
+    expect(projection.messages(thread, raw).map((message) => message.text)).toEqual(["question", "answer"]);
+    expect(entries).not.toHaveBeenCalled();
+    projection.hostSnapshot(thread, [], "/repo", 0);
+    expect(entries).toHaveBeenCalledOnce();
+  });
 });

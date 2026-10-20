@@ -2,6 +2,8 @@ import { basename } from "node:path";
 import { performance } from "node:perf_hooks";
 import { HostProjectFactsSet, type HostProjectFacts } from "./host-extensions.js";
 
+const LISTED_LABEL_MAX_AGE_MS = 3 * 60_000;
+
 export interface ProjectFactsCachePort {
   /** A label the providers answered with, once it differs from the last one. */
   onLabel(cwd: string, label: string | undefined): void;
@@ -29,6 +31,7 @@ export class ProjectFactsCache {
   private readonly unnamed = new Set<string>();
   private readonly labels = new Map<string, string | undefined>();
   private readonly labelRefreshes = new Map<string, Promise<void>>();
+  private readonly labelAskedAt = new Map<string, number>();
   /** Which known project paths are nested in another project. Unclassified paths stay absent. */
   private readonly nesting = new Map<string, boolean>();
   private readonly privateWorkspaces = new Map<string, boolean>();
@@ -43,6 +46,7 @@ export class ProjectFactsCache {
     const remove = this.providers.add(facts);
     const asked = [...this.unnamed];
     this.unnamed.clear();
+    if (facts.label) this.labelAskedAt.clear();
     for (const cwd of asked) this.refreshName(cwd);
     // Paths listed before the Workspace Kit loaded were read as roots; a worktree among them must leave the list.
     if (facts.nested || facts.projectless) {
@@ -107,8 +111,19 @@ export class ProjectFactsCache {
     return this.labels.get(cwd);
   }
 
+  /**
+   * The label of a project a thread list names, asked of its provider at most
+   * every few minutes: a scan names every project on each pass, and each answer
+   * may cost a git call. The open thread's project reads `label`.
+   */
+  listedLabel(cwd: string): string | undefined {
+    if (Date.now() - (this.labelAskedAt.get(cwd) ?? Number.NEGATIVE_INFINITY) >= LISTED_LABEL_MAX_AGE_MS) this.refreshLabel(cwd);
+    return this.labels.get(cwd);
+  }
+
   private refreshLabel(cwd: string): void {
     if (this.labelRefreshes.has(cwd)) return;
+    this.labelAskedAt.set(cwd, Date.now());
     const startedAt = performance.now();
     const pending = this.providers.label(cwd).then((label) => {
       const known = this.labels.has(cwd);

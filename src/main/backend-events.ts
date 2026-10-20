@@ -39,6 +39,8 @@ export interface BackendEventServices {
   turnObservers: Pick<HostTurnObserverSet, "toolEnded" | "unpromptedEnded">;
   /** Republishes the thread's shell in the index: title, count, usage. */
   refreshShell(thread: ThreadRuntime, touch: boolean): Promise<void>;
+  /** Republishes only the shell's title and usage; a runtime may report usage on every model call. */
+  publishUsage(thread: ThreadRuntime): Promise<void>;
   /** Republishes the goal and the background work the runtime holds now. */
   controls: Pick<ThreadControls, "publishGoal" | "publishBackground">;
 }
@@ -121,7 +123,7 @@ export function handleBackendRuntimeEvent(event: ThreadRuntimeEvent, thread: Thr
       break;
     case "usage":
     case "title":
-      services.refreshShell(thread, false).catch((error) => services.fail(error, sessionId));
+      services.publishUsage(thread).catch((error) => services.fail(error, sessionId));
       break;
     case "goal":
       services.controls.publishGoal(thread);
@@ -210,6 +212,8 @@ function settleTurn(status: "completed" | "interrupted" | "error", thread: Threa
   services.clientTurns.settle(sessionId);
   if (thread.unpromptedTurn) {
     thread.unpromptedTurn = false;
+    // No prompt waits to count this turn's messages into the shell.
+    services.refreshShell(thread, false).catch((error) => services.fail(error, sessionId));
     services.turnObservers.unpromptedEnded(sessionId, status === "error" ? "failed" : "completed");
   }
   const reason = status === "error" ? failure?.trim() || thread.turnError || "The turn failed." : undefined;
