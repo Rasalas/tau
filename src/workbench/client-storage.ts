@@ -10,6 +10,8 @@ export interface ClientStorage {
   remove(key: string): void;
   /** Keys currently stored; `prefix` narrows to keys starting with it. */
   keys(prefix?: string): string[];
+  /** Serializes persisted work across this client's windows. Absent where durable work cannot be coordinated. */
+  withLock?<T>(key: string, work: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -22,11 +24,19 @@ export const DEVICE_STORAGE_PREFIX = "device:";
 /** For tests and the browser preview, where no browser store exists or one must not leak between cases. */
 export function createMemoryStorage(): ClientStorage {
   const store = new Map<string, string>();
+  const locks = new Map<string, Promise<unknown>>();
   return {
     get: (key) => store.get(key) ?? null,
     set: (key, value) => { store.set(key, value); },
     remove: (key) => { store.delete(key); },
     keys: (prefix) => [...store.keys()].filter((key) => !prefix || key.startsWith(prefix)),
+    withLock: (key, work) => {
+      const result = (locks.get(key) ?? Promise.resolve()).catch(() => undefined).then(work);
+      locks.set(key, result);
+      const release = () => { if (locks.get(key) === result) locks.delete(key); };
+      void result.then(release, release);
+      return result;
+    },
   };
 }
 

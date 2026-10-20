@@ -7,6 +7,7 @@ import { useHostClient } from "./host-client-context";
 import type { AppUpdate } from "./app-update";
 import { noticeHeadline, plainNoticeText } from "./components/notice-text";
 import { isMachineUpdateNotice } from "../shared/machine-compatibility";
+import { openUpdates } from "./release-notes";
 
 /** Every notice as a toast: the headline to read, the whole text to copy when it failed or was cut short. An error stays until dismissed. */
 export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, openMachines?: () => void,
@@ -42,11 +43,12 @@ export function showNoticesAsToasts(view: ThreadViewStore, toasts: ToastStore, o
  * closed, the sidebar's foot still offers it. After Restart it follows the
  * install until Tau quits (K161).
  */
-export function useWorkbenchToasts({ view, toasts, update, openMachines }: {
+export function useWorkbenchToasts({ view, toasts, update, openMachines, reviewUpdate }: {
   view: ThreadViewStore;
   toasts: ToastStore;
   update?: AppUpdate | undefined;
   openMachines?: () => void;
+  reviewUpdate?(): void;
 }): void {
   const client = useHostClient();
   const machines = useRef(openMachines);
@@ -55,6 +57,8 @@ export function useWorkbenchToasts({ view, toasts, update, openMachines }: {
   useEffect(() => showNoticesAsToasts(view, toasts, hasMachines ? () => machines.current?.() : undefined, client), [toasts, view, hasMachines, client]);
   const install = useRef(update?.install);
   install.current = update?.install;
+  const review = useRef(reviewUpdate);
+  review.current = reviewUpdate;
   const { version, phase, progress } = update ?? {};
   useEffect(() => {
     if (!version) return;
@@ -63,9 +67,9 @@ export function useWorkbenchToasts({ view, toasts, update, openMachines }: {
       ...(phase ? { type: "loading" } : {}),
       title: phase === "installing" ? `Installing Tau ${version}` : phase === "downloading" ? `Downloading Tau ${version}…` : phase ? `Preparing Tau ${version}…` : `Tau ${version} downloaded`,
       description: phase === "installing" ? "Tau reopens by itself when it is done. This can take a few minutes."
-        : phase ? `${progress === undefined ? "" : `${progress}% · `}Tau restarts once it is ready.` : "Restart to install it.",
+        : phase ? `${progress === undefined ? "" : `${progress}% · `}Tau restarts once it is ready.` : "Review what changed before installing.",
       timeoutMs: 0,
-      actions: phase ? [] : [{ label: "Restart", keepOpen: true, run: () => install.current?.() }],
+      actions: phase ? [] : [{ label: "Review update", opens: true, keepOpen: true, run: () => { if (!openUpdates()) { if (review.current) review.current(); else install.current?.(); } } }],
     });
   }, [toasts, version, phase, progress]);
 }

@@ -72,7 +72,7 @@ export async function reconcileInFlightTurns(port: TurnReconciliationPort): Prom
       const blocked = marker.waitingForAnswer ? "This thread was waiting for your answer. Send a message to continue."
         : (marker.continuationCount ?? 0) >= MAX_RESTART_CONTINUATIONS
           ? `Stopped after ${MAX_RESTART_CONTINUATIONS} automatic continuations following restarts. Send a message to try again.` : undefined;
-      if (shouldContinue && resume && !blocked) {
+      if ((marker.resumeAfterUpdate ?? shouldContinue) && resume && !blocked) {
         // The notice comes first either way: a continuation nobody asked for
         // must not read as something the user typed, hidden or not.
         await resume.notice?.(restartContinuationNotice(marker.startedAt));

@@ -497,7 +497,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     personPreferences: (patch) => patch ? commandCall("environments-set-person-preferences", [patch]) : commandCall("environments-person-preferences", []),
 
     // Literal names: the protocol contract test reads them from this file.
-    hostUpdate: (action) => action === "install" ? commandCall("update-install") : action === "check" ? commandCall("update-check") : commandCall("update-status"),
+    hostUpdate: (action) => action === "install" ? commandCall("update-install", [{}]) : action === "check" ? commandCall("update-check") : commandCall("update-status"),
     setHostUpdateSettings: (settings) => commandCall("update-settings", [settings]),
   };
 }

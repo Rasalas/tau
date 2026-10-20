@@ -1,5 +1,6 @@
-import { ChevronLeft, CircleArrowUp, Settings } from "lucide-react";
-import { errorMessage, Part, partName, READ_ONLY_REASON, tooltipProps, useAppUpdate, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
+import { ChevronLeft, Settings } from "lucide-react";
+import { errorMessage, Part, partName, READ_ONLY_REASON, tooltipProps, UpdateCenter, useOpenPage, useWorkbenchShell, type PageContribution, type WorkbenchActions } from "tau";
+import { useWorkspaceKit } from "./store-context.js";
 
 const noBadge = () => undefined;
 const noSummary = () => undefined;
@@ -45,23 +46,13 @@ function PageSummarySlot({ page, actions }: { page: PageContribution; actions: W
 }
 
 /** A downloaded release waits for a restart; the toast may be closed, this stays. */
-function UpdateButton() {
-  const update = useAppUpdate();
-  if (!update) return null;
-  const label = `Tau ${update.version} is ready: restart to update`;
-  return (
-    <button type="button" className="sidebar-update" {...tooltipProps(label, { side: "top" })} aria-label={label} onClick={() => update.install()}>
-      <CircleArrowUp size={15} />
-    </button>
-  );
-}
-
 /**
  * The sidebar's foot: Reviews and its notification dot, the other pages and commands;
  * at the right, the pages' summaries, a waiting update and Settings.
  * While a page shows, the foot is Back alone, as Settings' column ends.
  */
 export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions; readOnly: boolean }) {
+  const { updateCoordinator } = useWorkspaceKit();
   const { registry } = useWorkbenchShell();
   const open = useOpenPage();
   const pages = registry.getPages();
@@ -95,7 +86,7 @@ export function SidebarFooter({ actions, readOnly }: { actions: WorkbenchActions
       ))}
       <span className="sidebar-footer-end">
         {summaries.map((page) => <PageSummarySlot key={page.id} page={page} actions={actions} />)}
-        <UpdateButton />
+        <UpdateCenter coordinator={updateCoordinator} onSettings={() => actions.openSettings("about")} readOnly={readOnly} />
         <button type="button" {...tooltipProps("Settings", { side: "top", shortcut: registry.keybindingLabel("runtime.settings") })} aria-label="Settings" onClick={() => actions.openSettings()}>
           <Settings size={14} />
         </button>

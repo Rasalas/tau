@@ -1,9 +1,20 @@
 import { useSyncExternalStore } from "react";
-import { Badge, Button, errorMessage, hostIsReadOnly, SettingsSection, SettingRow, type PlatformEnvironments } from "tau";
+import { Badge, Button, errorMessage, hostIsReadOnly, SettingsSection, SettingRow, type PlatformEnvironments, type UpdateCoordinator } from "tau";
 import { buildUpdatePlan, runUpdatePlan, type UpdateStep } from "./update-plan.js";
 
 /** The run belongs to the extension, so leaving Settings does not interrupt it. */
-export function createUpdatePlanSection(environments: PlatformEnvironments) {
+export function createUpdatePlanSection(environments: PlatformEnvironments, shared?: UpdateCoordinator) {
+  if (shared) return function SharedUpdatePlanSection() {
+    const state = useSyncExternalStore(shared.subscribe, shared.getSnapshot);
+    const readOnly = hostIsReadOnly();
+    return <SettingsSection title="Update everything" id="setting-update-everything" headerAction={<Button disabled={readOnly || state.busy || state.reading} onClick={() => void shared.review()}>Review updates</Button>}>
+      <SettingRow title="Tools, machines, then this app" description="The same update run as the sidebar. Running work finishes first; this app restarts last." />
+      <ol className="machine-update-plan" aria-label="Update plan">{state.steps.map((step) => <li key={`${step.machine}-${step.kind}`}><SettingRow title={<>{step.label} <Badge tone={step.state === "failed" ? "danger" : step.state === "done" ? "success" : "neutral"}>{step.state === "queued" ? "When online" : step.state}</Badge></>} description={step.message} control={step.state === "queued" && shared.cancelQueued ? <Button disabled={readOnly || state.busy || state.reading} onClick={() => void shared.cancelQueued!(step.machine)}>Cancel queued update</Button> : undefined} /></li>)}</ol>
+      {!state.started && state.steps.some((step) => step.state === "pending" || step.deferUntilOnline) ? <Button disabled={readOnly || state.busy || state.reading} onClick={() => void shared.run(true)}>Run update plan</Button> : null}
+      {state.steps.some((step) => step.uncertain) ? <Button onClick={() => void shared.check()}>Check results</Button> : null}
+      {state.problem ? <p role="alert">{state.problem}</p> : null}
+    </SettingsSection>;
+  };
   let view: { steps?: UpdateStep[]; busy: boolean; started: boolean; problem?: string } = { busy: false, started: false };
   const listeners = new Set<() => void>();
   const changed = () => { view = { ...view }; for (const listener of listeners) listener(); };

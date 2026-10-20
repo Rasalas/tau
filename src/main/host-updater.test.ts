@@ -89,6 +89,18 @@ function updater(options: Partial<HostUpdaterOptions> & Pick<HostUpdaterOptions,
 }
 
 describe("HostUpdater", () => {
+  it("arms the update-specific continuation choice only at installation and disarms it on failure", async () => {
+    const prepareRestart = vi.fn(async (_resume: boolean | undefined) => undefined);
+    const { installer } = fakeInstaller({ install: async () => { expect(prepareRestart).toHaveBeenLastCalledWith(false); throw new Error("installer failed"); } });
+    const { instance } = updater({ fetch: fakeFeed("0.7.14").fetch, installer, prepareRestart });
+    instance.observe({ type: "agent-status", sessionId: "a", running: true });
+    await instance.install({ resumeInterrupted: false });
+    expect(prepareRestart).not.toHaveBeenCalled();
+    instance.observe({ type: "agent-status", sessionId: "a", running: false });
+    await vi.waitFor(() => expect(instance.status().phase).toBe("failed"));
+    expect(prepareRestart.mock.calls).toEqual([[false], [undefined]]);
+    instance.dispose();
+  });
   it("installs a newer stable from its own tag while keeping the nightly preference", async () => {
     const stable = fakeFeed("0.7.40");
     const nightly = fakeFeed("0.7.40-nightly.20261008.50");

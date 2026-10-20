@@ -95,6 +95,8 @@ export type WindowAction =
   | { kind: "status" }
   /** The notes of `version` were shown; they are not offered again. */
   | { kind: "release-notes-seen"; version: string }
+  /** Read again, including before installation; does not mark notes seen. */
+  | { kind: "release-notes"; version: string; fromVersion?: string }
   | { kind: "check-for-updates" }
   /** The `tau` command: `install` needs the `folder` the person was shown. */
   | { kind: "command-line"; op: CommandLineOp; folder?: string };
@@ -118,6 +120,11 @@ export function decodeWindowAction(method: string, value: unknown): WindowAction
     case "release-notes-seen":
       if (typeof item.version !== "string" || !item.version) return fail();
       return { kind: "release-notes-seen", version: item.version };
+    case "release-notes": {
+      const valid = (version: unknown): version is string => typeof version === "string" && /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/u.test(version) && version.length <= 100;
+      if (!valid(item.version) || (item.fromVersion !== undefined && !valid(item.fromVersion))) return fail();
+      return { kind: "release-notes", version: item.version, ...(typeof item.fromVersion === "string" ? { fromVersion: item.fromVersion } : {}) };
+    }
     case "command-line":
       if (item.op !== "state" && item.op !== "install" && item.op !== "remove") return fail();
       if (item.op !== "install") return { kind: "command-line", op: item.op };

@@ -51,6 +51,11 @@ describe("the release on GitHub", () => {
     const source = githubReleaseNotes({ owner: "o", repo: "r" }, (async () => new Response("{}", { status: 404 })) as unknown as typeof fetch);
     expect(await source.read("1.2.0")).toBeUndefined();
   });
+  it("does not label a moving nightly's notes as an older nightly", async () => {
+    const source = githubReleaseNotes({ owner: "o", repo: "r" }, (async () => new Response(JSON.stringify({ name: "Tau 1.2.1-nightly.20260922.10", body: "- Newer nightly" }))) as typeof fetch);
+    expect(await source.read("1.2.1-nightly.20260922.1")).toBeUndefined();
+    expect(await source.read("1.2.1-nightly.20260922.10")).toMatchObject({ body: "- Newer nightly" });
+  });
 });
 
 describe("showing them once after an update", () => {
@@ -64,6 +69,27 @@ describe("showing them once after an update", () => {
 
   it("offers nothing on the very first start", async () => {
     expect(await (await store("0.4.0")).pending()).toBeUndefined();
+  });
+
+  it("reads offered releases before installation, caches them for offline reads and does not mark them seen", async () => {
+    const read = vi.fn(async (version: string) => ({ body: `- Change in ${version}`, url: `https://github.com/o/r/releases/tag/v${version}` }));
+    const before = await store("0.3.0", { read });
+    const [first, simultaneous] = await Promise.all([before.get("0.4.0"), before.get("0.4.0")]);
+    expect(first).toEqual(simultaneous);
+    expect(first[0]?.items).toEqual(["Change in 0.4.0"]);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(await before.pending()).toBeUndefined();
+    const offline = await store("0.4.0", { read: async () => { throw new Error("offline"); } });
+    expect((await offline.get("0.4.0"))[0]?.items).toEqual(["Change in 0.4.0"]);
+    expect((await offline.pending())?.version).toBe("0.4.0");
+  });
+
+  it("groups available notes across skipped versions without duplicating the target", async () => {
+    const before = await store("0.3.0", {
+      read: async () => ({ body: "- Target" }),
+      range: async () => [{ version: "0.5.0", body: "- Target" }, { version: "0.4.0", body: "- Earlier change" }],
+    });
+    expect((await before.get("0.5.0", "0.3.0")).map((entry) => entry.version)).toEqual(["0.5.0", "0.4.0"]);
   });
 
   it("offers the new version's notes after an update until they were seen", async () => {

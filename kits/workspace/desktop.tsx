@@ -3,6 +3,8 @@ import { useEffect } from "react";
 import { Folder, GitBranch, GitCompare, HardDrive } from "lucide-react";
 import {
   THREAD_BRANCH_SERVICE,
+  UPDATE_CENTER_SERVICE,
+  type UpdateCoordinator,
   errorMessage,
   hostHasLocalFiles,
   type DesktopExtension,
@@ -87,6 +89,10 @@ export const workspaceExtension: DesktopExtension = {
     const stopTopics = [WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC].map((topic) => context.host.watch?.(topic));
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
+    context.useService<UpdateCoordinator>(UPDATE_CENTER_SERVICE, (updates) => {
+      store.update({ updateCoordinator: updates });
+      return () => store.update({ updateCoordinator: undefined });
+    });
     context.registerRegion({
       id: "workspace.project-approval", placement: "composer-above", profiles: ["desktop", "web", "compact"],
       Component: createProjectApprovalDialog(context.host),

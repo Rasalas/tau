@@ -1,5 +1,5 @@
 import type { HostEvent } from "../shared/contracts";
-import type { HostUpdateStatus } from "../shared/host-updates";
+import type { HostUpdateStatus, HostUpdateAction } from "../shared/host-updates";
 import type { UiDiscoveredHosts } from "../shared/discovery";
 import type {
   EnvironmentAgentsResult,
@@ -91,7 +91,7 @@ export interface PlatformEnvironments {
    * asks its release feed now, `install` updates it once no turn runs there.
    * That machine decides with this window's key; the list follows the result.
    */
-  update?(id: string, action: "check" | "install" | { automatic: boolean }): Promise<HostUpdateStatus>;
+  update?(id: string, action: Exclude<HostUpdateAction, "status">): Promise<HostUpdateStatus>;
 }
 
 interface LookIn {
@@ -222,6 +222,6 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
       };
     },
     readExtension: (machine, extensionId, command, input) => client.readEnvironmentExtension(machine, extensionId, command, input),
-    ...(client.updateEnvironment ? { update: (id: string, action: "check" | "install" | { automatic: boolean }) => client.updateEnvironment!(id, action) } : {}),
+    ...(client.updateEnvironment ? { update: (id: string, action: Exclude<HostUpdateAction, "status">) => client.updateEnvironment!(id, action) } : {}),
   };
 }

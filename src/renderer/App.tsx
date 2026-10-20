@@ -432,6 +432,7 @@ export default function App() {
   useWorkbenchToasts({
     view: viewStore, toasts: workbenchSession.toasts, update,
     openMachines: () => setSettingsPage("environments.machines"),
+    reviewUpdate: () => setSettingsPage("about"),
   });
 
   // Stage tab or drawer: where each panel shows, and the moves between them.
