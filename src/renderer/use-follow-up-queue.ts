@@ -53,6 +53,12 @@ export function returnToComposer(actions: ComposerPort | undefined, taken: reado
   }
 }
 
+/** Puts a message taken out of the queue back where it stood: queued again, then moved to its old place in the line. */
+export async function requeue(client: Pick<HostClient, "queueMessage" | "moveQueued">, sessionId: string, item: UiQueuedPrompt, index: number): Promise<void> {
+  const { id } = await client.queueMessage(sessionId, item.text, item.attachments, item.skillDraft, item.deliverAt);
+  if (item.deliverAt === undefined) await client.moveQueued(sessionId, id, index);
+}
+
 /**
  * The thread's queue as the composer sees it. The host keeps the queue and
  * sends its head when the thread settles (it outlives the window and a
@@ -84,21 +90,36 @@ export function useFollowUpQueue({ client, threads, sessionId, currentSessionId,
   const held = Boolean(sessionId && shell?.queueHeld);
 
   const report = useCallback((error: unknown) => setNotice(errorMessage(error), "error"), [setNotice]);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
   // Takes messages out without sending them: one by id, or the whole queue of a thread, the one on screen unless named.
   const takeQueued = useCallback(async (id?: string, threadId = sessionId): Promise<UiQueuedPrompt[]> => {
     if (!threadId || !client) return [];
     return client.takeQueued(threadId, id).catch((error: unknown) => { report(error); return []; });
   }, [client, report, sessionId]);
   const composerFor = useCallback((threadId: string) => threadId === currentSessionId() ? actions() : composerOf(threadId), [actions, composerOf, currentSessionId]);
-  const cancelQueued = useCallback((id: string) => { void takeQueued(id); }, [takeQueued]);
+  // A message of the user's own leaves with an Undo that queues it again; a wake just goes.
+  const cancelQueued = useCallback((id: string) => {
+    const index = Math.max(0, queueRef.current.findIndex((entry) => entry.id === id));
+    void takeQueued(id).then(([item]) => {
+      const toast = actions()?.toast;
+      if (!item || item.wake || !toast || !sessionId || !client) return;
+      const line = item.text.trim().split("\n")[0] ?? "";
+      toast({
+        id: "tau.queue.removed",
+        type: "success",
+        title: "Removed from the queue",
+        ...(line ? { description: line.length > 80 ? `${line.slice(0, 79)}…` : line } : {}),
+        actions: [{ label: "Undo", run: () => { void requeue(client, sessionId, item, index).catch(report); } }],
+      });
+    });
+  }, [actions, client, report, sessionId, takeQueued]);
   const reorderQueue = useCallback((id: string, toIndex: number) => {
     if (sessionId && client) void client.moveQueued(sessionId, id, toIndex).catch(report);
   }, [client, report, sessionId]);
   const planQueued = useCallback((id: string, deliverAt: number | undefined) => {
     if (sessionId && client) void client.planQueued(sessionId, id, deliverAt).catch(report);
   }, [client, report, sessionId]);
-  const queueRef = useRef(queue);
-  queueRef.current = queue;
   // Sends one queued message ahead of the queue: as a steer while the thread
   // runs, as a plain prompt otherwise. One that does not go out comes back to the composer.
   // A wake takes every waiting wake with it, as one message.

@@ -685,9 +685,11 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
         onBrowse={() => actions.openProjectSources()}
         onClose={closeNewThreadPicker}
         onRemove={removeProject}
+        toast={actions.toast}
         onSelect={chooseNewThreadProject}
       />, null, newThreadPick !== undefined,
     )}
+
     {openPage && pageScreen ? appPage : null}
     {settingsPage ? <LazyFeatureBoundary label="settings" title="Settings failed to load." frame={settingsFrame} onClose={() => setSettingsPage(undefined)}>
       <Suspense fallback={settingsFrame(<LazyFeatureFallback label="settings" />)}>

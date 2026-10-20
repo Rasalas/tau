@@ -25,7 +25,7 @@ const frame = (id: string, caption: string, at: number): LocalEvidence => ({
 
 const OPEN: ReviewRequest = { provider: "github", number: 7, title: "Save", url: "https://github.com/acme/demo/pull/7", baseRef: "main", state: "open" };
 
-function setup({ plan = { kind: "github-ref", destination: "refs/tau/evidence/feature/pr in github.com/acme/demo" } as UploadPlan, request, draft }: { plan?: UploadPlan; request?: ReviewRequest; draft?: { title: string; body: string } } = {}) {
+function setup({ plan = { kind: "github-ref", destination: "refs/tau/evidence/feature/pr in github.com/acme/demo" } as UploadPlan, request, draft, statusFails }: { plan?: UploadPlan; request?: ReviewRequest; draft?: { title: string; body: string }; statusFails?: Error } = {}) {
   const status: ReviewRequestStatus = { branch: "feature/pr", base: "main", service: "github", remote: "git@github.com:acme/demo.git", ...(request ? { request } : {}) };
   const client = {
     branch: vi.fn(async () => ({ root: "/work", branch: "feature/pr", base: "main", commits: [{ sha: "c2c2c2c2", subject: "feat: save the page", body: "", at: 20_000 }], forkedAt: 5_000 })),
@@ -35,8 +35,12 @@ function setup({ plan = { kind: "github-ref", destination: "refs/tau/evidence/fe
     plan: vi.fn(async () => plan),
     attach: vi.fn(async () => ({ uploaded: 1 })),
   } satisfies LocalRequestClient;
+  let failing = statusFails;
   const requests = {
-    status: vi.fn(async () => status),
+    status: vi.fn(async () => {
+      if (failing) { const error = failing; failing = undefined; throw error; }
+      return status;
+    }),
     create: vi.fn(async () => ({ status: { ...status, request: OPEN }, uploaded: plan.kind === "none" ? 0 : 1, kept: plan.kind === "none" ? 1 : 0 })),
   } as unknown as RequestClient;
   const snapshot = { cwd: "/work", workspaceId: "w1", workspace: { branch: "feature/pr" }, changes: { files: [], added: 0, removed: 0 }, committing: false };
@@ -129,6 +133,22 @@ describe("the local pull request view", () => {
     expect(requests.create).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Upload and create PR" }));
     await waitFor(() => expect(requests.create).toHaveBeenCalledWith(expect.objectContaining({ title: "Save the page", uploadConfirmed: true, body: expect.stringContaining("tau-evidence://t1/tau.evidence/f1") })));
+  });
+
+  it("says the request status did not load, names no provider, and reads it again on Retry", async () => {
+    const { requests } = setup({ statusFails: new Error("gh: HTTP 502 Bad Gateway") });
+    const alert = (await screen.findByText("Could not check whether feature/pr is published")).closest<HTMLElement>("[role=alert]")!;
+    expect(alert.querySelector("details pre")!.textContent).toBe("gh: HTTP 502 Bad Gateway");
+    expect(screen.queryByText("Not published")).toBeNull();
+    expect(screen.getByText("Not checked")).toBeTruthy();
+    expect(screen.queryByText("GitHub")).toBeNull();
+    const retry = screen.getByRole("button", { name: "Retry" }) as HTMLButtonElement;
+    await waitFor(() => expect(retry.disabled).toBe(false));
+    fireEvent.click(retry);
+    expect(await screen.findByText("Not published")).toBeTruthy();
+    expect(screen.getByText("GitHub")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText(/Could not check whether/u)).toBeNull());
+    expect(requests.status).toHaveBeenLastCalledWith(true, "/work");
   });
 
   it("says the pictures stay on this machine where the host takes none", async () => {

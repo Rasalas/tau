@@ -200,9 +200,9 @@ export class ServerCredentials {
     return { targetId: target.id, password, ...(passphrase ? { passphrase } : {}) };
   }
 
-  /** Forgets Tau's own items and this session's memory for a target; VS Code's items stay. */
-  async forget(project: CredentialProject, target: CredentialTarget): Promise<void> {
-    for (const kind of ["password", "passphrase"] as const) {
+  /** Forgets Tau's own items and this session's memory for a target, of `kinds` (both by default); VS Code's items stay. */
+  async forget(project: CredentialProject, target: CredentialTarget, kinds: readonly SecretKind[] = ["password", "passphrase"]): Promise<void> {
+    for (const kind of kinds) {
       this.session.delete(this.cacheKey(project, target, kind));
       const own = this.plan(this.spec(target, kind), kind, target).own ?? this.ownStore().store;
       if (own && await own.has(this.ownItem(target, kind)).catch(() => undefined) !== false) await own.delete(this.ownItem(target, kind)).catch(() => undefined);
@@ -605,9 +605,10 @@ export function registerCredentialCommands(context: HostExtensionContext, creden
     return credentials.check(project, target, kindOf(kind));
   }, { long: true, audit: { label: "checked a server password" } });
   context.registerCommand("forget-credential", async (input) => {
-    const { cwd, targetId } = (input ?? {}) as { cwd?: unknown; targetId?: unknown };
+    const { cwd, targetId, kind } = (input ?? {}) as { cwd?: unknown; targetId?: unknown; kind?: unknown };
     const { project, target } = await lookup(cwd, targetId);
-    await credentials.forget(project, target);
+    // Without a kind, both: what callers before the kind asked for.
+    await credentials.forget(project, target, kind === undefined ? undefined : [kindOf(kind)]);
     return credentials.status(project, target);
   }, { audit: { label: "forgot a server password" } });
   context.registerCommand("forget-credential-approvals", async (input) => {

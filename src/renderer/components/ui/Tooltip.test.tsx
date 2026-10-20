@@ -91,6 +91,24 @@ describe("TooltipLayer", () => {
     expect(screen.getByRole("tooltip").textContent).toBe("A very long thread title");
   });
 
+  it("shows a value cut in its middle, where a child is the part cut off", () => {
+    render(<>
+      <TooltipLayer />
+      <span {...tooltipProps("feature/a-very-long-branch-name", { when: "truncated" })}><span>feature/a-very-lo</span><span>ng-branch-name</span></span>
+    </>);
+    const head = screen.getByText("feature/a-very-lo");
+    fireEvent.pointerOver(head);
+    wait(TOOLTIP_DELAY_MS);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    fireEvent.pointerOut(head);
+    Object.defineProperty(head, "scrollWidth", { value: 300 });
+    Object.defineProperty(head, "clientWidth", { value: 120 });
+    wait(TOOLTIP_GROUP_MS + 1);
+    fireEvent.pointerOver(head);
+    wait(TOOLTIP_DELAY_MS);
+    expect(screen.getByRole("tooltip").textContent).toBe("feature/a-very-long-branch-name");
+  });
+
   it("keeps the line breaks of a details tooltip", () => {
     render(<>
       <TooltipLayer />

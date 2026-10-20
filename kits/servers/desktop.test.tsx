@@ -77,6 +77,39 @@ describe("Settings → Servers", () => {
     expect(screen.getByRole("combobox", { name: "Keep the history for" })).toBeTruthy();
   });
 
+  it("asks before cleaning up the history, since dropped deployments cannot be rolled back", async () => {
+    const { invoke } = setup((command) => (command === "targets" ? STATE : command === "cleanup-history" ? { targets: [] } : undefined));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Clean up…" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toMatch(/can no longer be rolled back/u);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(invoke).not.toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "cleanup-history", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "Clean up…" }));
+    await act(async () => { fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Clean up" })); });
+    expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "cleanup-history", { cwd: "/work/site" });
+  });
+
+  it("says when what the agent may run did not load, and tries again", async () => {
+    let fail = true;
+    const { invoke } = setup((command) => {
+      if (command === "targets") return STATE;
+      if (command === "target-levels") {
+        if (fail) throw new Error("The host did not answer");
+        return { levels: { [APP.id]: "ask", [STATIC.id]: "ask" } };
+      }
+      return undefined;
+    });
+    await flush();
+    expect(screen.queryByText(/Reading what the agent may run/u)).toBeNull();
+    expect(screen.getAllByText(/could not read what the agent may run here: The host did not answer\./u)).toHaveLength(2);
+    fail = false;
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]!); });
+    await flush();
+    expect(invoke.mock.calls.filter(([, command]) => command === "target-levels")).toHaveLength(2);
+    expect(screen.getByRole("radiogroup", { name: "What the agent may run on app" })).toBeTruthy();
+  });
+
   it("says when there is no project or no sftp.json", async () => {
     setup(() => undefined, null);
     await flush();
@@ -164,6 +197,23 @@ describe("the password source in Settings → Servers", () => {
     await flush();
     expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "forget-credential-approvals", { cwd: "/work/site" });
   });
+
+  it("forgets only the secret of the row it was asked on", async () => {
+    const KEYED: ServerTargetRow = { ...APP, privateKeyPath: "~/.ssh/id_ed25519" };
+    const kept: CredentialStatus = { targetId: APP.id, password: { source: "Tau's keychain item", saved: true, session: false }, passphrase: { source: "Tau's keychain item", saved: true, session: false } };
+    const { invoke, props } = setup((command) => {
+      if (command === "targets") return { ...STATE, targets: [KEYED] };
+      if (command === "credential-status") return { targets: [kept] };
+      return { ok: true };
+    });
+    await flush();
+    const forget = screen.getAllByRole("button", { name: "Forget" });
+    expect(forget).toHaveLength(2);
+    await act(async () => { fireEvent.click(forget[1]!); });
+    await flush();
+    expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "forget-credential", { cwd: "/work/site", targetId: APP.id, kind: "passphrase" });
+    expect(props.onNotify).toHaveBeenCalledWith("Tau forgot the key passphrase it kept for app.");
+  });
 });
 
 describe("the servers' questions", () => {
@@ -236,6 +286,22 @@ describe("Settings → Servers → Network", () => {
     expect(invoke).toHaveBeenCalledWith(SERVERS_EXTENSION_ID, "set-network", { cwd: "/work/site", allowAll: true });
     expect(screen.getByText(/Reach the whole network/u)).toBeTruthy();
     expect(props.onNotify).toHaveBeenCalledWith("The agent's commands in this project reach the whole network now.");
+  });
+
+  it("says when the limit did not load instead of hiding it, and tries again", async () => {
+    let fail = true;
+    setup((command) => {
+      if (command === "targets") return STATE;
+      if (command === "network") { if (fail) throw new Error("The host did not answer"); return LIMITED; }
+      return undefined;
+    });
+    await flush();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/Could not read the network limit.*The host did not answer/u);
+    fail = false;
+    await act(async () => { fireEvent.click(within(alert).getByRole("button", { name: "Try again" })); });
+    await flush();
+    expect(screen.getByText("Agent commands")).toBeTruthy();
   });
 
   it("says when Pi's sandbox is missing, and shows nothing outside a server project", async () => {

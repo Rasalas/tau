@@ -28,22 +28,6 @@
 .project-picker-add { height: 38px; margin-top: 4px; box-shadow: 0 -1px 0 var(--line); border-radius: 0 0 8px 8px; font-size: var(--text-md); }
 .project-picker-add > svg { flex: none; color: var(--muted); }
 .project-picker > footer { padding: 6px 12px 4px; font-size: var(--text-2xs); }
-.project-picker-context-menu {
-  position: fixed; z-index: 83; width: 204px; padding: 5px;
-  border: 1px solid var(--line-float); border-radius: 10px;
-  background: var(--stage); box-shadow: var(--elevation-2);
-  animation: fade-up .1s ease;
-}
-.project-picker-context-menu > button {
-  width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 9px;
-  border: 0; border-radius: 7px; background: transparent; color: var(--removed); cursor: pointer;
-  text-align: left;
-}
-.project-picker-context-menu > button:hover, .project-picker-context-menu > button:focus-visible { background: var(--raised); outline: none; }
-.project-picker-context-menu > button > svg { flex: none; }
-.project-picker-context-menu > button > span { display: flex; flex-direction: column; gap: 2px; }
-.project-picker-context-menu strong { color: var(--ink-2); font: 500 var(--text-sm) var(--sans); }
-.project-picker-context-menu small { color: var(--faint); font: var(--text-2xs) var(--sans); }
 /* A phone or tablet: 1o's sheet, search on top, rows of 56 px (44 px targets and more). */
 .project-picker-sheet .project-picker-results { max-height: none; }
 .project-picker-sheet .project-picker-results button { height: 56px; }

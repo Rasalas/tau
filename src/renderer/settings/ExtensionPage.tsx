@@ -279,7 +279,8 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
     { label: "Version", value: entry.version ?? "Not declared", mono: Boolean(entry.version) },
     { label: "Source", value: originText(entry, distribution) },
     ...(entry.pkg?.signature ? [{ label: "Signature", value: entry.pkg.signature.label }] : []),
-    ...(entry.pkg ? [{ label: "Parts", value: [entry.pkg.desktop ? "window" : "", entry.pkg.host ? "host" : "", entry.theme ? "stylesheet" : ""].filter(Boolean).join(" and ") || "none" }] : []),
+    // A "part" is what Settings → Customize changes by name (CONTEXT.md); this says where the package's code runs.
+    ...(entry.pkg ? [{ label: "Includes", value: [entry.pkg.desktop ? "code for the window" : "", entry.pkg.host ? "code for the machine" : "", entry.theme ? "a stylesheet" : ""].filter(Boolean).join(" and ") || "nothing" }] : []),
     ...(summary?.contributes ? [{ label: "Adds", value: summary.contributes.split(" · ").join(", ") }] : []),
     ...(entry.pkg?.engines ? [{ label: "Needs", value: Object.entries(entry.pkg.engines).map(([engine, range]) => `${engine === "api" ? "extension API" : engine === "tau" ? "Tau" : "Pi"} ${range}`).join(", "), mono: true }] : []),
     { label: "ID", value: entry.id, mono: true, copy: entry.id },

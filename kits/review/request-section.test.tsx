@@ -54,4 +54,10 @@ describe("the request line", () => {
     expect(screen.getByRole("button", { name: /in the browser$/ })).toBeTruthy();
     stop();
   });
+
+  it("names the provider, not a host, as what merges an armed request", () => {
+    const armed = { url: "https://gitlab.com/acme/tau/-/merge_requests/9", number: 9, provider: "gitlab", title: "Fix", state: "open", autoMerge: { method: "squash" } } as never;
+    render(<RequestSummary request={armed} onOpen={vi.fn()} onOpenInTau={vi.fn()} onBrowse={vi.fn()} />);
+    expect(screen.getByText("auto-merge · squash").getAttribute("title")).toBe("GitLab merges it on its own once its requirements are met");
+  });
 });

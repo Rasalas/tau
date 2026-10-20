@@ -8,7 +8,7 @@ import { draftKey, writeComposerDraft } from "../workbench/draft-store";
 import type { HostClient } from "../workbench/host-client";
 import { ThreadStore } from "../workbench/thread-store";
 import type { WorkbenchActions } from "./extension-system";
-import { returnToComposer, threadComposer, useFollowUpQueue } from "./use-follow-up-queue";
+import { requeue, returnToComposer, threadComposer, useFollowUpQueue } from "./use-follow-up-queue";
 
 const image = { kind: "image" as const, name: "a.png", mimeType: "image/png", data: "AA", size: 1 };
 
@@ -74,5 +74,20 @@ describe("queued messages of a thread the user leaves while the host answers", (
     expect(take).toHaveBeenCalledWith("A", undefined);
     await vi.waitFor(() => expect(queue.scopes.getSnapshot(createDraftKey(draftKey("A"))).draft).toBe("saved in A\n\nfor A"));
     expect(queue.onScreen.setComposerDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe("undoing a removal from the queue", () => {
+  it("queues the message again with its time, and puts one of the line back in its place", async () => {
+    const queueMessage = vi.fn(async () => ({ id: "again" }));
+    const moveQueued = vi.fn(async () => undefined);
+    await requeue({ queueMessage, moveQueued }, "thread", { id: "old", text: "second thoughts", attachments: [image] }, 1);
+    expect(queueMessage).toHaveBeenCalledWith("thread", "second thoughts", [image], undefined, undefined);
+    expect(moveQueued).toHaveBeenCalledWith("thread", "again", 1);
+
+    moveQueued.mockClear();
+    await requeue({ queueMessage, moveQueued }, "thread", { id: "planned", text: "later", attachments: [], deliverAt: 99 }, 2);
+    expect(queueMessage).toHaveBeenLastCalledWith("thread", "later", [], undefined, 99);
+    expect(moveQueued).not.toHaveBeenCalled();
   });
 });

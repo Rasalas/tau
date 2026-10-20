@@ -57,3 +57,10 @@ it.each((["waiting", "on"] as const).flatMap((state) => [[], ["network"], ["proc
   expect(await view.findByText(expected)).toBeTruthy();
   expect(view.container.textContent).not.toMatch(/OS sandbox|\bNode\b|Bundled kits/);
 });
+
+it("says where a package's code runs in the reader's words, not as parts of a host", async () => {
+  const pkg = entry("acme.both", { origin: "installed", pkg: { id: "acme.both", name: "Both", scope: "global", directory: "/x/acme.both", desktop: "desktop.js", host: "host.js" } as unknown as ExtensionEntry["pkg"] });
+  const view = render(<TestProviders><ExtensionPage entry={pkg} registry={new ExtensionRegistry()} models={[]} onOpen={() => undefined} onChanged={() => undefined} onNotify={() => undefined} onHostHalves={() => undefined} /></TestProviders>);
+  expect(await view.findByText("code for the window and code for the machine")).toBeTruthy();
+  expect(view.queryByText("Parts")).toBeNull();
+});

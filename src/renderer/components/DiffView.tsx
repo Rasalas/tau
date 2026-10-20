@@ -19,6 +19,7 @@ import { lineId, type DiffFind } from "./diff-find";
 import { clearMatches, paintMatches } from "./diff-find-paint";
 import { CONTEXT_STEP, diffGaps, stepRange, type DiffGap, type LineRange } from "./diff-context";
 import { canonicalHighlightLanguage, highlightSource, loadHighlightLanguage } from "./Markdown";
+import { LoadError } from "./ui/LoadError";
 import "./diff-view.css";
 
 interface IntralineParts { before: string; changed: string; after: string; }
@@ -145,7 +146,9 @@ export type DiffStreamRow =
   | { kind: "hunk"; key: string; path: string; text: string }
   | { kind: "gap"; key: string; path: string; unchanged?: number; gap?: DiffGap }
   | { kind: "line"; key: string; path: string; line: UiDiffLine; language?: string; partner?: UiDiffLine; side?: IntralineSide }
-  | { kind: "status"; key: string; path: string; title?: string; text: string }
+  | { kind: "status"; key: string; path: string; text: string }
+  /** A file whose diff did not load: the raw error, folded under Details beside Retry. */
+  | { kind: "error"; key: string; path: string; error: string }
   | { kind: "more"; key: string; path: string }
   /** Gap between two file cards. Its empty path keeps it outside both. */
   | { kind: "separator"; key: string; path: "" };
@@ -161,6 +164,7 @@ function rowEstimate(row: DiffStreamRow | undefined, split: boolean, wrap = true
     case "hunk": return 42;
     case "note": return 34;
     case "status": return 76;
+    case "error": return 120;
     case "more": return 62;
     case "separator": return 14;
     case "line": return wrap ? LINE_HEIGHT * Math.max(1, Math.ceil(row.line.text.length / (split ? WRAP_COLUMNS / 2 : WRAP_COLUMNS))) : LINE_HEIGHT;
@@ -193,7 +197,7 @@ export function unwrappedWidth(rows: readonly DiffStreamRow[], split: boolean): 
 export function fileDiffRows(path: string, diff: UiFileDiff | undefined, options: { collapsible: boolean; error?: string; totalLines?: number | "unknown" } = { collapsible: false }): DiffStreamRow[] {
   if (!diff) {
     return [options.error
-      ? { kind: "status", key: `${path}\0error`, path, title: "Failed to load diff", text: options.error }
+      ? { kind: "error", key: `${path}\0error`, path, error: options.error }
       : { kind: "status", key: `${path}\0loading`, path, text: "Loading diff…" }];
   }
   if (diff.hunks.length === 0) {
@@ -266,6 +270,8 @@ export interface DiffStreamProps {
   /** Whether a file's gaps are being read or failed to be. */
   contextState?(path: string): { busy?: boolean; error?: string; at?: number } | undefined;
   onLoadMore?(path: string): void;
+  /** Reads a file's diff again after it failed; without it the failure offers no Retry. */
+  onRetry?(path: string): void;
   renderFileHeader?(file: UiChangedFile, diff?: UiFileDiff): ReactNode;
   onVisiblePathChange?(path: string): void;
   /** Long lines wrap by default; `false` keeps each on one row and scrolls the diff sideways. */
@@ -287,6 +293,7 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
   contextState,
   find,
   onLoadMore,
+  onRetry,
   renderFileHeader,
   onVisiblePathChange,
   wrap = true,
@@ -413,7 +420,9 @@ export const DiffStream = forwardRef<DiffStreamHandle, DiffStreamProps>(function
         </div>;
       }
       case "status":
-        return <div className={`diff-empty ${row.title ? "diff-error" : ""}`}>{row.title ? <strong>{row.title}</strong> : null}<span>{row.text}</span></div>;
+        return <div className="diff-empty"><span>{row.text}</span></div>;
+      case "error":
+        return <LoadError title="Could not load this diff" error={row.error} onRetry={onRetry && (() => onRetry(row.path))} />;
       case "more":
         return <button className="diff-load-more" disabled={!onLoadMore} onClick={() => onLoadMore?.(row.path)}>Load more diff hunks</button>;
       case "separator":

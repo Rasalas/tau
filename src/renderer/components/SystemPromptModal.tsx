@@ -3,6 +3,7 @@ import { Check, Copy, FileText, Sparkles, Terminal, X } from "lucide-react";
 import type { SystemPromptInspection } from "../../shared/contracts";
 import { useHostClient } from "../host-client-context";
 import { Dialog } from "./ui/Dialog";
+import { LoadError } from "./ui/LoadError";
 import "./system-prompt.css";
 
 export interface SystemPromptModalProps {
@@ -20,6 +21,8 @@ export function SystemPromptModal({ threadId, onClose }: SystemPromptModalProps)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [copied, setCopied] = useState(false);
+  /** Retry reads the instructions again. */
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,7 +53,7 @@ export function SystemPromptModal({ threadId, onClose }: SystemPromptModalProps)
     return () => {
       cancelled = true;
     };
-  }, [client, threadId]);
+  }, [attempt, client, threadId]);
 
   const handleCopy = async (text: string) => {
     if (!client) return;
@@ -125,7 +128,12 @@ export function SystemPromptModal({ threadId, onClose }: SystemPromptModalProps)
         {loading ? (
           <p className="palette-empty system-prompt-loading">Loading active instructions…</p>
         ) : error ? (
-          <div role="alert" className="system-prompt-error">{error}</div>
+          <LoadError
+            title="Could not read the instructions"
+            description={client ? undefined : "The machine is not connected."}
+            error={client ? error : undefined}
+            onRetry={() => setAttempt((count) => count + 1)}
+          />
         ) : (
           <>
             {tab === "effective" ? (

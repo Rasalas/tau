@@ -150,9 +150,13 @@ describe("the Reviews inbox", () => {
     expect(status.closest<HTMLElement>(".rv-status")!.dataset.tone).toBe("bad");
   });
 
-  it("merges a ready branch from its row and says so", async () => {
+  it("merges a ready branch from its row after asking, naming the branch and its target, and says so", async () => {
     const { invoke, toast } = setup();
     fireEvent.click(await screen.findByRole("button", { name: /^Merge$/u }));
+    const asked = await screen.findByRole("dialog", { name: "Merge feat/pairing-flake into main?" });
+    expect(asked.textContent).toContain("lands on main of");
+    expect(invoke).not.toHaveBeenCalledWith("local-review-merge", expect.anything());
+    fireEvent.click(within(asked).getByRole("button", { name: "Merge" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-merge", expect.objectContaining({ workspace: "ws-pairing-flake", tip: "pairing-flake-tip", threadId: "t1", title: "Fix flaky pairing test", costUsd: 0.84 })));
     await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ type: "success", title: "Merged feat/pairing-flake into main" })));
   });
@@ -167,6 +171,9 @@ describe("the Reviews inbox", () => {
     const row = title.closest("li")!;
     expect(row.textContent).toContain("rex: feat/remote");
     fireEvent.click(within(row).getByRole("button", { name: "Merge" }));
+    const asked = await screen.findByRole("dialog", { name: "Merge feat/remote into main?" });
+    expect(asked.textContent).toContain("came back from rex");
+    fireEvent.click(within(asked).getByRole("button", { name: "Merge" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-merge", expect.objectContaining({ link: "rex-work", branch: "feat/remote", target: "main", tip: "remote-tip" })));
   });
 

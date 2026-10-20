@@ -408,9 +408,9 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
     ] },
     { items: [
       ...(hosts.length > 1 || host ? [{
-        id: "hosts",
-        label: host ? `Host: ${host}` : "Host",
-        submenu: [{ items: [{ id: "host:", label: "All hosts", selected: !host }, ...hosts.map((name) => ({ id: `host:${name}`, label: name, selected: host === name }))] }],
+        id: "sites",
+        label: host ? `Site: ${host}` : "Site",
+        submenu: [{ items: [{ id: "site:", label: "All sites", selected: !host }, ...hosts.map((name) => ({ id: `site:${name}`, label: name, selected: host === name }))] }],
       }] : []),
     ] },
   ];
@@ -424,7 +424,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
     else if (key === "label") setLabels((current) => current.includes(value) ? current.filter((label) => label !== value) : [...current, value]);
     else if (key === "author") setAuthor(value || undefined);
     else if (key === "project") { setScope(value === "\u0001all" ? { kind: "all" } : { kind: "project", workspace: value }); setHost(undefined); }
-    else if (key === "host") setHost(value || undefined);
+    else if (key === "site") setHost(value || undefined);
     else if (key === "state") update({ state: value as PullRequestListState });
     else if (key === "involvement") update({ involvement: value as PullRequestInvolvement });
     else if (key === "sort") update({ sort: value as PullRequestListSort });
@@ -459,7 +459,7 @@ export function PullRequestListView({ params, handle, actions, client, open, sur
     one("checks", "Checks", [{ value: "", label: "All" }, { value: "passing", label: "Passing" }, { value: "failing", label: "Failing" }], preferences.checks),
     ...(facets.labels.length > 0 ? [{ id: "labels", legend: "Labels", kind: "many" as const, options: facets.labels.map((label) => ({ id: `label:${label.name}`, label: label.name, hint: String(label.count), selected: labels.includes(label.name) })) }] : []),
     ...(facets.authors.length > 0 ? [{ id: "author", legend: "Author", kind: "list" as const, options: [{ id: "author:", label: "Anyone", selected: !author }, ...facets.authors.map((person) => ({ id: `author:${person.login}`, label: person.login, hint: String(person.count), selected: author === person.login }))] }] : []),
-    ...(hosts.length > 1 || host ? [{ id: "host", legend: "Host", kind: "list" as const, options: [{ id: "host:", label: "All hosts", selected: !host }, ...hosts.map((name) => ({ id: `host:${name}`, label: name, selected: host === name }))] }] : []),
+    ...(hosts.length > 1 || host ? [{ id: "site", legend: "Site", kind: "list" as const, options: [{ id: "site:", label: "All sites", selected: !host }, ...hosts.map((name) => ({ id: `site:${name}`, label: name, selected: host === name }))] }] : []),
   ] : [];
   const shownText = list ? `${arranged.shown} of ${entries.length}${list.truncated ? "+" : ""}` : undefined;
 

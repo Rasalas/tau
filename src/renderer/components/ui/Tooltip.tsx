@@ -54,10 +54,13 @@ interface Shown {
 const TOOLTIP_ID = "tau-tooltip";
 const LINES = { whiteSpace: "pre-line" } as const;
 
+const cutOff = (element: Element) => element.scrollWidth > element.clientWidth + 1;
+
 function read(target: HTMLElement): Shown | undefined {
   const text = target.dataset.tooltip;
   if (!text) return undefined;
-  if (target.dataset.tooltipWhen === "truncated" && target.scrollWidth <= target.clientWidth + 1) return undefined;
+  // A child may be the part that is cut, as the head of a `MiddleTruncate`.
+  if (target.dataset.tooltipWhen === "truncated" && !cutOff(target) && !Array.from(target.children).some(cutOff)) return undefined;
   const side = target.dataset.tooltipSide as FloatingSide | undefined;
   return {
     target,

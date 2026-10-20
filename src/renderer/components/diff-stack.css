@@ -21,7 +21,6 @@
 .rvd-file.folded .rvd-file-head { border-bottom-color: transparent; }
 .rvd-loading { min-height: 96px; background: var(--stage); }
 .rvd-note-line { margin: 0; padding: var(--space-5) var(--space-7); background: var(--stage); color: var(--muted); }
-.rvd-error { color: var(--danger); }
 
 .stage-diff-cards { flex: 1; min-height: 0; overflow: auto; padding: var(--space-5); background: var(--stage); }
 .stage-diff-cards .rvd-stack::after { height: var(--space-5); }

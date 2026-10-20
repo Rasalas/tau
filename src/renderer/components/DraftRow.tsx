@@ -48,7 +48,7 @@ export const DraftRow = memo(function DraftRow({ draft, projectIcon, branch, onO
         </span>
         {/* A touch list's long press would show a tooltip instead of its sheet. */}
         <span className="thread-title" {...(actions ? {} : tooltipProps(title, { when: "truncated", side: "right" }))}>{title}</span>
-        {branch ? <span className="thread-meta-line"><span className="thread-branch"><GitBranch size={11} aria-hidden="true" /><MiddleTruncate value={branch} /></span></span> : null}
+        {branch ? <span className="thread-meta-line"><span className="thread-branch"><GitBranch size={11} aria-hidden="true" /><MiddleTruncate value={branch} {...(actions ? {} : tooltipProps(branch, { when: "truncated", side: "right" }))} /></span></span> : null}
       </button>
       {actions ?? (onDiscard && !draft.submitting ? <span className="thread-row-actions">
         <button type="button" className="thread-discard" aria-label={`Discard draft ${title}`} {...tooltipProps("Discard draft")} onClick={() => onDiscard(draft.draftId)}>

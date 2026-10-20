@@ -1,7 +1,8 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Minus, Plus, RotateCcw } from "lucide-react";
 import type { UiChangedFile } from "../../shared/workspace-kit-types";
 import { FileKindIcon } from "./FileKindIcon";
+import { Popover } from "./ui/Dialog";
 import { useHostCapabilities } from "../use-host-capabilities";
 
 interface DirectoryNode {
@@ -49,7 +50,7 @@ function directoryPaths(nodes: readonly ChangeNode[]): string[] {
   return nodes.flatMap((node) => node.kind === "directory" ? [node.path, ...directoryPaths(node.children)] : []);
 }
 
-/** Stage or unstage one changed file, or discard it after asking; nothing on a Read-only device (ADR 0024). */
+/** Stage or unstage one changed file, or revert it after asking; nothing on a Read-only device (ADR 0024). */
 export function ChangeFileActions({ file, onStage, onUnstage, onRevert }: {
   file: UiChangedFile;
   onStage(path: string): Promise<void> | void;
@@ -59,6 +60,7 @@ export function ChangeFileActions({ file, onStage, onUnstage, onRevert }: {
   const { readOnly } = useHostCapabilities();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const revert = useRef<HTMLButtonElement>(null);
   if (readOnly) return null;
   const run = async (action: (path: string) => Promise<void> | void) => {
     setBusy(true);
@@ -68,11 +70,11 @@ export function ChangeFileActions({ file, onStage, onUnstage, onRevert }: {
     <button disabled={busy} title={file.staged ? "Unstage file" : "Stage file"} aria-label={`${file.staged ? "Unstage" : "Stage"} ${file.path}`} onClick={() => void run(file.staged ? onUnstage : onStage)}>
       {file.staged ? <Minus size={14} /> : <Plus size={14} />}
     </button>
-    <button disabled={busy} title="Revert file" aria-label={`Revert ${file.path}`} onClick={() => setConfirming(true)}><RotateCcw size={13} /></button>
-    {confirming ? <div className="changes-action-popover" role="dialog" aria-label={`Confirm revert ${file.path}`}>
-      <strong>Discard this file?</strong><small>This cannot be undone.</small>
-      <span><button onClick={() => setConfirming(false)}>Cancel</button><button className="danger" onClick={() => void run(onRevert)}>Revert</button></span>
-    </div> : null}
+    <button ref={revert} disabled={busy} title="Revert file" aria-label={`Revert ${file.path}`} onClick={() => setConfirming(true)}><RotateCcw size={13} /></button>
+    {confirming ? <Popover anchor={revert} side="top" align="end" className="changes-action-popover" label={`Confirm revert ${file.path}`} onClose={() => setConfirming(false)}>
+      <strong>Revert this file?</strong><small>Its changes are lost; this cannot be undone.</small>
+      <span><button onClick={() => setConfirming(false)}>Cancel</button><button className="danger" disabled={busy} onClick={() => void run(onRevert)}>Revert file</button></span>
+    </Popover> : null}
   </span>;
 }
 

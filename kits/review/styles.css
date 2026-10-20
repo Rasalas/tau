@@ -763,6 +763,7 @@ body[data-profile="compact"] .pr-row-line.meta .pr-row-time { margin-left: auto;
 .lpr-writer-foot { justify-content: flex-end; }
 .lpr-writer-foot .request-draft { display: flex; align-items: center; gap: 6px; color: var(--muted); font: var(--text-sm) var(--sans); }
 .lpr-note { color: var(--faint); font: var(--text-xs) var(--sans); }
+.lpr-status-error { padding: 12px 16px 0; }
 .lpr-preview { min-height: 140px; padding: 10px 12px; }
 .lpr-empty-detail > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--muted); font: var(--text-sm) var(--sans); list-style: none; }
 .lpr-empty-detail > summary::before { content: "›"; transition: transform var(--motion-fast); }

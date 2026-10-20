@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type FormEvent } from "react";
 import {
   Badge,
   Button,
@@ -6,9 +6,11 @@ import {
   Switch,
   type HostExtensionClient,
   NearbyMachineList,
+  Select,
   SettingRow,
   SettingsPageSections,
   SettingsSection,
+  SettingsState,
   TextField,
   errorMessage,
   tooltipProps,
@@ -32,7 +34,7 @@ import { MachineDot, MachineIcon, useEnvironments } from "./rail.js";
 import { MachineWeights } from "./weights.js";
 import { MachineUpdateLine } from "./update.js";
 
-function MachineRow({ machine, shown, environments, now, onRemove, agents, pairing, host, behind, ImportConversations }: {
+function MachineRow({ machine, shown, environments, now, onRemove, onProblem, agents, pairing, host, behind, ImportConversations }: {
   machine: UiEnvironment;
   shown: boolean;
   /** It runs an older Tau than it could (K103). */
@@ -40,6 +42,8 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
   environments: PlatformEnvironments;
   now: number;
   onRemove(): void;
+  /** A change to the machine that did not go through, said on the page. */
+  onProblem(message: string): void;
   /** Absent where this page cannot set up agents: another machine shown, or a host that keeps none. */
   agents?: AgentMachines;
   pairing?: UiEnvironmentPairing;
@@ -50,6 +54,9 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
   const [editing, setEditing] = useState(false);
   const [settingUp, setSettingUp] = useState(false);
   const [name, setName] = useState(machine.name);
+  // Enter or Escape closes the field; a blur that follows must not save it again.
+  const closed = useRef(false);
+  const field = useRef<HTMLInputElement>(null);
   const agent = agents?.machines.find((entry) => entry.id === machine.id);
   // This machine answers its own host; another one only over its agents' connection.
   const health = host && agents && (machine.local || agent?.status === "connected");
@@ -61,10 +68,28 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
   ].filter(Boolean);
   const save = (event: { preventDefault(): void }) => {
     event.preventDefault();
+    if (closed.current) return;
+    closed.current = true;
     const next = name.trim();
     setEditing(false);
-    if (next && next !== machine.name) void environments.rename(machine.id, next);
+    if (next && next !== machine.name) {
+      environments.rename(machine.id, next).catch((error: unknown) => onProblem(`${machine.name} was not renamed: ${errorMessage(error)}`));
+    }
   };
+  // Escape puts the name back without saving, and closes nothing else.
+  useEffect(() => {
+    const input = field.current;
+    if (!editing || !input) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closed.current = true;
+      setEditing(false);
+    };
+    input.addEventListener("keydown", onKeyDown);
+    return () => input.removeEventListener("keydown", onKeyDown);
+  }, [editing]);
   return (
     <div className="connection-row machine-row">
       <MachineDot environment={machine} now={now} />
@@ -72,7 +97,7 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
         {editing ? (
           <form onSubmit={save}>
             <span onBlur={save}>
-              <TextField label={`Name for ${machine.name}`} value={name} width="md" autoFocus onChange={(next) => setName(next.slice(0, 80))} />
+              <TextField inputRef={field} label={`Name for ${machine.name}`} value={name} width="md" autoFocus onChange={(next) => setName(next.slice(0, 80))} />
             </span>
           </form>
         ) : (
@@ -94,11 +119,11 @@ function MachineRow({ machine, shown, environments, now, onRemove, agents, pairi
       {machine.local ? null : (
         <>
           {machine.status === "offline" || machine.status === "refused" ? (
-            <Button onClick={() => void environments.retry(machine.id)}>Try again</Button>
+            <Button aria-label={`Try ${machine.name} again`} onClick={() => void environments.retry(machine.id)}>Try again</Button>
           ) : null}
-          {host && environments.invokeExtension && !environments.shownElsewhere && machine.status === "connected" ? <Button onClick={() => setSettingUp(!settingUp)}>Set up</Button> : null}
-          <Button onClick={() => { setName(machine.name); setEditing(true); }}>Rename</Button>
-          <Button variant="danger" onClick={onRemove}>Remove</Button>
+          {host && environments.invokeExtension && !environments.shownElsewhere && machine.status === "connected" ? <Button aria-label={`Set up ${machine.name}`} onClick={() => setSettingUp(!settingUp)}>Set up</Button> : null}
+          <Button aria-label={`Rename ${machine.name}`} onClick={() => { closed.current = false; setName(machine.name); setEditing(true); }}>Rename</Button>
+          <Button variant="danger" aria-label={`Remove ${machine.name}`} onClick={onRemove}>Remove</Button>
         </>
       )}
     </div>
@@ -174,6 +199,12 @@ function NearbyMachines({ environments, list, busy, onAdd }: {
   );
 }
 
+const CONNECTION_METHODS = [
+  { value: "link", label: "Pairing link or address" },
+  { value: "ssh", label: "SSH" },
+  { value: "wsl", label: "WSL distribution" },
+] as const satisfies ReadonlyArray<{ value: string; label: string }>;
+
 const NO_SECURE_STORAGE = "This machine offers Tau no encrypted storage (keychain or secret service), so it cannot keep another machine's key.";
 
 function AddMachine({ environments, secureStorage, offerAgents, host, ImportConversations }: { environments: PlatformEnvironments; secureStorage: boolean; offerAgents: boolean; host?: HostExtensionClient; ImportConversations?: ComponentType<MachineImportProps> }) {
@@ -217,15 +248,11 @@ function AddMachine({ environments, secureStorage, offerAgents, host, ImportConv
   return (
     <><form className="machine-add" onSubmit={submit}>
       {list ? <NearbyMachines environments={environments} list={list} busy={busy} onAdd={(found) => run({ nearby: found.hostId })} /> : null}
-      <label className="machine-add-field">
+      <div className="machine-add-field">
         <span>Connection method</span>
-        <select aria-label="Connection method" value={method} disabled={busy} onChange={(event) => { setMethod(event.target.value as typeof method); setText(""); }}>
-          <option value="link">Pairing link or address</option>
-          <option value="ssh">SSH</option>
-          <option value="wsl">WSL distribution</option>
-        </select>
-      </label>
-      {method === "wsl" ? <label className="machine-add-field"><span>WSL distribution</span><select aria-label="WSL distribution" disabled={busy} value={text} onChange={(event) => setText(event.target.value)}><option value="">Choose a distribution</option>{distros.map((distro) => <option key={distro} value={distro}>{distro}</option>)}</select><small>Requires WSL 2 with systemd enabled. Tau installs its signed release inside this distribution.</small></label> : <>
+        <Select label="Connection method" value={method} options={CONNECTION_METHODS} disabled={busy} width="lg" onChange={(next) => { setMethod(next); setText(""); }} />
+      </div>
+      {method === "wsl" ? <div className="machine-add-field"><span>WSL distribution</span><Select label="WSL distribution" value={text} options={distros.map((distro) => ({ value: distro, label: distro }))} disabled={busy} width="lg" placeholder="Choose a distribution" onChange={setText} /><small>Requires WSL 2 with systemd enabled. Tau installs its signed release inside this distribution.</small></div> : <>
       <label className="machine-add-field">
         <span>{method === "ssh" ? "SSH target" : "Pairing link or address"}</span>
         <TextField
@@ -273,6 +300,8 @@ function AddMachine({ environments, secureStorage, offerAgents, host, ImportConv
 export function createMachinesPage(environments: PlatformEnvironments, host?: HostExtensionClient, ImportConversations?: ComponentType<MachineImportProps>) {
   return function MachinesPage({ cwd, onNotify }: Partial<SettingsPageProps> = {}) {
     const list = useEnvironments(environments);
+    const failure = useSyncExternalStore(environments.subscribe, () => environments.loadError?.());
+    const [problem, setProblem] = useState<string>();
     // Agents are this machine's host's: only while the page shows this machine, and on a host that keeps machines.
     const agentMachines = useAgentMachines(environments.shownElsewhere ? undefined : host);
     const agents = agentMachines?.available ? agentMachines : undefined;
@@ -298,10 +327,18 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
       return () => window.clearInterval(timer);
     }, []);
     if (!list) {
+      // Without `loadError` the list cannot say why it is missing; it used to mean only that the window keeps none.
+      const none = !environments.loadError || failure?.unsupported;
       return (
         <div className="settings-page">
           <SettingsSection title="Machines">
-            <p className="settings-group-note">This window keeps no list of machines. A Tau desktop window on its own machine does.</p>
+            {none ? (
+              <p className="settings-group-note">This window keeps no list of machines. A Tau desktop window on its own machine does.</p>
+            ) : failure ? (
+              <SettingsState kind="error" title="The machines did not load" description={failure.message} {...(environments.reload ? { onRetry: () => environments.reload!() } : {})} />
+            ) : (
+              <SettingsState kind="loading" title="Loading machines" />
+            )}
           </SettingsSection>
         </div>
       );
@@ -311,6 +348,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
     return (
       <div className="settings-page machines-page">
         <SettingsSection title="Machines">
+          {problem ? <p className="machine-add-result problem" role="alert">{problem}</p> : null}
           {list.environments.map((machine) => (
             <MachineRow
               key={machine.id}
@@ -321,6 +359,7 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
               now={now}
               ImportConversations={ImportConversations}
               onRemove={() => setRemoving(machine)}
+              onProblem={setProblem}
               {...(agents ? { agents } : {})}
               {...(list.pairing ? { pairing: list.pairing } : {})}
               {...(!environments.shownElsewhere && host ? { host } : {})}
@@ -357,9 +396,10 @@ export function createMachinesPage(environments: PlatformEnvironments, host?: Ho
             confirmLabel="Remove"
             destructive
             onConfirm={() => {
-              const id = removing.id;
+              const { id, name } = removing;
               setRemoving(undefined);
-              void environments.remove(id);
+              setProblem(undefined);
+              environments.remove(id).catch((error: unknown) => setProblem(`${name} was not removed: ${errorMessage(error)}`));
             }}
             onCancel={() => setRemoving(undefined)}
           />

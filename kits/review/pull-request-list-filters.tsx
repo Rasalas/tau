@@ -62,7 +62,7 @@ export function listNarrowings(input: Pick<PullRequestListPreferences, "state" |
     ...(input.checks ? [{ id: "checks", label: input.checks === "passing" ? "Checks passing" : "Checks failing" }] : []),
     ...input.labels.map((label) => ({ id: `label:${label}`, label })),
     ...(input.author ? [{ id: "author", label: `@${input.author}` }] : []),
-    ...(input.host ? [{ id: "host", label: input.host }] : []),
+    ...(input.host ? [{ id: "site", label: input.host }] : []),
   ];
 }
 

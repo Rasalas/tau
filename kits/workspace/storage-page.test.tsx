@@ -103,6 +103,11 @@ describe("Settings → Storage", () => {
     expect(screen.getByText("The rules would remove 1 worktree now.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Clean up 1 now" }));
+    // Removing a worktree has no undo: it asks first and names what goes.
+    const ask = await screen.findByRole("dialog", { name: "Remove 1 worktree?" });
+    expect(ask.textContent).toContain("tau/due");
+    expect(host.cleanUp).not.toHaveBeenCalled();
+    fireEvent.click(within(ask).getByRole("button", { name: "Remove worktree" }));
     await waitFor(() => expect(host.cleanUp).toHaveBeenCalledWith(["/w/due"]));
     expect(missingSettingsRows({ rows: STORAGE_SETTINGS_ROWS })).toEqual([]);
   });

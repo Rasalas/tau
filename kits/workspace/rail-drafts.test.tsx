@@ -115,10 +115,18 @@ describe("draft rows in the rail", () => {
     expect((screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement).value).toBe("");
 
     expect(within(rail()).queryByRole("button", { name: /^Discard draft/u })).toBeNull();
+    // A draft with text in it asks first: there is no undo.
     fireEvent.contextMenu(within(rail()).getByRole("button", { name: "Open draft First idea" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Discard draft" }));
+    const ask = await screen.findByRole("dialog", { name: "Discard this draft?" });
+    fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Discard this draft?" })).toBeNull());
+    expect(draftRows()).toHaveLength(2);
+    fireEvent.contextMenu(within(rail()).getByRole("button", { name: "Open draft First idea" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Discard draft" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Discard this draft?" })).getByRole("button", { name: "Discard draft" }));
     await waitFor(() => expect(draftRows().map((row) => row.getAttribute("aria-label"))).toEqual(["Open draft New thread"]));
-    // Discarding the draft on screen closes it onto the host's thread.
+    // An empty draft goes at once; discarding the draft on screen closes it onto the host's thread.
     fireEvent.contextMenu(within(rail()).getByRole("button", { name: "Open draft New thread" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Discard draft" }));
     await waitFor(() => expect(draftRows()).toHaveLength(0));

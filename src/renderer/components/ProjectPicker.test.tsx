@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ToastHandle, ToastOptions } from "../../workbench/toast-store";
 import { ProjectPicker } from "./ProjectPicker";
+import { ContextMenuLayer } from "./ui/ContextMenu";
 
 const projects = Array.from({ length: 10_000 }, (_, index) => ({
   path: `/projects/${index}`,
@@ -9,7 +11,11 @@ const projects = Array.from({ length: 10_000 }, (_, index) => ({
   lastOpenedAt: 10_000 - index,
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  // The page's menu is a module-level singleton: close one a test left open.
+  screen.queryByRole("button", { name: "Close menu" })?.click();
+  cleanup();
+});
 
 describe("ProjectPicker large catalogs", () => {
   it("virtualizes 10,000 projects and preserves keyboard selection", () => {
@@ -25,17 +31,57 @@ describe("ProjectPicker large catalogs", () => {
     expect(onSelect).toHaveBeenLastCalledWith(projects[9999]);
   });
 
-  it("removes the selected project through the context menu or Shift+Delete", () => {
+  it("removes the selected project through the context menu or Shift+Delete", async () => {
     const onRemove = vi.fn();
-    render(<ProjectPicker open projects={projects.slice(0, 2)} onBrowse={() => {}} onClose={() => {}} onRemove={onRemove} onSelect={() => {}} />);
+    render(<><ProjectPicker open projects={projects.slice(0, 2)} onBrowse={() => {}} onClose={() => {}} onRemove={onRemove} onSelect={() => {}} /><ContextMenuLayer /></>);
 
     fireEvent.contextMenu(screen.getByRole("option", { name: /Project 0/u }), { clientX: 120, clientY: 80 });
-    fireEvent.click(screen.getByRole("menuitem", { name: /Remove from Tau/u }));
-    expect(onRemove).toHaveBeenCalledWith(projects[0]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Remove from Tau/u }));
+    await waitFor(() => expect(onRemove).toHaveBeenCalledWith(projects[0]));
 
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Search projects" }), { key: "ArrowDown" });
     fireEvent.keyDown(window, { key: "Delete", shiftKey: true });
     expect(onRemove).toHaveBeenLastCalledWith(projects[1]);
+  });
+
+  it("leaves Shift+Delete to a search field with text in it, where it cuts", () => {
+    const onRemove = vi.fn();
+    render(<ProjectPicker open projects={projects.slice(0, 2)} onBrowse={() => {}} onClose={() => {}} onRemove={onRemove} onSelect={() => {}} />);
+    const input = screen.getByRole("textbox", { name: "Search projects" });
+    fireEvent.change(input, { target: { value: "Project" } });
+    fireEvent.keyDown(input, { key: "Delete", shiftKey: true });
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+  });
+
+  it("hides a removed project and removes it only when its toast goes without Undo", async () => {
+    const onRemove = vi.fn();
+    const shown: ToastOptions[] = [];
+    const toast = (options: ToastOptions): ToastHandle => {
+      shown.push(options);
+      return { id: options.id ?? "", update: () => {}, dismiss: () => {} };
+    };
+    render(<ProjectPicker open projects={projects.slice(0, 2)} toast={toast} onBrowse={() => {}} onClose={() => {}} onRemove={onRemove} onSelect={() => {}} />);
+    fireEvent.keyDown(window, { key: "Delete", shiftKey: true });
+
+    await waitFor(() => expect(screen.queryByRole("option", { name: /Project 0/u })).toBeNull());
+    expect(shown[0]).toMatchObject({ title: "Removed Project 0 from Tau" });
+    shown[0]!.actions![0]!.run();
+    act(() => shown[0]!.onClose!());
+    expect(onRemove).not.toHaveBeenCalled();
+    await screen.findByRole("option", { name: /Project 0/u });
+
+    fireEvent.keyDown(window, { key: "Delete", shiftKey: true });
+    act(() => shown[1]!.onClose!());
+    expect(onRemove).toHaveBeenCalledWith(projects[0]);
+  });
+
+  it("shows a long path in full when the row cuts it", () => {
+    const path = "/srv/a/very/long/path/to/project";
+    render(<ProjectPicker open projects={[{ path, name: "deep", lastOpenedAt: 1 }]} onBrowse={() => {}} onClose={() => {}} onRemove={() => {}} onSelect={() => {}} />);
+    const shown = screen.getByText(path);
+    expect(shown.dataset.tooltip).toBe(path);
+    expect(shown.dataset.tooltipWhen).toBe("truncated");
   });
 
   it("offers / last, however recently the host started in it", () => {

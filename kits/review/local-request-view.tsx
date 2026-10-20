@@ -35,6 +35,8 @@ interface Loaded {
   branch?: LocalBranch;
   branchError?: string;
   status?: ReviewRequestStatus;
+  /** Why the branch's request could not be read; its provider is unknown then, never assumed. */
+  statusError?: string;
   changes?: UiWorkspaceChanges;
   changesError?: string;
   evidence?: LocalEvidence[];
@@ -88,7 +90,7 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
     setData((current) => ({
       ...current,
       ...(branch.status === "fulfilled" ? { branch: branch.value, branchError: undefined } : { branchError: errorMessage(branch.reason) }),
-      ...(status.status === "fulfilled" ? { status: status.value } : {}),
+      ...(status.status === "fulfilled" ? { status: status.value, statusError: undefined } : { statusError: errorMessage(status.reason) }),
       ...(changes.status === "fulfilled" ? { changes: changes.value, changesError: undefined } : { changesError: errorMessage(changes.reason) }),
     }));
     if (status.status === "fulfilled") parts.rows.set(root, status.value.request);
@@ -131,8 +133,9 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
   if (!store) return <div className="stage-empty" role="status">The local pull request needs the Workspace extension.</div>;
   if (!root) return <div className="stage-empty" role="status">Open a thread in a project to see its branch as a pull request.</div>;
 
-  const service = data.status?.service ?? "github";
-  const { short, noun } = providerInfo(service);
+  const service = data.status?.service;
+  // Until the status says which provider the branch goes to, the view names none.
+  const { short, noun } = providerInfo(service ?? "github");
   const commits = data.branch?.commits ?? [];
   const base = form.base.trim() || data.status?.base || data.branch?.base || "";
   const scope: ScriptScope | undefined = actions.activeThread()?.cwd === root && actions.activeThread()?.sessionId ? { sessionId: actions.activeThread()!.sessionId! } : workspaceId ? { workspaceId } : undefined;
@@ -142,8 +145,8 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
     <div className="pr-view lpr-view" aria-label={`Local ${short} for ${branchName ?? "this checkout"}`}>
       <header className="pr-head">
         <div className="pr-head-row">
-          <span className="lpr-service"><ServiceIcon service={service} width={14} height={14} />{providerInfo(service).name}</span>
-          <span className="lpr-note">{data.status?.request ? requestNumber(data.status.request.provider, data.status.request.number) : "Not published"}</span>
+          {service ? <span className="lpr-service"><ServiceIcon service={service} width={14} height={14} />{providerInfo(service).name}</span> : null}
+          <span className="lpr-note">{data.status?.request ? requestNumber(data.status.request.provider, data.status.request.number) : data.status ? "Not published" : data.statusError ? "Not checked" : "Checking…"}</span>
           <span className="spacer" />
           <button className="icon-button compact" aria-label="Refresh the local pull request" title="Refresh" disabled={loading} onClick={() => { void store.refresh(); void load(true); }}>
             <RefreshCw size={13} />
@@ -169,6 +172,14 @@ export default function LocalRequestView({ handle, actions, parts }: { handle: S
 
       <div className="pr-body">
         {data.branchError ? <p className="pr-error pr-pad" role="alert">{data.branchError}</p> : null}
+        {data.statusError ? (
+          <div className="pr-unavailable compact lpr-status-error" role="alert">
+            <strong>Could not check whether {branchName ?? "this branch"} is published</strong>
+            <p>Tau could not read the branch’s {noun} from its provider, so it cannot tell whether one is already open.</p>
+            <div className="pr-actions"><button className="mini-button" disabled={loading} onClick={() => { void load(true); }}>Retry</button></div>
+            <details className="pr-unavailable-details"><summary>Details</summary><pre>{data.statusError}</pre></details>
+          </div>
+        ) : null}
         {tab === "summary" ? (
           <div className="lpr-summary">
             {uncommitted > 0 ? (
