@@ -59,8 +59,8 @@ function runtimeToolsAction<const Actions extends readonly string[]>(channel: st
   return action as Actions[number];
 }
 function runtimeToolsInput(value: unknown): { on?: boolean; kind?: string } {
-  if (value === undefined) return {};
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("runtime-tools-change: input must be an object.");
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("runtime-tools-change: input must be an object.");
   const { on, kind } = value as { on?: unknown; kind?: unknown };
   return {
     ...(on === undefined ? {} : { on: decodeBoolean("runtime-tools-change", "on", on) }),

@@ -12,7 +12,7 @@ import type { HostConnectionState } from "./host-connection";
 import type { TranscriptTurnStart } from "./transcript-navigation";
 import { isSameUserMessage } from "./app-state";
 import type { ThreadStore } from "./thread-store";
-import type { ThreadViewStore } from "./thread-view-store";
+import { SEND_FAILED_NOTICE, type ThreadViewStore } from "./thread-view-store";
 
 /**
  * What a host event needs of the contribution registry. `ExtensionRegistry`
@@ -48,6 +48,7 @@ export interface SubmissionPort {
   markWithoutUserTurn(clientMessageId: string): void;
   promoteRecovery(clientMessageId: string, sessionId: string, message: UiMessage): boolean;
   settleDelivery(clientMessageId: string, sessionId: string, settlement: { accepted: true } | { accepted: false; message: string }): boolean;
+  restoreFailedPrompt(clientMessageId: string, sessionId: string): void;
 }
 
 /** What a host event reaches besides the view store it is reduced into. */
@@ -170,9 +171,12 @@ export function applyHostEvent(event: HostEvent, targets: HostEventTargets): voi
       const recoveryScope = targets.submission.recoveryScope(event.clientMessageId);
       if (recoveryScope !== undefined) {
         targets.submission.settleDelivery(event.clientMessageId, event.sessionId, { accepted: false, message: event.message });
+      } else {
+        // Before the view drops the prompt's row, which holds what was sent.
+        targets.submission.restoreFailedPrompt(event.clientMessageId, event.sessionId);
       }
       if (event.sessionId === threadStore.getSnapshot().activeThreadId
-        || recoveryScope === targets.currentDraftKey()) view.setNotice(event.message, "error");
+        || recoveryScope === targets.currentDraftKey()) view.setNotice(event.message, "error", SEND_FAILED_NOTICE);
       // A supervisor watching a list of threads sees the refusal on the row,
       // not only in a toast the thread on screen gets.
       threadStore.markFailed(event.sessionId);

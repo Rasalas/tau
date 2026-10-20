@@ -50,7 +50,7 @@ function start(overrides: { newSession?: (...args: unknown[]) => Promise<NewThre
 }
 
 async function newThread(): Promise<HTMLTextAreaElement> {
-  fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
+  fireEvent.click(await within((await screen.findByRole("navigation", { name: "Threads" })).closest("aside")!).findByRole("button", { name: "New thread" }));
   return await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
 }
 

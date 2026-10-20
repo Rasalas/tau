@@ -92,7 +92,7 @@ describe("a fresh install (2a)", () => {
     await waitFor(() => expect(document.querySelector(".fresh-start-providers")?.textContent).toContain("connected · add more"));
     expect(screen.getByRole("button", { name: "Start without a project" })).toBeTruthy();
     const initialDraft = readNewThreadDraft(storage)?.draftId;
-    fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
+    fireEvent.click(await within((await screen.findByRole("navigation", { name: "Threads" })).closest("aside")!).findByRole("button", { name: "New thread" }));
     await waitFor(() => {
       expect(readNewThreadDraft(storage)?.draftId).toBeDefined();
       expect(readNewThreadDraft(storage)?.draftId).not.toBe(initialDraft);
@@ -130,7 +130,7 @@ describe("a fresh install (2a)", () => {
   it("gives way to the draft once the new-thread chord opened one", async () => {
     start({ isRepo: false, messageCount: 0 });
     await screen.findByRole("heading", { name: "Open a project to start" });
-    fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
+    fireEvent.click(await within((await screen.findByRole("navigation", { name: "Threads" })).closest("aside")!).findByRole("button", { name: "New thread" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Open a project to start" })).toBeNull());
   });
 

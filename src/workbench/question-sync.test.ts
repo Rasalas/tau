@@ -34,7 +34,7 @@ function world() {
       threadStore,
       view,
       preferences: new PreferencesStore(),
-      submission: { hasRecovery: () => false, recoveryScope: () => undefined, markWithoutUserTurn: vi.fn(), promoteRecovery: () => true, settleDelivery: () => true },
+      submission: { hasRecovery: () => false, recoveryScope: () => undefined, markWithoutUserTurn: vi.fn(), promoteRecovery: () => true, settleDelivery: () => true, restoreFailedPrompt: vi.fn() },
       currentDraftKey: () => undefined,
       transcriptTurnStart: () => undefined,
       setTranscriptTurnStart: vi.fn(),

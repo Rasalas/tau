@@ -134,6 +134,7 @@ function harness(options: {
       if (plan.promotion?.promoted) delivery.finishPromotion(plan.promotion);
       return plan.handled;
     },
+    restoreFailedPrompt: () => {},
     detachPendingDelivery: delivery.detachPendingDelivery,
     release: delivery.release,
     rehomeDetached: delivery.rehomeDetached,

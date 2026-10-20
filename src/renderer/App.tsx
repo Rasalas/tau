@@ -526,7 +526,7 @@ export default function App() {
       // A draft is a semantic scope, not a Pi session. The session ID remains
       // the last real runtime while the draft ID travels in TranscriptTurnStart.
       sessionName: undefined,
-      sessionTitle: "Untitled thread",
+      sessionTitle: "New thread",
       isStreaming: false,
       ...(model ? { model } : {}),
       ...(draftChoice && pendingNewThread.thinkingLevel ? { thinkingLevel: pendingNewThread.thinkingLevel } : {}),

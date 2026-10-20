@@ -1,4 +1,4 @@
-import type { HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiContextUsage, UiMessage, UiSession, UiSkillDraft, UiToolRun } from "../shared/contracts";
+import type { HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiContextUsage, UiMessage, UiPromptAttachment, UiSession, UiSkillDraft, UiToolRun } from "../shared/contracts";
 import { hostSnapshotFromThreadDetail, type HostActionResult, type ThreadDetail, type TranscriptPage } from "../shared/host-protocol";
 import { matchesTranscriptTurnMessage } from "../shared/transcript-turn";
 import type { ComposerScopeReference, DraftKey, PendingAttachment } from "./composer-scope-store";
@@ -142,6 +142,8 @@ export function latestActivityAnchor(messages: readonly UiMessage[], currentAnch
 export interface OptimisticUserMessage {
   scope: string;
   message: UiMessage;
+  /** What a thread's composer gets back when the runtime fails the prompt after taking it. */
+  sent?: { text: string; attachments: readonly UiPromptAttachment[] };
 }
 
 /** How a sent skill selection reads before the host has answered: a chip each, the whole message as copy text. */

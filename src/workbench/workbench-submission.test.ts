@@ -8,6 +8,7 @@ import { createMemoryStorage } from "./client-storage";
 import { createDraftKey } from "./composer-scope-store";
 import { draftKey } from "./draft-store";
 import { applyHostEvent, type HostEventTargets } from "./host-events";
+import { SEND_FAILED_NOTICE } from "./thread-view-store";
 import { WorkbenchSession } from "./workbench-session";
 
 const snapshot: HostSnapshot = {
@@ -166,6 +167,38 @@ describe("workbench submission", () => {
     expect(h.session.scopes.getSnapshot(newerScope).draft).toBe("newer edits");
     expect(h.session.scopes.getSnapshot(h.scope).draft).toBe("first prompt");
     expect(h.session.view.getOptimisticMessages()).toEqual([]);
+  });
+
+  it("closes a refused send's toast once a later send goes through", async () => {
+    const h = harness();
+    const refused = h.session.submit({ text: "first prompt" });
+    await vi.waitFor(() => expect(h.newSession).toHaveBeenCalledOnce());
+    h.reject();
+    await expect(refused).resolves.toEqual({ accepted: false, message: "Refused" });
+    expect(h.session.view.getNotice()).toEqual({ message: "Refused", level: "error", id: SEND_FAILED_NOTICE });
+    h.session.toasts.show({ id: SEND_FAILED_NOTICE, type: "error", description: "Refused" });
+    const retried = h.session.submit({ text: "first prompt" });
+    await vi.waitFor(() => expect(h.newSession).toHaveBeenCalledTimes(2));
+    expect(h.session.toasts.getToasts()).toHaveLength(1);
+    h.resolve();
+    await expect(retried).resolves.toEqual({ accepted: true });
+    expect(h.session.toasts.getToasts()).toEqual([]);
+  });
+
+  it("puts a prompt an existing thread's runtime failed after taking it back before what was typed since", async () => {
+    const h = harness();
+    h.session.newThread.set(undefined);
+    await expect(h.session.submit({ text: "follow-up" })).resolves.toEqual({ accepted: true });
+    const { clientMessageId } = h.session.view.getOptimisticMessages()[0].message;
+    const scope = createDraftKey(draftKey("previous"));
+    h.session.scopes.setDraft(scope, "typed since");
+    applyHostEvent({ type: "user-message-failed", sessionId: "previous", clientMessageId: clientMessageId!, message: "runtime failed" }, {
+      registry: { dispatchWorkbenchEvent: () => {} },
+      threadStore: h.session.threads, view: h.session.view, submission: h.session.delivery,
+      currentDraftKey: () => undefined,
+    } as unknown as HostEventTargets);
+    expect(h.session.view.getOptimisticMessages()).toEqual([]);
+    expect(h.session.scopes.getSnapshot(scope).draft).toBe("follow-up\n\ntyped since");
   });
 
   it("promotes a detached accepted send without replacing the draft now on screen", async () => {

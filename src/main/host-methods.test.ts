@@ -159,7 +159,7 @@ describe("off-screen core thread methods", () => {
     expect(startThread).toHaveBeenCalledWith({ ...options, cwd: "/repo" });
   });
 
-  it.each([undefined, "prompt", "steer", "queue"])("delivers with %s", async (delivery) => {
+  it.each([undefined, null, "prompt", "steer", "queue"])("delivers with %s", async (delivery) => {
     const sendToThread = vi.fn(async () => undefined);
     const table = methodsFor({ sendToThread } as unknown as PiHost);
     await expect(invokeHostMethod(table, "send-to-thread", ["s1", "hello", delivery])).resolves.toBeNull();
@@ -179,7 +179,6 @@ describe("off-screen core thread methods", () => {
     ["send-to-thread", [1, "hello"]],
     ["send-to-thread", ["s1", false]],
     ["send-to-thread", ["s1", "hello", "invalid"]],
-    ["send-to-thread", ["s1", "hello", null]],
   ])("refuses malformed %s params before calling the host", async (method, params) => {
     const startThread = vi.fn();
     const sendToThread = vi.fn();

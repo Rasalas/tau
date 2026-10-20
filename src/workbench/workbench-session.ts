@@ -15,7 +15,7 @@ import { NewThreadController } from "./new-thread-controller";
 import { DraftThreads } from "./draft-threads";
 import { ThreadStages } from "./thread-stages";
 import { ThreadStore } from "./thread-store";
-import { ThreadViewStore } from "./thread-view-store";
+import { SEND_FAILED_NOTICE, ThreadViewStore } from "./thread-view-store";
 import { ToastStore } from "./toast-store";
 import { TranscriptHistoryController, type TranscriptBootstrapRequest, type TranscriptHistoryRequest, type TransitionToken } from "./transcript-history";
 import { reconcileOptimisticMessages, transcriptNavigationScopeKey } from "./app-state";
@@ -144,6 +144,8 @@ export class WorkbenchSession {
       promoteReportedThread: (sessionId, message, requestId) => this.promoteReportedThread(sessionId, message, requestId),
       promoteRecovery: (clientMessageId, sessionId, message) => this.promoteRecovery(clientMessageId, sessionId, message),
       settleDelivery: (clientMessageId, sessionId, settlement) => this.settleDelivery(clientMessageId, sessionId, settlement),
+      // A sent optimistic row can exist only after the submission controller loaded.
+      restoreFailedPrompt: (clientMessageId, sessionId) => this.submission?.restoreFailedPrompt(clientMessageId, sessionId),
       detachPendingDelivery: this.deliveryCoordinator.detachPendingDelivery,
       release: this.deliveryCoordinator.release,
       rehomeDetached: (clientMessageId, recovery, sessionId) => this.deliveryCoordinator.rehomeDetached(clientMessageId, recovery, sessionId),
@@ -157,8 +159,8 @@ export class WorkbenchSession {
     if (!adapter) return { accepted: false, message: "The workbench is not ready yet." };
     if (!this.submission) {
       this.submissionLoading ??= (adapter.load ? adapter.load() : import("./submission-controller"))
-        .then(({ SubmissionController }) => {
-          const controller = new SubmissionController({
+        .then(({ createSubmissionController }) => {
+          const controller = createSubmissionController({
             client: adapter.client,
             environment: adapter.environment,
             storage: this.options.storage,
@@ -168,29 +170,20 @@ export class WorkbenchSession {
             hostSession: this.hostSession,
             delivery: this.delivery,
             notify: this.view.setNotice,
-            newThread: {
-              current: this.newThread.current, set: this.newThread.set,
-              update: (change) => this.newThread.set(change),
-              requestId: this.newThread.requestId, isCurrent: this.newThread.isCurrent,
-              markAwaitingPromotion: this.newThread.markAwaitingPromotion,
-              promoteFromUserMessage: this.newThread.promoteFromUserMessage,
-            },
+            newThread: this.newThread,
             drafts: this.drafts,
             turn: this.turn,
             host: this,
-            enqueueFollowUp: async (threadId, item) => {
-              const client = adapter.client();
-              if (!client) throw new Error("Queued messages need a connection to the machine.");
-              if (item.deliverAt === undefined) await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft);
-              else await client.queueMessage(threadId, item.text, item.attachments, item.skillDraft, item.deliverAt);
-            },
           });
           this.submission = controller;
           return controller;
         }).catch((error) => { this.submissionLoading = undefined; throw error; });
       await this.submissionLoading;
     }
-    return this.submission!.submit(input);
+    const result = await this.submission!.submit(input);
+    // An earlier send's failure toast goes once a later send goes through.
+    if (result.accepted) this.toasts.dismiss(SEND_FAILED_NOTICE);
+    return result;
   };
 
   /** Reconcile authoritative detail as well as live user events, before returning to the caller. */

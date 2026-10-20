@@ -289,6 +289,13 @@ export interface HostClient {
  */
 const WINDOW_EVENT_TYPES = new Set<string>(["app-update", "window-shell", "environments", "environment-thread", "environment-extension-event"]);
 
+/** JSON sends an undefined slot as null, which a host before null-tolerant decoders refuses; a left-out argument is not sent. */
+function withoutTrailingUndefined(params: readonly unknown[]): readonly unknown[] {
+  let end = params.length;
+  while (end > 0 && params[end - 1] === undefined) end -= 1;
+  return end === params.length ? params : params.slice(0, end);
+}
+
 export function createHostClient(connection: HostConnection, local?: HostConnection): HostClient {
   const route = (method: string) => (local && isClientSideMethod(method) ? local : connection);
   // A Read-only device is refused here what the host would refuse; the window's own process never is.
@@ -296,9 +303,10 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
   const commandCall = <Name extends HostCommandName>(method: Name, ...[params]: [] extends CommandArgs<Name> ? [params?: CommandArgs<Name>] : [params: CommandArgs<Name>]): Promise<CommandResult<Name>> => {
     const target = route(method);
     if (refused(target, method)) return Promise.reject(readOnlyRefusal());
+    const args = withoutTrailingUndefined(params ?? []);
     return HOST_COMMAND_METADATA[method].job && target.isJobMethod(method)
-      ? target.runJob<CommandResult<Name>>(method, params ?? [])
-      : target.request<CommandResult<Name>>(method, params ?? []);
+      ? target.runJob<CommandResult<Name>>(method, args)
+      : target.request<CommandResult<Name>>(method, args);
   };
   const readCommands = new ReadCommands(() => commandCall("host-extensions"));
   connection.onEvent((event) => { if (event.type === "extension-packages-changed" || event.type === "extension-deactivated") readCommands.invalidate(); });

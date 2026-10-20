@@ -7,11 +7,13 @@ import { createHostClient } from "./host-client";
 function jobHost(jobMethods: string[]) {
   const listeners = new Set<(push: HostPush) => void>();
   const sent: string[] = [];
+  const sentParams: unknown[][] = [];
   let seq = 0;
   const transport: HostTransport = {
     platform: "remote",
     request: async (method, params): Promise<HostResponse> => {
       sent.push(method === "start-job" ? `job:${String(params[0])}` : method);
+      sentParams.push([...params]);
       if (method === "hello") return { id: "1", result: { protocol: 1, hostVersion: "0", capabilities: ["jobs"], resync: false, missed: [], nextSeq: 1 } };
       if (method === "job-methods") return { id: "1", result: jobMethods };
       if (method === "start-job") {
@@ -26,7 +28,7 @@ function jobHost(jobMethods: string[]) {
     },
     onPush: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
   };
-  return { transport, sent };
+  return { transport, sent, params: sentParams };
 }
 
 async function clientOf(jobMethods: string[]) {
@@ -35,6 +37,7 @@ async function clientOf(jobMethods: string[]) {
   await connection.start();
   await connection.refreshJobMethods();
   host.sent.length = 0;
+  host.params.length = 0;
   return { host, client: createHostClient(connection) };
 }
 
@@ -54,5 +57,12 @@ describe("calls that can wait on a runtime start", () => {
     await expect(client.newSession("hello")).resolves.toEqual({ via: "request" });
     await client.sendPrompt("again", undefined, "s1");
     expect(host.sent).toEqual(["new-session", "prompt"]);
+  });
+
+  it("leave out trailing arguments that were not given, which JSON would send as null", async () => {
+    const { host, client } = await clientOf([]);
+    await client.newSession("hello", [], "/repo", "turn", undefined);
+    await client.sendPrompt("again", undefined, "s1");
+    expect(host.params).toStrictEqual([["hello", [], "/repo", "turn"], ["again", undefined, "s1"]]);
   });
 });

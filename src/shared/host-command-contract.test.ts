@@ -75,6 +75,19 @@ describe("shared turn command contracts", () => {
     expect(() => HOST_COMMANDS["compact-and-send"].decode(["t"])).toThrow("compact-and-send: prompt is required");
   });
 
+  it("reads a left-out argument that JSON carried as null as absent", () => {
+    const viaJson = (params: unknown[]) => JSON.parse(JSON.stringify(params)) as unknown[];
+    const identity = { clientMessageId: "message", clientTurnId: "turn" };
+    expect(HOST_COMMANDS["new-session"].decode(viaJson(["hello", [], "/repo", identity, undefined, undefined])))
+      .toEqual(["hello", [], "/repo", identity, undefined, undefined]);
+    expect(HOST_COMMANDS.prompt.decode(viaJson(["hello", undefined, "thread", undefined, undefined])))
+      .toEqual(["hello", undefined, "thread", undefined, undefined]);
+    expect(HOST_COMMANDS["prepare-prompt"].decode(viaJson(["hello", undefined, undefined, "codex", "/repo"])))
+      .toEqual(["hello", undefined, undefined, "codex", "/repo"]);
+    expect(() => HOST_COMMANDS["new-session"].decode(["hello", [], "/repo", identity, undefined, "fast"]))
+      .toThrow("new-session: configuration must be an object");
+  });
+
   it("accepts planned messages with an empty skill slot and validates their time", () => {
     const at = 1_800_000_000_000;
     expect(HOST_COMMANDS["queue-message"].decode(["thread", "later", [], null, at]))

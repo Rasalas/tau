@@ -43,7 +43,7 @@ describe("Workspace Kit in the workbench", () => {
   it("offers no new thread on a device paired Read only, and says why", async () => {
     const invokeHostExtension = workspaceHostStub({ listEditors: async () => [], getFileTree: async () => [] });
     renderApp(createFakeHostClient({ isReadOnly: () => true, invokeHostExtension }), { extensions: [workspaceExtension] });
-    const button = await screen.findByRole("button", { name: "New thread" }) as HTMLButtonElement;
+    const button = await within((await screen.findByRole("navigation", { name: "Threads" })).closest("aside")!).findByRole("button", { name: "New thread" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.getAttribute("data-tooltip")).toMatch(/^Read only/u);
   });
@@ -401,7 +401,7 @@ describe("Workspace Kit in the workbench", () => {
     });
 
     renderApp(client, { extensions: [workspaceExtension] });
-    fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
+    fireEvent.click(await within((await screen.findByRole("navigation", { name: "Threads" })).closest("aside")!).findByRole("button", { name: "New thread" }));
     fireEvent.click(screen.getByRole("button", { name: "Change project, current project project" }));
     const picker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.click(within(picker).getByRole("option", { name: /project/u }));
@@ -676,7 +676,7 @@ describe("Workspace Kit in the workbench", () => {
 
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: /do next\?$/ });
-    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Threads" }).closest("aside")!).getByRole("button", { name: "New thread" }));
     const firstPicker = await screen.findByRole("dialog", { name: "Search projects" });
     fireEvent.keyDown(within(firstPicker).getByRole("textbox", { name: "Search projects" }), { key: "Enter" });
     const composer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
@@ -824,7 +824,7 @@ describe("Workspace Kit in the workbench", () => {
 
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByRole("heading", { name: /do next\?$/ });
-    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Threads" }).closest("aside")!).getByRole("button", { name: "New thread" }));
     const composer = await screen.findByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
     const image = new File([new Uint8Array([137, 80, 78, 71])], "draft.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("Choose attachment files"), { target: { files: [image] } });
@@ -848,7 +848,7 @@ describe("Workspace Kit in the workbench", () => {
     await waitFor(() => expect(plainChipText(composer.value)).toBe("draft.png submitted text\n\nnewer draft"));
     expect(await screen.findByRole("button", { name: "Preview draft.png" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Threads" }).closest("aside")!).getByRole("button", { name: "New thread" }));
     await waitFor(() => expect(plainChipText(composer.value)).toBe(""));
     expect(screen.queryByText(/Wait for the current message delivery/u)).toBeNull();
   });
@@ -884,7 +884,7 @@ describe("Workspace Kit in the workbench", () => {
     renderApp(client, { extensions: [workspaceExtension] });
     await screen.findByText("Existing work");
     fireEvent.click(screen.getByRole("button", { name: "Existing thread" }));
-    fireEvent.click(await screen.findByRole("button", { name: "New thread" }));
+    fireEvent.click(await within((await screen.findByRole("navigation", { name: "Threads" })).closest("aside")!).findByRole("button", { name: "New thread" }));
 
     expect(await screen.findByRole("heading", { name: /do next\?$/ })).toBeTruthy();
     expect(screen.queryByText("Used 1 tool")).toBeNull();
@@ -1722,7 +1722,7 @@ describe("Workspace Kit in the workbench", () => {
     expect(await screen.findByRole("heading", { name: "What should shop-api do next?" })).toBeTruthy();
     const header = document.querySelector(".thread-header") as HTMLElement;
     expect(within(header).getByRole("navigation", { name: "Thread breadcrumb" })).toBeTruthy();
-    expect(within(header).getByRole("button", { name: "Untitled thread" }).hasAttribute("disabled")).toBe(true);
+    expect(within(header).getByRole("button", { name: "New thread" }).hasAttribute("disabled")).toBe(true);
     expect(header.querySelector(".thread-details")).toBeNull();
     // Project and machine under the heading; checkout and branch on the composer's top edge (T3's layout).
     const pills = screen.getByRole("heading", { name: "What should shop-api do next?" }).parentElement!.querySelector(".region-draft-actions") as HTMLElement;

@@ -39,7 +39,7 @@ import type { TranscriptPage } from "./host-protocol.js";
 import type { ConfigLayers } from "./config-layers.js";
 const failure = (message: string, code: string = HOST_ERROR.invalidRequest): Error => Object.assign(new Error(message), { code });
 function decodeObject(method: string, value: unknown): Record<string, unknown> {
-  if (value === undefined) return {};
+  if (value === undefined || value === null) return {};
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${method}: input must be an object.`);
   return value as Record<string, unknown>;
 }
@@ -401,7 +401,7 @@ export const HOST_FACTORY_COMMANDS = attachCommandMetadata(HOST_FACTORY_COMMAND_
   }),
   "environments-open": command<void>()({
     audit: { label: "opened a machine" },
-    decode: (params) => { const target = params[1] === undefined ? undefined : decodeEnvironmentOpenTarget(params[1]);
+    decode: (params) => { const target = params[1] === undefined || params[1] === null ? undefined : decodeEnvironmentOpenTarget(params[1]);
     return [environmentText("environments-open", "id", params[0], 200), target] as const; },
   }),
   "environments-update": command<HostUpdateStatus>()({

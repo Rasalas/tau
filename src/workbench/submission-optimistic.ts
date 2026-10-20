@@ -7,7 +7,7 @@ import type {
   UiSkillDraft,
 } from "../shared/contracts";
 import { skillFields } from "../shared/prepared-prompt";
-import { createClientMessageId, skillPresentationForDraft } from "./app-state";
+import { createClientMessageId, skillPresentationForDraft, type OptimisticUserMessage } from "./app-state";
 import type { ThreadViewStore } from "./thread-view-store";
 
 export interface BuildOptimisticMessageInput {
@@ -71,8 +71,8 @@ export function buildOptimisticMessage(input: BuildOptimisticMessageInput): Buil
   };
 }
 
-export function addOptimisticMessage(view: ThreadViewStore, scope: string, message: UiMessage): void {
-  view.setOptimisticMessages((current) => [...current, { scope, message }]);
+export function addOptimisticMessage(view: ThreadViewStore, scope: string, message: UiMessage, sent?: OptimisticUserMessage["sent"]): void {
+  view.setOptimisticMessages((current) => [...current, { scope, message, ...(sent ? { sent } : {}) }]);
 }
 
 export function removeOptimisticMessage(view: ThreadViewStore, messageId: string): void {

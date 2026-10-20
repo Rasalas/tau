@@ -1456,7 +1456,7 @@ describe("App render isolation", () => {
     expect(messageRenders.count).toBe(before);
   });
 
-  it("removes a pending bridge prompt by id when its runtime later fails", async () => {
+  it("removes a pending bridge prompt by id when its runtime later fails, and puts it back in the composer", async () => {
     let sentClientMessageId: string | undefined;
     const sendPrompt = vi.fn(async (
       _text: string,
@@ -1496,7 +1496,8 @@ describe("App render isolation", () => {
     expect(screen.getByText("bridge prompt")).toBeTruthy();
 
     client.emit({ type: "user-message-failed", sessionId: "session", clientMessageId, message: "runtime failed" });
-    await waitFor(() => expect(screen.queryByText("bridge prompt")).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText("bridge prompt").filter((element) => element !== composer)).toEqual([]));
+    expect((composer as HTMLTextAreaElement).value).toBe("bridge prompt");
   });
 
   it.each(["before", "after"] as const)("restores a detached new-thread draft when failure arrives %s the IPC response", async (order) => {

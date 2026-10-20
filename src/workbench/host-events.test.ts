@@ -23,6 +23,7 @@ function fixture() {
       markWithoutUserTurn: vi.fn(),
       promoteRecovery: vi.fn(() => true),
       settleDelivery: vi.fn(() => true),
+      restoreFailedPrompt: vi.fn(),
     },
     currentDraftKey: () => undefined,
     transcriptTurnStart: () => undefined,
