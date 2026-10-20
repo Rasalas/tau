@@ -59,13 +59,13 @@ describe("the app around the workbench", () => {
     send({ kind: "quit-requested", requestId: "quit-1" });
     await flush();
     expect(answers()).toEqual(["asking"]);
-    expect(screen.getByText("2 threads are still working. Quitting stops them.")).toBeTruthy();
+    expect(await screen.findByText("2 threads are still working. Quitting stops them.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await flush();
     expect(answers()).toEqual(["asking", "stay"]);
 
     send({ kind: "quit-requested", requestId: "quit-2" });
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(await screen.findByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Quit" }));
     await flush();
     expect(answers()).toEqual(["asking", "stay", "asking", "quit"]);
@@ -95,11 +95,11 @@ describe("the app around the workbench", () => {
     expect(takePasteAsText()).toBe(true);
   });
 
-  it("shows the quit shortcut's hint, and keeps a released hold's hint a moment longer", () => {
-    vi.useFakeTimers();
+  it("shows the quit shortcut's hint, and keeps a released hold's hint a moment longer", async () => {
     const { send } = setup();
     send({ kind: "quit-shortcut", state: "down", mode: "hold" });
-    expect(screen.getByRole("status").textContent).toMatch(/^Hold (⌘Q|Ctrl\+Q) or press it twice to quit$/u);
+    expect((await screen.findByRole("status")).textContent).toMatch(/^Hold (⌘Q|Ctrl\+Q) or press it twice to quit$/u);
+    vi.useFakeTimers();
     send({ kind: "quit-shortcut", state: "up" });
     expect(screen.queryByRole("status")).toBeTruthy();
     act(() => { vi.advanceTimersByTime(1_200); });
@@ -122,9 +122,9 @@ describe("the app around the workbench", () => {
     act(() => { toast.actions![0]!.run(); toasts.dismiss(toast.id); });
     await flush();
     expect(actions).toContainEqual({ kind: "release-notes-seen", version: "0.5.0" });
-    expect(screen.getByRole("dialog", { name: "What’s new in Tau 0.5.0" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "What’s new in Tau 0.5.0" })).toBeTruthy();
     expect(screen.getByText("Paste as Text")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /1 more change on GitHub/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Full changelog" }));
     expect(options.openExternal).toHaveBeenCalledWith("https://github.com/o/r/releases/tag/v0.5.0");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();

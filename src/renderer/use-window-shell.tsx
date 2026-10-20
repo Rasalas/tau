@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ExternalLink } from "lucide-react";
 import type { HostClient } from "../workbench/host-client";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ToastStore } from "../workbench/toast-store";
 import type { QuitShortcutMode, ReleaseNotes, WindowAction, WindowShellEvent, WindowShellStatus } from "../shared/window-shell";
 import type { PreferencesStore } from "./preferences";
-import { ConfirmDialog, Dialog } from "./deferred-surfaces";
+import { WindowShellUi } from "./deferred-surfaces";
 import { isMacPlatform } from "./keybindings";
 import { armPasteAsText, disarmPasteAsText, isPasteAsTextChord } from "./paste-as-text";
 import { openReleaseNotes } from "./release-notes";
@@ -131,45 +130,13 @@ export function useWindowShell(options: WindowShellOptions): { handle(event: Win
     setQuitQuestion(undefined);
   };
 
-  const shortcut = isMacPlatform() ? "⌘Q" : "Ctrl+Q";
-  const ui = <>
-    {quitHint ? (
-      <div className="quit-hint" role="status">
-        {quitHint === "hold" ? `Hold ${shortcut} or press it twice to quit` : `Press ${shortcut} again to quit`}
-      </div>
-    ) : null}
-    {quitQuestion ? (
-      <ConfirmDialog
-        title="Quit Tau?"
-        message={`${quitQuestion.running === 1 ? "A thread is" : `${quitQuestion.running} threads are`} still working. Quitting stops ${quitQuestion.running === 1 ? "it" : "them"}.`}
-        confirmLabel="Quit"
-        destructive
-        dontAskAgain
-        onConfirm={(dontAskAgain) => answerQuit(true, dontAskAgain)}
-        onCancel={() => answerQuit(false)}
-      />
-    ) : null}
-    {notes ? <ReleaseNotesDialog notes={notes} onOpen={(url) => latest.current.openExternal(url)} onClose={() => setNotes(undefined)} /> : null}
-  </>;
+  const ui = quitHint || quitQuestion || notes ? <WindowShellUi
+    quitHint={quitHint}
+    running={quitQuestion?.running}
+    notes={notes}
+    onAnswerQuit={answerQuit}
+    onOpen={(url) => latest.current.openExternal(url)}
+    onCloseNotes={() => setNotes(undefined)}
+  /> : null;
   return { handle, ui };
-}
-
-/** The notes of the version that just started: what changed, and the rest on the release page. */
-export function ReleaseNotesDialog({ notes, onOpen, onClose }: { notes: ReleaseNotes; onOpen(url: string): void; onClose(): void }) {
-  const more = notes.totalItems - notes.items.length;
-  return (
-    <Dialog className="confirm-dialog release-notes" label={`What’s new in Tau ${notes.version}`} onClose={onClose}>
-      <h2>What’s new in Tau {notes.version}</h2>
-      <ul>{notes.items.map((item, index) => <li key={`${index}:${item}`}>{item}</li>)}</ul>
-      <footer>
-        {notes.url ? (
-          <button type="button" className="text-button release-notes-link" onClick={() => onOpen(notes.url!)}>
-            {more > 0 ? `${more} more ${more === 1 ? "change" : "changes"} on GitHub` : "View the release on GitHub"}
-            <ExternalLink size={11} aria-hidden="true" />
-          </button>
-        ) : null}
-        <button type="button" className="primary" autoFocus onClick={onClose}>Close</button>
-      </footer>
-    </Dialog>
-  );
 }
