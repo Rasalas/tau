@@ -127,7 +127,8 @@ describe("Onboarding in the workbench", () => {
     fireEvent.click(within(card("Codex (work)")).getByRole("button", { name: "Sign in" }));
     expect(await screen.findByRole("button", { name: "Sign in", description: "Sign in with ChatGPT" })).toBeTruthy();
     expect(calls).toContainEqual(["tau.codex", "sign-in-state", { target: "work" }]);
-    expect(within(card("Antigravity")).getByRole("button", { name: "Open Settings" })).toBeTruthy();
+    // Named by what it needs, as the other cards are; the tooltip says it happens in Settings.
+    expect(within(card("Antigravity")).getByRole("button", { name: "Install" }).getAttribute("data-tooltip")).toBe("Opens Settings › Runtimes");
     const reviewTools = screen.getByRole("region", { name: /Tools for pull requests/ });
     expect(within(reviewTools).getByText("GitHub CLI")).toBeTruthy();
     expect(within(reviewTools).getByText("Not installed")).toBeTruthy();
@@ -192,7 +193,7 @@ describe("Onboarding in the workbench", () => {
       expect(screen.queryByRole("heading", { name: "Choose your projects" })).toBeNull();
       expect(screen.queryByRole("heading", { name: "Import conversations" })).toBeNull();
       // The steps it went past cannot be gone back to; the agents can.
-      expect((screen.getByRole("button", { name: "Choose your projects, step 2" }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("button", { name: "Choose your projects, step 2, skipped" }) as HTMLButtonElement).disabled).toBe(true);
       expect((screen.getByRole("button", { name: "Your agents, step 1" }) as HTMLButtonElement).disabled).toBe(false);
       fireEvent.click(screen.getByRole("button", { name: "Start a thread" }));
       await waitFor(() => expect(calls.some(([, command]) => command === "complete")).toBe(true));
@@ -230,13 +231,15 @@ describe("Onboarding in the workbench", () => {
       expect(checked()).toEqual([false, false, false]);
     });
 
-    it("checks every step behind the last screen once an agent is ready", async () => {
+    it("checks the agents once one is ready, and marks the steps passed over without adding anything as skipped", async () => {
       firstStart();
       await screen.findByText("1.0.0 · Acme Team");
       await waitFor(() => expect(screen.queryByText(/Looking for/)).toBeNull());
       fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
       await screen.findByRole("heading", { name: "Acme is ready" });
-      expect(checked()).toEqual([true, true, true]);
+      const steps = within(screen.getByRole("list", { name: "Setup progress" })).getAllByRole("button");
+      expect(steps.map((step) => step.className)).toEqual(["done", "skipped", "skipped"]);
+      expect(steps.map((step) => step.getAttribute("aria-label"))).toEqual(["Your agents, step 1", "Choose your projects, step 2, skipped", "Import conversations, step 3, skipped"]);
     });
 
     it("keeps Esc from ending setup while no agent is ready: it opens again on the next start", async () => {

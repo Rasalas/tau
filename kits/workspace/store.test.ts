@@ -5,7 +5,7 @@ import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-
 import { workspaceHostStub, type WorkspaceHostStubOverrides } from "../../src/renderer/test-support/workspace-host-stub.js";
 import { PreferencesStore, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { createWorkspaceHostClient } from "./protocol.js";
-import { clientDrawsReview, WorkspaceStore, WorktreeDeclined } from "./store.js";
+import { CHANGES_POLL_MS, clientDrawsReview, WorkspaceStore, WorktreeDeclined } from "./store.js";
 
 /** A store over the kit's own command names, answered by the stub. */
 function storeOver(overrides: WorkspaceHostStubOverrides, preferences = new PreferencesStore()): WorkspaceStore {
@@ -596,6 +596,47 @@ describe("Workspace Kit changes of the project on screen", () => {
     workspaceStore.follow({ cwd: "/project-b", workspaceId: "ws1_project-b", draftPending: true });
     await vi.waitFor(() => expect(workspaceStore.getSnapshot().changes.files.map((file) => file.path)).toEqual(["src/b.ts"]));
     expect(getChanges).toHaveBeenLastCalledWith(undefined, "ws1_project-b");
+  });
+});
+
+describe("Workspace Kit changes made outside Tau", () => {
+  it("reads them while a view watches, on focus and on a schedule, and stops when it leaves", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    // Lets a read finish: the schedule skips a beat while one is still out.
+    const answered = () => new Promise((resolve) => setTimeout(resolve, 0));
+    try {
+      const changed = (paths: string[]) => ({ files: paths.map((path) => ({ path, status: "modified", staged: false, added: 1, removed: 0 })), added: paths.length, removed: 0 });
+      let onDisk: string[] = [];
+      const getChanges = vi.fn(async () => changed(onDisk));
+      const workspaceStore = storeOver({ getChanges });
+      workspaceStore.follow({ cwd: "/project", workspaceId: "ws1_project", sessionId: "shown", draftPending: false });
+      await vi.waitFor(() => expect(getChanges).toHaveBeenCalledTimes(1));
+      await answered();
+      const unwatch = workspaceStore.watchChanges();
+
+      // A poll that reads the same list keeps the object the review holds.
+      const before = workspaceStore.getSnapshot().changes;
+      vi.advanceTimersByTime(CHANGES_POLL_MS);
+      await vi.waitFor(() => expect(getChanges).toHaveBeenCalledTimes(2));
+      await answered();
+      expect(workspaceStore.getSnapshot().changes).toBe(before);
+
+      // An editor writes two files; the next poll lists them.
+      onDisk = ["README.md", "new-file.ts"];
+      vi.advanceTimersByTime(CHANGES_POLL_MS);
+      await vi.waitFor(() => expect(workspaceStore.getSnapshot().changes.files.map((file) => file.path)).toEqual(["README.md", "new-file.ts"]));
+
+      window.dispatchEvent(new Event("focus"));
+      await vi.waitFor(() => expect(getChanges).toHaveBeenCalledTimes(4));
+      await answered();
+
+      unwatch();
+      vi.advanceTimersByTime(CHANGES_POLL_MS * 3);
+      window.dispatchEvent(new Event("focus"));
+      expect(getChanges).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

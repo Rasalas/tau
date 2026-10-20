@@ -117,30 +117,6 @@ export const runtimeControls: DesktopExtension = {
         nextTranscriptDetail(plugin.preferences.transcriptDetailFor(app.activeThread()?.sessionId)),
       ),
     });
-    for (const theme of THEME_PREFERENCES) {
-      plugin.registerCommand({
-        id: `runtime.theme-${theme}`,
-        label: `Theme: ${THEME_LABELS[theme]}`,
-        group: "Runtime",
-        access: "read",
-        run: (app) => applyTheme(plugin.preferences, app, theme),
-      });
-    }
-    plugin.registerCommand({
-      id: "runtime.theme-menu",
-      label: "Change theme…",
-      group: "Runtime",
-      access: "read",
-      submenu: lazyLevel("Change theme", (loaded) => loaded.themeItems(plugin.preferences, (app, theme) => applyTheme(plugin.preferences, app, theme))),
-      run: (app) => app.openCommandPalette({ menu: "runtime.theme-menu" }),
-    });
-    plugin.registerCommand({
-      id: "runtime.theme",
-      label: "Cycle the theme",
-      group: "Runtime",
-      access: "read",
-      run: (app) => applyTheme(plugin.preferences, app, nextTheme(plugin.preferences.getSnapshot().theme)),
-    });
     plugin.registerCommand({ id: "runtime.abort", label: "Stop the run", group: "Runtime", access: "write", run: (app) => app.abort() });
     plugin.registerCommand({ id: "composer.effort", label: "Choose the reasoning effort", group: "Composer", access: "write", run: later("composer.effort") });
     plugin.registerCommand({ id: "thread.steerQueuedMessage", label: "Send the oldest queued message now", group: "Thread", access: "write", run: (app) => { app.steerQueuedMessage?.(); } });
@@ -208,6 +184,31 @@ export const runtimeControls: DesktopExtension = {
     goalCommand("runtime.goal-pause", "Pause goal", "pause", "pause");
     goalCommand("runtime.goal-resume", "Resume goal", "resume", "resume");
     goalCommand("runtime.goal-end", "End goal", "clear", "end");
+    // Last of the commands: an empty palette lists in this order, and five theme rows ahead of them crowded the top.
+    for (const theme of THEME_PREFERENCES) {
+      plugin.registerCommand({
+        id: `runtime.theme-${theme}`,
+        label: `Theme: ${THEME_LABELS[theme]}`,
+        group: "Runtime",
+        access: "read",
+        run: (app) => applyTheme(plugin.preferences, app, theme),
+      });
+    }
+    plugin.registerCommand({
+      id: "runtime.theme-menu",
+      label: "Change theme…",
+      group: "Runtime",
+      access: "read",
+      submenu: lazyLevel("Change theme", (loaded) => loaded.themeItems(plugin.preferences, (app, theme) => applyTheme(plugin.preferences, app, theme))),
+      run: (app) => app.openCommandPalette({ menu: "runtime.theme-menu" }),
+    });
+    plugin.registerCommand({
+      id: "runtime.theme",
+      label: "Cycle the theme",
+      group: "Runtime",
+      access: "read",
+      run: (app) => applyTheme(plugin.preferences, app, nextTheme(plugin.preferences.getSnapshot().theme)),
+    });
     for (const [name, description, argumentHint] of SLASH_COMMANDS) {
       plugin.registerSlashCommand({ name, description, ...(argumentHint ? { argumentHint } : {}), run: async (args, app) => (await runs()).slashRuns[name]!(args, app) });
     }

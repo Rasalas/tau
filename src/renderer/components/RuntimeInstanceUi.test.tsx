@@ -115,7 +115,7 @@ describe("RuntimeProgramRows", () => {
 describe("RuntimeCommandRow", () => {
   it("saves a path when the field is left, and is inert while Tau's environment names it", async () => {
     const onSave = vi.fn();
-    const props = { id: "setting-codex-executable", program: "Codex", commandName: "codex", variable: "TAU_CODEX_COMMAND", placeholder: "codex, from your login shell's PATH", onSave };
+    const props = { id: "setting-codex-executable", program: "Codex", commandName: "codex", variable: "TAU_CODEX_COMMAND", placeholder: "codex", onSave };
     const { rerender } = render(<RuntimeCommandRow {...props} known command="codex" />);
     const field = screen.getByRole("textbox", { name: "Codex executable" });
     fireEvent.change(field, { target: { value: " /opt/codex " } });

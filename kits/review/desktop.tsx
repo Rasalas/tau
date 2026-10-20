@@ -199,7 +199,7 @@ export const reviewExtension: DesktopExtension = {
       workspaceStore = store;
       const StageReview = createReviewOverlay(plugin, workspace, store, comments, () => chips, true);
       const disposers = [
-        plugin.registerPanel({ id: REVIEW_DIFF_PANEL, label: "Diff", Icon: GitCompare, order: 20, stageButton: true, maximizable: true, profiles: ["desktop"], Component: ({ actions }) => <StageReview actions={actions} onClose={() => actions.closePanel?.(REVIEW_DIFF_PANEL)} /> }),
+        plugin.registerPanel({ id: REVIEW_DIFF_PANEL, label: "Diff", Icon: GitCompare, order: 20, stageButton: true, maximizable: true, profiles: ["desktop"], Component: ({ actions, active }) => <StageReview actions={actions} active={active} onClose={() => actions.closePanel?.(REVIEW_DIFF_PANEL)} /> }),
         plugin.registerOverlay({ id: REVIEW_OVERLAY, profiles: ["desktop"], Component: createReviewOverlay(plugin, workspace, store, comments, () => chips) }),
         // The Changes rail entry opens this review, which carries the panel's commit, staging and sections.
         store.registerReviewView?.() ?? (() => undefined),

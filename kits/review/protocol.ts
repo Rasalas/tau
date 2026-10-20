@@ -55,6 +55,8 @@ export interface WorkspaceStoreApi {
     actions: WorkbenchActions;
   }) => Promise<string>): () => void;
   refresh(): Promise<void>;
+  /** Keeps the changes current, an edit outside Tau included, while a view shows them; absent from an older Workspace Kit. */
+  watchChanges?(): () => void;
   registerChangesSection(section: ComponentType<ChangesSectionProps>): () => void;
   registerWorkspaceSummarySection?(section: ComponentType<import("tau").RegionProps>): () => void;
   /** The request Review can open for the checkout, until the returned function takes it back; absent from an older Workspace Kit (API 1.61.0). */

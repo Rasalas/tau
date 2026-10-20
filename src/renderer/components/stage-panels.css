@@ -14,7 +14,7 @@
 .stage-tabs::-webkit-scrollbar { display: none; }
 .stage-tab {
   position: relative; flex: none; display: flex; align-items: center; gap: 6px;
-  max-width: 220px; height: 40px; padding: 0 10px;
+  min-width: 84px; max-width: 220px; height: 40px; padding: 0 10px;
   border: 1px solid transparent; border-bottom: 0;
   border-radius: var(--radius-row) var(--radius-row) 0 0; color: var(--ink-3);
   font: var(--text-sm) var(--sans); white-space: nowrap; cursor: pointer; user-select: none; -webkit-app-region: no-drag;
@@ -37,7 +37,8 @@
 .stage-tab-badge { flex: none; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 /*
  * No padding: the browser's default button padding pushed the 12 px glyph right of its box's centre.
- * Hidden until the tab is hovered or focused, and then over the tab's end, so a tab is as wide as its name (design 1l).
+ * Hidden until the tab is hovered or focused, and then over the tab's end, so a tab is as wide as its name (design 1l);
+ * the tab's min-width keeps a short name ("Diff") readable beside it.
  */
 .stage-tab-close {
   position: absolute; top: 50%; right: 5px; translate: 0 -50%;

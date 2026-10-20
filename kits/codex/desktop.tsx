@@ -282,10 +282,14 @@ export function CodexProviderCard({ host, onNotify, instance = DEFAULT_INSTANCE_
         known={status !== undefined}
         {...(status ? { command: status.command } : {})}
         {...(status?.commandSource ? { source: status.commandSource } : {})}
-        placeholder="codex, from your login shell's PATH"
         onSave={saveCommand}
       />
-      <SettingRow title="Separate CLI account" description={<>CLI accounts sharing <code>CODEX_HOME</code> use <code>TAU_CODEX_AUTH_HOME</code> with a different fresh folder in this instance's environment below. Managed ChatGPT accounts can share the same explicitly configured home below while Tau keeps their credentials private. Configure shared homes before starting threads, then switch accounts from the composer menu.</>} />
+      {/* The variable names are for whoever sets the environment; the description keeps to plain words. */}
+      <SettingRow
+        title="Separate CLI account"
+        description="A second CLI account keeps its sign-in in a fresh folder of its own, set in this instance's environment below; ChatGPT accounts Tau manages can share one home. Set homes up before starting threads, then switch accounts from the composer menu."
+        help="CLI accounts that share CODEX_HOME set TAU_CODEX_AUTH_HOME to a different fresh folder. Managed ChatGPT accounts can share the same explicitly configured CODEX_HOME while Tau keeps their credentials private."
+      />
       {view ? (
         <InstanceSetup
           program="Codex"

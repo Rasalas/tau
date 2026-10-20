@@ -211,11 +211,11 @@ describe("ComposerFooterControls", () => {
     expect(document.querySelector(".composer-chips")!.hasAttribute("data-lead-icons")).toBe(true);
   });
 
-  it("drops the status controls before any block loses its label, and draws them again with room", () => {
-    // jsdom has no stylesheet: the row's CSS takes the status out, here the mock does.
+  it("draws the status controls as their icons before any block loses its label, and keeps them in the row", () => {
+    // jsdom has no stylesheet: the row's CSS shrinks the status to its 13 px icon, here the mock does.
     const original = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      if (this.classList.contains("composer-status")) return rect(this.closest("[data-lead-icons]") ? 0 : 100);
+      if (this.classList.contains("composer-status")) return rect(this.closest("[data-lead-icons]") ? 13 : 100);
       return original.call(this);
     });
     const Row = ({ revision }: { revision: string }) => (
@@ -232,12 +232,14 @@ describe("ComposerFooterControls", () => {
     expect(row().hasAttribute("data-lead-icons")).toBe(true);
     expect(block("effort")?.dataset.iconOnly).toBeUndefined();
     expect(block("access")?.dataset.iconOnly).toBeUndefined();
-    available = 300;
+    // Model, effort, access and the status's icon: 313 px.
+    available = 313;
     view.rerender(<Row revision="c" />);
     expect(block("access")?.dataset.iconOnly).toBeUndefined();
-    available = 299;
+    available = 312;
     view.rerender(<Row revision="d" />);
     expect(block("access")?.dataset.iconOnly).toBe("");
+    expect(row().querySelector(".composer-status")?.textContent).toBe("Full access");
     available = 401;
     view.rerender(<Row revision="e" />);
     expect(row().hasAttribute("data-lead-icons")).toBe(false);

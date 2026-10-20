@@ -39,6 +39,7 @@ import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSe
 import { readProjectIcon, writeProjectIcon } from "./project-icons.js";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
 import { accessoryMarks, diffStat } from "./row-marks.js";
+import { useRowAge } from "./row-age.js";
 import { useWorkspaceStore } from "./store-context.js";
 import { SidebarFooter } from "./sidebar-footer.js";
 import { ProjectFilterMenu, RailProjectControls } from "./project-filter-menu.js";
@@ -307,8 +308,8 @@ const ConnectedThreadRow = memo(function ConnectedThreadRow({
   const stat = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().turnStats[id]);
   const owner = useMemo(() => session ? findProjectForSession(projects, session) : undefined, [projects, session]);
   const icon = useProjectIcon(owner);
+  const age = useRowAge(session?.modifiedAt ?? 0, sessionAge);
   if (!session) return null;
-  const age = sessionAge(session.modifiedAt);
   const diff = diffStat(stat, compact || activity === "settled");
   const marks = accessoryMarks(accessories, session);
   return (
@@ -414,7 +415,7 @@ const ExternalThreadRow = memo(function ExternalThreadRow({ thread, cursor, onOp
   onToggleSettled?(thread: RailExternalThread): void;
 }) {
   const { session, machine, unavailable, opening, running, settled, background } = thread;
-  const age = sessionAge(session.modifiedAt);
+  const age = useRowAge(session.modifiedAt, sessionAge);
   const waits = background && !running && !settled;
   const activity: ThreadActivity = opening ? "ready" : unavailable ? "offline" : running ? "working" : waits ? "background" : settled ? "settled" : "idle";
   const label = opening ? "Opening…" : unavailable ? (running ? "Paused · offline" : "Offline") : running ? "Working" : waits ? "Waiting" : undefined;

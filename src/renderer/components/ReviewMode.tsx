@@ -105,7 +105,8 @@ function loadedDiffRows(path: string, diff: UiFileDiff): DiffStreamRow[] {
 function suggestionNote(error: unknown): string {
   const reason = error instanceof Error ? error.message.trim().replace(/\.$/u, "") : "";
   const provider = /^Provider is not configured: (.+)$/u.exec(reason)?.[1];
-  if (provider) return `Could not write a message from the diff: ${provider} is not set up.`;
+  // The thread's model may run through a runtime's own sign-in (Codex, Claude Code) that Tau's own model calls cannot use.
+  if (provider) return `Could not write a message from the diff: Tau has no ${provider} key of its own. Pick a "Model that writes commit messages" in Settings.`;
   return reason ? `Could not write a message from the diff: ${reason}.` : "Could not write a message from the diff.";
 }
 

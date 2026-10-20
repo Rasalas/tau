@@ -103,7 +103,7 @@ export function RuntimesPage({ snapshot, cards, sections, selected, stacked = fa
 
       {defaultBackend && !(stacked && chosen) ? (
         <p className="runtimes-summary">
-          New threads start on <ProviderIconStack runtimeProvider={defaultBackend.kind} hint={false} className="runtimes-mark" /> <b>{defaultBackend.label}</b>. The star on a runtime marks it; the composer can still pick another per thread.
+          New threads start on <ProviderIconStack runtimeProvider={defaultBackend.kind} hint={false} className="runtimes-mark" /> <b>{defaultBackend.label}</b>.
         </p>
       ) : null}
 

@@ -1418,9 +1418,11 @@ button.md-thread-link:hover { border-color: var(--line-strong); color: var(--aci
 .composer-chips { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 2px; }
 .composer-block { flex: none; display: flex; align-items: center; }
 .composer-block:empty { display: none; }
-/* A status (Access Kit's level) the row can do without: a short row drops it first (ComposerFooterControls). */
+/* A status (Access Kit's level) stays in sight: a short row draws its chips as their icons first (ComposerFooterControls); a chip's aria-label names it. */
 .composer-status { flex: none; display: flex; align-items: center; }
-.composer-status:empty, .composer-chips[data-lead-icons] > .composer-status { display: none; }
+.composer-status:empty { display: none; }
+.composer-chips[data-lead-icons] > .composer-status .runtime-chip:has(> svg) { gap: 0; font-size: 0; }
+.composer-chips[data-lead-icons] > .composer-status .runtime-chip:has(> svg) > :not(svg) { display: none; }
 .composer-chips > :not(.end) + .composer-block.end, .composer-chips > .composer-block.end:first-child { margin-left: auto; }
 .composer-block[data-icon-only] .runtime-chip:has(> svg) { gap: 0; font-size: 0; }
 .composer-block[data-icon-only] .runtime-chip .chev { display: none; }

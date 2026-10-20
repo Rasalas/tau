@@ -937,8 +937,8 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
             <div className="conversation-start-content">
               {showStartScreen ? <div className="conversation-empty">
                 <i className="conversation-start-intro" aria-hidden><MessageSquare size={20} /></i>
-                {compact ? <h1 className="conversation-start-intro" id="start-screen-title">{projectless ? "What should we build?" : <>What should we build<br />in <button className="mobile-project-title" ref={projectPill} aria-label={`Change project, current project ${startProjectName}`} aria-haspopup="dialog" onClick={() => openNewThreadPicker({ carry: true, preselect: startProjectPath })}>{startProjectName}</button>?</>}</h1> : <h1 className="conversation-start-intro" id="start-screen-title">What should {projectless ? "we" : startProjectName} do next?</h1>}
-                <p className="conversation-start-intro">Just chat, or hand it work. Files, Terminal and your editor sit top right.</p>
+                {compact ? <h1 className="conversation-start-intro" id="start-screen-title">{projectless ? "What should we build?" : <>What should we build<br />in <button className="mobile-project-title" ref={projectPill} aria-label={`Change project, current project ${startProjectName}`} aria-haspopup="dialog" onClick={() => openNewThreadPicker({ carry: true, preselect: startProjectPath })}>{startProjectName}</button>?</>}</h1> : <h1 className="conversation-start-intro" id="start-screen-title">{projectless ? "What should we do next?" : `In ${startProjectName}, what should we do next?`}</h1>}
+                <p className="conversation-start-intro">Just chat, or hand it work. Files, Terminal and your editor open from the buttons at the top right.</p>
                 <Region registry={registry} placement="draft-actions" snapshot={snapshot} actions={actions} lead={compact && !projectless ? undefined : <button
                   ref={projectPill}
                   type="button"

@@ -125,6 +125,8 @@ describe("Settings → Runtimes", () => {
     expect(within(page.querySelector<HTMLElement>(".settings-page-head")!).getByRole("heading", { level: 1, name: "Runtimes" })).toBeTruthy();
     expect(within(page).queryByRole("navigation", { name: "Settings breadcrumb" })).toBeNull();
     expect(within(page.querySelector<HTMLElement>(".settings-nav")!).getByRole("button", { name: "Runtimes" }).getAttribute("aria-current")).toBe("page");
+    // The page's description explains the star; the line naming the default does not say it again.
+    expect(within(page).getAllByText(/\bstar\b/u)).toHaveLength(1);
   });
 
   it("makes a runtime the default for new threads on this client", () => {

@@ -63,7 +63,7 @@ function iconWidth(block: HTMLElement, natural: number): number {
  * The composer's footer row: the model, then the blocks, then `status`, then one menu ("…")
  * that holds `menu`, the `menuOnly` blocks and every block the row has no room for. As the
  * composer narrows the lead controls that mark themselves `data-composer-collapsible`
- * shrink to their icons and `status` leaves the row (the row says so with
+ * and the `status` chips shrink to their icons (the row says so with
  * `data-lead-icons`), then the blocks
  * drop their labels and move into the menu, lowest rank first. Last, a control
  * beside the row that marks itself `data-composer-trailing` (the send button's
@@ -72,7 +72,7 @@ function iconWidth(block: HTMLElement, natural: number): number {
 export function ComposerFooterControls({ leading, blocks, status, menu, menuShortcuts = NO_SHORTCUTS, revision = "" }: {
   leading: ReactNode;
   blocks: readonly FooterBlock[];
-  /** After the blocks, before the menu: what the row can do without, so it is the first to go. */
+  /** After the blocks, before the menu: worth seeing at any width, so short of room it keeps its icons, first of all. */
   status?: ReactNode;
   /** Entries that always live in the menu. */
   menu?: ReactNode;

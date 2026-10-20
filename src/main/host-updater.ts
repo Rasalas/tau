@@ -462,7 +462,7 @@ export class HostUpdater {
       this.requested = false;
       this.failedVersion = staged.version;
       this.options.log.warn("host-update.install.failed", error);
-      this.set("failed", message(error));
+      this.set("failed", `The install failed: ${message(error)}`);
     }
   }
 

@@ -1,5 +1,5 @@
 import { Suspense, createContext, lazy, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ArrowRight, Check, ChevronRight, Copy, Download, FolderPlus, GitMerge, GitPullRequest, LogIn, RefreshCw, Settings, SquareTerminal } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Copy, Download, FolderPlus, GitMerge, GitPullRequest, LogIn, Minus, RefreshCw, Settings, SquareTerminal } from "lucide-react";
 import { MiddleTruncate, PrivateAccountText, ProviderIconStack, loadSignInUi, useThreadStore, useWorkbenchShell, type OverlayProps, type WorkbenchActions } from "tau";
 import { backendKit, defaultProjects, defaultSessions, emptySteps, groupProjects, pendingSessions, projectCandidates, stepAfter, type AgentStatus, type FlowState, type ProjectGroup, type WelcomeFlow } from "./flow.js";
 import { TauMark } from "./mark.js";
@@ -161,9 +161,14 @@ function StepShell({ title, description, children }: { title: string; descriptio
   </>;
 }
 
-/** A step behind the current one gets its check only once an agent is ready; until then setup is not done. */
-function Steps({ current, disabled, skipped, agentReady, onStep }: { current: number; disabled: boolean; skipped: readonly boolean[]; agentReady: boolean; onStep(step: FlowState["step"]): void }) {
-  const isDone = (index: number) => agentReady && index < current;
+/**
+ * A step behind the current one gets its check only once an agent is ready; until then setup is not done.
+ * A step passed over without adding anything (`completed` false) says "skipped" with a dash instead.
+ */
+function Steps({ current, disabled, skipped, completed, agentReady, onStep }: { current: number; disabled: boolean; skipped: readonly boolean[]; completed: readonly boolean[]; agentReady: boolean; onStep(step: FlowState["step"]): void }) {
+  const isPassed = (index: number) => agentReady && index < current;
+  const isDone = (index: number) => isPassed(index) && completed[index] !== false;
+  const isSkipped = (index: number) => isPassed(index) && completed[index] === false;
   return (
     <ol className="onboarding-steps" aria-label="Setup progress">
       {STEPS.map((label, index) => (
@@ -172,12 +177,13 @@ function Steps({ current, disabled, skipped, agentReady, onStep }: { current: nu
             type="button"
             disabled={disabled || index >= current || skipped[index] === true}
             aria-current={index === current ? "step" : undefined}
-            aria-label={`${label}, step ${index + 1}`}
-            className={index === current ? "current" : isDone(index) ? "done" : ""}
+            aria-label={`${label}, step ${index + 1}${isSkipped(index) ? ", skipped" : ""}`}
+            className={index === current ? "current" : isDone(index) ? "done" : isSkipped(index) ? "skipped" : ""}
             onClick={() => onStep(index as FlowState["step"])}
           >
-            <span className="onboarding-step-mark" aria-hidden="true">{isDone(index) ? <Check size={12} /> : null}</span>
+            <span className="onboarding-step-mark" aria-hidden="true">{isDone(index) ? <Check size={12} /> : isSkipped(index) ? <Minus size={12} /> : null}</span>
             <span>{label}</span>
+            {isSkipped(index) ? <span className="onboarding-step-skipped" aria-hidden="true">Skipped</span> : null}
           </button>
         </li>
       ))}
@@ -200,7 +206,9 @@ function CommandBlock({ command, actions }: { command: string; actions: Workbenc
 function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; actions: WorkbenchActions; flow: WelcomeFlow; aside?: RunAside; recheck(): void }) {
   const open = flow.get().expanded === row.id;
   const inPlace = Boolean(row.signIn);
-  const label = inPlace || (row.command && row.state === "signIn") ? "Sign in" : !row.command ? "Open Settings" : row.state === "install" ? "Install" : row.state === "update" ? "Update" : "Sign in";
+  // Named by what the row needs, whether it happens here or in Settings: every card speaks the same words.
+  const label = inPlace ? "Sign in" : row.state === "install" ? "Install" : row.state === "update" ? "Update" : row.command || row.state === "signIn" ? "Sign in" : "Open Settings";
+  const inSettings = !row.command && !inPlace;
   // An install or a login may ask things, so it runs where the user can answer; an update is only shown.
   const inTerminal = aside && row.command && !inPlace && (row.state === "install" || row.state === "signIn") ? row.command : undefined;
   const act = () => {
@@ -220,7 +228,7 @@ function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; acti
           ? <span className="onboarding-ready" role="img" aria-label="Ready" data-tooltip="Ready"><Check size={14} /></span>
           : row.state === "checking"
             ? null
-            : <button type="button" className={`onboarding-button small ${label === "Sign in" ? "raised" : "ghost"}`} aria-expanded={!inTerminal && (row.command || inPlace) ? open : undefined} data-tooltip={inTerminal ? `Runs ${inTerminal} in a terminal` : undefined} onClick={act}>
+            : <button type="button" className={`onboarding-button small ${label === "Sign in" ? "raised" : "ghost"}`} aria-expanded={!inTerminal && (row.command || inPlace) ? open : undefined} data-tooltip={inTerminal ? `Runs ${inTerminal} in a terminal` : inSettings && label !== "Open Settings" ? "Opens Settings › Runtimes" : undefined} onClick={act}>
               {inTerminal ? <SquareTerminal size={12} /> : label === "Sign in" ? <LogIn size={12} /> : label === "Install" ? <Download size={12} /> : label === "Update" ? <RefreshCw size={12} /> : <Settings size={12} />}{label}
             </button>}
       </div>
@@ -547,7 +555,7 @@ export function createWelcomeWizard(flow: WelcomeFlow, runner?: () => TerminalRu
         <section ref={dialog} tabIndex={-1} className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-heading">
           <h1 id="onboarding-heading" className="onboarding-sr">Set up Tau</h1>
           <Frame.Provider value={{
-            steps: <Steps current={state.step} disabled={Boolean(state.busy)} skipped={[false, empty.projects, empty.sessions]} agentReady={rows.some((row) => row.state === "ready")} onStep={(step) => flow.goTo(step)} />,
+            steps: <Steps current={state.step} disabled={Boolean(state.busy)} skipped={[false, empty.projects, empty.sessions]} completed={[true, state.added.length > 0, (state.imported ?? 0) > 0]} agentReady={rows.some((row) => row.state === "ready")} onStep={(step) => flow.goTo(step)} />,
             note: state.terminal ? (
               <div className="onboarding-terminal-note" role="status">
                 <SquareTerminal size={13} /><span>{state.terminal} runs in a terminal. Setup comes back when it ends.</span>

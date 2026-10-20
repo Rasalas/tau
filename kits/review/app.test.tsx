@@ -185,12 +185,12 @@ describe("Review Kit in the workbench", () => {
 
     const hint = await waitFor(() => {
       const found = document.querySelector(".review-commit .review-commit-note");
-      expect(found?.textContent?.trim()).toBe("Could not write a message from the diff: openai is not set up.");
+      expect(found?.textContent?.trim()).toBe("Could not write a message from the diff: Tau has no openai key of its own. Pick a \"Model that writes commit messages\" in Settings.");
       return found;
     });
     expect(hint).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Commit message" })).toHaveProperty("value", "Update a");
-    expect(screen.getAllByText(/openai is not set up/u)).toHaveLength(1);
+    expect(screen.getAllByText(/no openai key of its own/u)).toHaveLength(1);
   });
 
   it("comments on a line and hands the comment to the composer as a chip", async () => {

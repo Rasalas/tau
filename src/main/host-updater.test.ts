@@ -475,6 +475,7 @@ describe("HostUpdater", () => {
     const { instance, advance } = updater({ fetch: feed.fetch, installer });
     advance(120_000);
     expect((await instance.check()).phase).toBe("failed");
+    expect(describeHostUpdate(instance.status())).toBe("The install failed: polkit did not allow the update helper; nothing was installed.");
     instance.observe({ type: "agent-status", sessionId: "a", running: true });
     advance(120_000);
     instance.observe({ type: "agent-status", sessionId: "a", running: false });
