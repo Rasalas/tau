@@ -2142,8 +2142,7 @@ export class ExtensionRegistry {
           const wrapped = activation.guard(listener as (event: WorkbenchEvent) => void);
           listeners.add(wrapped);
           const dispose = () => { listeners.delete(wrapped); };
-          activation.own(dispose);
-          return dispose;
+          return activation.own(dispose);
         },
       },
       registerRegion: (region) => {
@@ -2209,7 +2208,7 @@ export class ExtensionRegistry {
           for (const sessionId of source.bySession.keys()) this.dataChanged(`thread:${sessionId}`, true);
           this.changed();
         };
-        activation.own(dispose);
+        const release = activation.own(dispose);
         this.changed();
         return {
           setRows: (sessionId, rows) => {
@@ -2225,7 +2224,7 @@ export class ExtensionRegistry {
             else source.bySession.delete(sessionId);
             for (const affectedSessionId of sessions) this.dataChanged(`thread:${affectedSessionId}`, true);
           },
-          dispose,
+          dispose: release,
         };
       },
       registerComposerControl: (control) => contribute(this.#composerControls, control.id, control, "composer control", undefined, "composer controls"),
