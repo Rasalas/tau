@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import { build } from "esbuild";
 import { expect, it } from "vitest";
 import { processRunning as running } from "../../src/main/test-support/process-running.js";
@@ -58,6 +59,66 @@ it.skipIf(process.platform === "win32")("leaves no old server or tools after a h
     }
     for (const pid of otherPids) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
     for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+const sourcePath = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+
+it.skipIf(process.platform === "win32")("ends an OpenCode server when its extension worker is terminated without disposing it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "tau-opencode-owner-"));
+  const entry = join(dir, "worker.cjs");
+  let worker: Worker | undefined;
+  let pid: number | undefined;
+  try {
+    // Exercise the kit's real spawn path and public API in the bundled form a
+    // worker loads. Abrupt worker termination never calls server.close().
+    await build({
+      stdin: {
+        contents: `
+          import { parentPort } from "node:worker_threads";
+          import { startOpenCodeServer } from ${JSON.stringify(sourcePath("./server.ts"))};
+          async function main() {
+          let pid;
+          const server = await startOpenCodeServer({
+            command: ${JSON.stringify(sourcePath("./fixtures/fake-serve-v2.mjs"))},
+            cwd: ${JSON.stringify(dir)},
+            env: { ...process.env, FAKE_IGNORE_TERM: "1" },
+            wrap: ({ command, args }) => ({ command, args: [...args] }),
+            onStderrLine: (line) => { const match = /^pid (\\d+)$/.exec(line); if (match) pid = Number(match[1]); },
+          });
+          parentPort.on("message", () => {});
+          parentPort.postMessage({ pid, url: server.url });
+          }
+          main().catch((error) => { throw error; });
+        `,
+        resolveDir: process.cwd(),
+        sourcefile: "opencode-owner.ts",
+        loader: "ts",
+      },
+      alias: { "tau/host-extension": sourcePath("../../src/main/host-extension-api.ts") },
+      outfile: entry,
+      bundle: true,
+      platform: "node",
+      format: "cjs",
+      target: "node22",
+    });
+    worker = new Worker(entry);
+    const ready = await new Promise<{ pid: number; url: string }>((resolve, reject) => {
+      worker!.once("message", resolve);
+      worker!.once("error", reject);
+      worker!.once("exit", (code) => reject(new Error(`OpenCode's owner exited before ready: ${code}`)));
+    });
+    pid = ready.pid;
+    expect(pid).toBeGreaterThan(0);
+    expect(running(pid)).toBe(true);
+    expect((await fetch(ready.url)).ok).toBe(true);
+    await worker.terminate();
+    await expect.poll(() => running(pid!), { timeout: 5_000 }).toBe(false);
+    await expect(fetch(ready.url)).rejects.toThrow();
+  } finally {
+    await worker?.terminate();
+    if (pid !== undefined) { try { process.kill(pid, "SIGKILL"); } catch { /* exited */ } }
     await rm(dir, { recursive: true, force: true });
   }
 });
