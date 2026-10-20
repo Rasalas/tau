@@ -1202,7 +1202,6 @@ const ConversationComposer = memo(function ConversationComposer({ view, composer
   conversationSnapshot?: HostSnapshot;
   pendingNewThread: boolean;
   draftRuntime?: string | undefined;
-  projectless?: boolean;
   activeDraftKey?: string;
   onNotify?(message: string, level?: "info" | "warning" | "error"): void;
   actions?: WorkbenchActions;

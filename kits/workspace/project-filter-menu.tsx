@@ -6,7 +6,6 @@ import { homeRelative } from "./folder-finder.js";
 import { useWorkspaceStore } from "./store-context.js";
 
 type Entry = { kind: "all" | "heading" | "group" | "project"; id: string; label: string; group?: SavedProjectGroup; project?: UiProject };
-const NO_GROUPS: readonly SavedProjectGroup[] = [];
 
 export function ProjectFilterMenu({ filter, groups, projects, counts, hasNoProject = true, onChange, onClose, onSave, onRemove, onSettings, footer, onPick }: {
   filter: RailProjectFilter;
@@ -14,15 +13,16 @@ export function ProjectFilterMenu({ filter, groups, projects, counts, hasNoProje
   projects: readonly UiProject[];
   counts?: ReadonlyMap<string, number>;
   hasNoProject?: boolean;
-  onChange(filter: RailProjectFilter): void;
+  onChange?(filter: RailProjectFilter): void;
   onClose(): void;
-  onSave(name: string, projects: readonly string[], id?: string): boolean;
-  onRemove(id: string): void;
+  onSave?(name: string, projects: readonly string[], id?: string): boolean;
+  onRemove?(id: string): void;
   onSettings?(project: UiProject): void;
   footer?: ReactNode;
   onPick?(project: UiProject): void;
 }) {
   const selected = selectedProjects(filter, projects);
+  const names = (ids: readonly string[]) => ids.map((id) => projectName(id, projects)).join(", ");
   const [query, setQuery] = useState("");
   const [multiple, setMultiple] = useState(false);
   const [naming, setNaming] = useState<{ id?: string; projects: readonly string[] }>();
@@ -34,10 +34,11 @@ export function ProjectFilterMenu({ filter, groups, projects, counts, hasNoProje
   const openContextMenu = useContextMenu();
   const prefix = useId();
   const group = matchingGroup(filter, groups, projects);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
   const entries = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     const matches = (text: string) => !needle || text.toLocaleLowerCase().includes(needle);
-    const saved = groups.filter((entry) => matches(`${entry.name} ${entry.projects.map((id) => projectName(id, projects)).join(" ")}`));
+    const saved = groups.filter((entry) => matches(`${entry.name} ${names(entry.projects)}`));
     const projectEntries: Entry[] = rankProjects(projects, needle).map((project) => ({ kind: "project", id: projectId(project), label: project.name, project }));
     if (hasNoProject && matches("No project")) projectEntries.push({ kind: "project", id: NO_PROJECT, label: "No project" });
     return [
@@ -51,11 +52,11 @@ export function ProjectFilterMenu({ filter, groups, projects, counts, hasNoProje
   useLayoutEffect(() => { if (naming) { nameInput.current?.focus(); nameInput.current?.select(); } }, [naming]);
   useEscapeLayer(() => { if (naming) { setNaming(undefined); input.current?.focus(); } else onClose(); });
 
-  const change = (ids: readonly string[] | undefined) => { setNaming(undefined); onChange(ids); };
+  const change = (ids: readonly string[] | undefined) => { setNaming(undefined); onChange?.(ids); };
   const pick = (entry: Entry | undefined, additive = false) => {
     if (!entry || entry.kind === "heading") return;
     if (onPick && entry.project) { onPick(entry.project); return; }
-    if (entry.kind === "group") { onChange(entry.group!.projects); onClose(); return; }
+    if (entry.kind === "group") { onChange?.(entry.group!.projects); onClose(); return; }
     if (entry.kind === "all") { change(undefined); onClose(); return; }
     if (multiple || additive) {
       const before = selected ?? (multiple ? [...projects.map(projectId), ...(hasNoProject ? [NO_PROJECT] : [])] : []);
@@ -72,13 +73,13 @@ export function ProjectFilterMenu({ filter, groups, projects, counts, hasNoProje
   const duplicate = groups.some((entry) => entry.id !== naming?.id && entry.name.toLocaleLowerCase() === name.trim().toLocaleLowerCase());
   const save = () => {
     if (!naming || !name.trim() || duplicate) return;
-    if (onSave(name, naming.projects, naming.id)) onClose();
+    if (onSave?.(name, naming.projects, naming.id)) onClose();
   };
   const groupMenu = async (event: MouseEvent, saved: SavedProjectGroup) => {
     event.preventDefault(); event.stopPropagation();
     const choice = await openContextMenu(event, [{ items: [{ id: "rename", label: "Rename group" }, { id: "remove", label: "Delete group", destructive: true }] }]);
     if (choice === "rename") beginSave(saved);
-    if (choice === "remove") onRemove(saved.id);
+    if (choice === "remove") onRemove?.(saved.id);
   };
   return <>
     <button type="button" className="project-switcher-scrim" aria-label="Close project filter" onClick={onClose} />
@@ -99,8 +100,8 @@ export function ProjectFilterMenu({ filter, groups, projects, counts, hasNoProje
           : multiple ? selected === undefined || selected.includes(entry.id) : selected?.length === 1 && selected[0] === entry.id;
         const fullPath = entry.project?.displayPath ?? entry.project?.path;
         const shortPath = fullPath ? homeRelative(fullPath) : "";
-        const summary = entry.group?.projects.map((id) => projectName(id, projects)).join(", ")
-          ?? (entry.project && projects.filter((candidate) => candidate.name === entry.label).length > 1 ? fullPath : undefined);
+        const summary = (entry.group ? names(entry.group.projects) : undefined)
+          ?? (entry.project && projects.some((candidate) => candidate !== entry.project && candidate.name === entry.label) ? fullPath : undefined);
         const count = counts?.get(entry.id);
         return <div className={`rail-project-entry${activeIndex === index ? " highlighted" : ""}`} onMouseMove={() => setHighlighted(index)}>
           <button type="button" id={`${prefix}-${index}`} className="rail-project-pick" role={multiple && entry.kind === "project" ? "checkbox" : "option"}
@@ -124,7 +125,7 @@ export function ProjectFilterMenu({ filter, groups, projects, counts, hasNoProje
       {onPick ? null : <footer className="rail-project-footer">
         {naming ? <>
           <label className="rail-project-name-field"><Layers size={14} /><input ref={nameInput} value={name} maxLength={60} placeholder="Group name" aria-label="Group name" onChange={(event) => setName(event.target.value)} /></label>
-          <div className="rail-project-selection"><small role="status">{duplicate ? "This name is already used" : naming.projects.map((id) => projectName(id, projects)).join(", ")}</small><button type="button" onClick={() => { setNaming(undefined); input.current?.focus(); }}>Cancel</button><button type="button" className="primary" disabled={!name.trim() || duplicate} onClick={save}>Save</button></div>
+          <div className="rail-project-selection"><small role="status">{duplicate ? "This name is already used" : names(naming.projects)}</small><button type="button" onClick={() => { setNaming(undefined); input.current?.focus(); }}>Cancel</button><button type="button" className="primary" disabled={!name.trim() || duplicate} onClick={save}>Save</button></div>
         </> : multiple ? <div className="rail-project-selection"><small>{selected === undefined ? "All projects" : `${selected.length} selected`}</small>{!group ? <button type="button" disabled={!selected?.length} onClick={() => beginSave()}>Save…</button> : null}<button type="button" className="primary" onClick={onClose}>Done</button></div> : <>
           <button type="button" className="rail-project-multiple" onClick={() => setMultiple(true)}><ListChecks size={14} /><span>Select multiple…</span><small>Ctrl/⌘-click</small></button>
           {footer}
@@ -141,7 +142,7 @@ export function RailProjectControls({ actions, counts, children }: { actions: Wo
   const { registry } = useWorkbenchShell();
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const filter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
-  const groups = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectGroups ?? NO_GROUPS);
+  const groups = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectGroups);
   const [open, setOpen] = useState(false);
   const openMenu = useContextMenu();
   const { readOnly } = useHostCapabilities();
@@ -157,7 +158,7 @@ export function RailProjectControls({ actions, counts, children }: { actions: Wo
       void createScratch?.().then((project) => actions.newSession({ project })).catch((error: unknown) => actions.notify(errorMessage(error), "error"));
     } else {
       const project = projectById(id, projects);
-      if (project) actions.newSession({ workspace: projectId(project) });
+      if (project) actions.newSession({ workspace: id });
     }
   };
   return <>
@@ -179,7 +180,7 @@ export function RailProjectControls({ actions, counts, children }: { actions: Wo
       }}><Plus size={15} /></button></div>
     {open ? <ProjectFilterMenu filter={filter} groups={groups} projects={projects} counts={counts()} hasNoProject={Boolean(createScratch)} onChange={(next) => workspace.setRailProjectFilter(next)} onClose={close}
       onSave={(name, selected, id) => workspace.saveRailProjectGroup(name, selected, id)} onRemove={(id) => workspace.removeRailProjectGroup(id)}
-      onSettings={(project) => { close(); workspace.openProjectSettings({ projectPath: project.path, projectName: project.name, ...(project.workspaceId ? { workspaceId: project.workspaceId } : {}) }); }}
+      onSettings={(project) => { close(); workspace.openProjectSettings({ projectPath: project.path, projectName: project.name, workspaceId: project.workspaceId }); }}
       footer={<div className="rail-project-management">{readOnly ? null : <button type="button" onClick={() => { close(); actions.openProjectSources(); }}><FolderOpen size={13} />Open a project…</button>}<button type="button" aria-label="Manage projects" onClick={() => { close(); actions.openSettings("workspace.source-control"); }}><SlidersHorizontal size={13} /></button></div>} /> : null}
 
   </>;

@@ -5,14 +5,12 @@ import {
   DraftRow,
   errorMessage,
   findProjectForSession,
-  ProjectIcon,
   Menu,
   type MenuSection,
   ThreadRow,
   tooltipProps,
   useClientStorage,
   useContextMenu,
-  useEscapeLayer,
   useHostCapabilities,
   usePreferences,
   useProjectIcon,
@@ -203,7 +201,7 @@ export function ProjectSwitcherPopover({ activePath, open, projects, onClose, on
   activePath?: string; open: boolean; projects: readonly UiProject[]; onClose(): void; onSelect(project: UiProject): void;
 }) {
   const current = findProjectForSession(projects, { projectPath: activePath ?? "" });
-  return open ? <ProjectFilterMenu filter={current ? [projectId(current)] : []} groups={[]} projects={projects} hasNoProject={false} onClose={onClose} onPick={onSelect} onChange={() => {}} onSave={() => false} onRemove={() => {}} /> : null;
+  return open ? <ProjectFilterMenu filter={current ? [projectId(current)] : []} groups={[]} projects={projects} hasNoProject={false} onClose={onClose} onPick={onSelect} /> : null;
 }
 
 /** The switcher `workspace.switch-project` opens: a pick opens that project. */
