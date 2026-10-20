@@ -505,7 +505,9 @@ describe("last-turn activity", () => {
     await queueFollowUp(composer, "after this turn");
 
     await waitFor(() => expect(waiting()).toEqual(["after this turn"]));
-    expect(client.queueMessage).toHaveBeenCalledWith("session", "after this turn", [], undefined);
+    expect(client.queueMessage).toHaveBeenCalledWith("session", "after this turn", [], undefined, undefined, expect.objectContaining({
+      clientMessageId: expect.any(String), clientTurnId: expect.any(String),
+    }));
     expect(composer.value).toBe("");
     // Neither the runtime nor the window sends it; the host does when the run ends.
     expect(followUp).not.toHaveBeenCalled();
