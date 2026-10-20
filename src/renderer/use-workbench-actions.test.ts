@@ -449,6 +449,16 @@ describe("useWorkbenchActions", () => {
     expect(options.openNewThreadPicker).toHaveBeenLastCalledWith({ preselect: "ws1_app" });
   });
 
+  it("starts directly in a resolved private workspace without adding it to the project catalog", () => {
+    const project = { path: "/scratch/thread", workspaceId: "ws1_scratch", name: "No project", projectless: true, lastOpenedAt: 1 };
+    const createThreadInProject = vi.fn();
+    const options = createMockOptions({ createThreadInProject });
+    const { result } = renderHook(() => useWorkbenchActions(options));
+    result.current.newSession({ project });
+    expect(createThreadInProject).toHaveBeenCalledWith(project);
+    expect(options.openNewThreadPicker).not.toHaveBeenCalled();
+  });
+
   describe("a new thread nobody named a project for asks", () => {
     const app = { path: "/work/app", workspaceId: "ws1_app", name: "app", lastOpenedAt: 1 };
     const site = { path: "/work/site", workspaceId: "ws1_site", name: "site", lastOpenedAt: 5 };

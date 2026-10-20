@@ -57,10 +57,10 @@ function setup(options: { isRepo?: boolean; initial?: Partial<RailState>; confir
   const { registry, preferences } = createKitHarness(invoke);
   let organizer: RailOrganizer | undefined;
   const worktrees: Array<{ force?: boolean; branchSuffix?: string }> = [];
-  let railProjectFilter: string | undefined;
+  let railProjectFilter: string | readonly string[] | undefined;
   const workspace: WorkspaceStoreSlice = {
     getSnapshot: () => ({ draftPending: true, workspace: { isRepo: options.isRepo ?? true }, ...(railProjectFilter ? { railProjectFilter } : {}) }),
-    setRailProjectFilter: vi.fn((name: string | undefined) => { railProjectFilter = name; }),
+    setRailProjectFilter: vi.fn((name: string | readonly string[] | undefined) => { railProjectFilter = name; }),
     openProjectSettings: vi.fn(),
     subscribe: () => () => undefined,
     registerThreadRailOrganizer: (value) => { organizer = value; return () => { organizer = undefined; }; },
@@ -531,7 +531,7 @@ describe("Thread Rail on the desktop", () => {
     expect(vi.mocked(actions.copyText).mock.calls.map((call) => call[0])).toEqual(["feature/rail", "a", "/project"]);
     expect(actions.notify).toHaveBeenCalledWith("Branch copied.");
     organizer().runMenu(branched, "filter-project", actions);
-    expect(workspace.setRailProjectFilter).toHaveBeenLastCalledWith("project");
+    expect(workspace.setRailProjectFilter).toHaveBeenLastCalledWith(["ws-a"]);
     expect(organizer().menu(branched)[1]!.items.find((item) => item.id === "filter-project")?.label).toBe("Show all projects");
     organizer().runMenu(branched, "filter-project", actions);
     expect(workspace.setRailProjectFilter).toHaveBeenLastCalledWith(undefined);

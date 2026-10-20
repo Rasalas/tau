@@ -128,7 +128,9 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
 
   return useMemo<WorkbenchActions>(() => {
     // `unlisted`: a project the window does not list yet is chosen in the picker.
-    const newSession = (request?: { workspace?: string; pick?: boolean }, unlisted = false) => {
+    const newSession = (request?: { workspace?: string; pick?: boolean; project?: UiProject }, unlisted = false) => {
+      // A project source may resolve a private workspace that is deliberately absent from the catalog.
+      if (request?.project) { options.createThreadInProject?.(request.project); return; }
       const workspace = request?.workspace;
       const projects = options.threadStore.getProjects();
       const named = workspace ? projects.find((candidate) => namesWorkspace(workspace, candidate.workspaceId, candidate.path)) : undefined;

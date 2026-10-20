@@ -27,6 +27,13 @@ import type { ThreadUndo, UndoAction, UndoKind } from "./undo.js";
 /** Resolves true once the host took the change. */
 export type SendPatches = (patches: Record<string, ThreadMetaPatch | null>) => Promise<boolean>;
 
+/** Workspace Kit's selection contains workspace ids, with an explicit entry for private thread workspaces. */
+const threadProject = (session: UiSession) => session.projectless ? "@no-project" : session.workspaceId ?? session.projectPath;
+function projectIsFiltered(workspace: WorkspaceStoreSlice | undefined, session: UiSession): boolean {
+  const filter = workspace?.getSnapshot().railProjectFilter;
+  return typeof filter === "string" ? filter === session.projectName : filter?.length === 1 && filter[0] === threadProject(session);
+}
+
 /** What the organizer asks of the rest of the kit: the host half and the undo list. */
 export interface RailOrganizerPort {
   send: SendPatches;
@@ -397,7 +404,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       const snoozed = section === "snoozed";
       const workspace = port.workspace?.();
       const branch = session.projectLabel;
-      const filtered = workspace?.getSnapshot().railProjectFilter === session.projectName;
+      const filtered = projectIsFiltered(workspace, session);
       const offered = lookup?.getCommandsFor("thread-title") ?? [];
       const command = (id: string): MenuItem[] => offered.filter((entry) => entry.id === id).map(commandItem);
       const commandItem = (entry: (typeof offered)[number]): MenuItem => {
@@ -493,7 +500,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       else if (itemId === "rename") store.openRename(session);
       else if (itemId === "regenerate-title") void regenerateTitle(session, actions);
       else if (itemId === "mark-unread") store.threadStore?.markUnread(session.id);
-      else if (itemId === "filter-project") workspace?.setRailProjectFilter?.(workspace.getSnapshot().railProjectFilter === session.projectName ? undefined : session.projectName);
+      else if (itemId === "filter-project") workspace?.setRailProjectFilter?.(projectIsFiltered(workspace, session) ? undefined : [threadProject(session)]);
       else if (itemId === "copy-path") copy(session.projectDisplayPath ?? session.projectPath, "Path");
       else if (itemId === "copy-branch") copy(session.projectLabel, "Branch");
       else if (itemId === "copy-thread-id") copy(session.id, "Thread ID");

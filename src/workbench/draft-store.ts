@@ -16,6 +16,7 @@ export interface NewThreadDraft {
   /** Opaque identity of the draft's project on the host. */
   workspaceId?: string;
   projectName: string;
+  projectless?: boolean;
   /** When the draft began; the list orders drafts by it. */
   createdAt?: number;
   sessionId?: string;
@@ -75,13 +76,14 @@ function newDraftId(): string {
   return `draft-${Date.now()}-${draftSequence}`;
 }
 
-export function createNewThreadDraft(project: Pick<NewThreadDraft, "projectPath" | "projectName" | "workspaceId">): NewThreadDraft {
+export function createNewThreadDraft(project: Pick<NewThreadDraft, "projectPath" | "projectName" | "workspaceId" | "projectless">): NewThreadDraft {
   return {
     kind: "draft",
     draftId: newDraftId(),
     projectPath: project.projectPath,
     ...(project.workspaceId ? { workspaceId: project.workspaceId } : {}),
     projectName: project.projectName,
+    projectless: project.projectless,
     createdAt: Date.now(),
   };
 }
@@ -211,6 +213,7 @@ function parseNewThreadDraft(value: Partial<NewThreadDraft> | null): NewThreadDr
     projectPath: value.projectPath,
     ...(typeof value.workspaceId === "string" ? { workspaceId: value.workspaceId } : {}),
     projectName: value.projectName,
+    projectless: value.projectless === true || undefined,
     ...(typeof value.createdAt === "number" ? { createdAt: value.createdAt } : {}),
     ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
     ...(typeof value.runtime === "string" && value.runtime ? { runtime: value.runtime } : {}),

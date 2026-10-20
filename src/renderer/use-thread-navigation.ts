@@ -87,7 +87,7 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
     // A submitted draft keeps delivering in the background. Its text is on its
     // way to the runtime, so there is nothing to carry into the fresh draft.
     const inFlight = detachPendingDelivery() || Boolean(activeScope?.submissionPending);
-    const nextDraft = createNewThreadDraft({ projectPath: project.path, workspaceId: project.workspaceId, projectName: project.name });
+    const nextDraft = createNewThreadDraft({ projectPath: project.path, workspaceId: project.workspaceId, projectName: project.name, ...(project.projectless ? { projectless: true } : {}) });
     const destinationScope = draftKey(undefined, nextDraft);
     const sourceSnapshot = inFlight ? undefined : activeScope;
     // Only another unsubmitted draft may carry editor state into this new
@@ -172,10 +172,12 @@ export function useThreadNavigation(ports: ThreadNavigationPorts) {
       // A freshly opened workspace can precede its project-index update.
       // An explicit composer choice still belongs to a draft, never Pi's placeholder.
       const displayPath = snapshot.displayPath ?? snapshot.cwd;
+      const projectless = threads.getThread(snapshot.sessionId)?.projectless === true;
       moveDraftToProject({
         path: snapshot.cwd,
         ...(snapshot.workspaceId ? { workspaceId: snapshot.workspaceId } : {}),
-        name: displayPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? displayPath,
+        name: projectless ? "No project" : displayPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? displayPath,
+        projectless,
         lastOpenedAt: Date.now(),
       });
     }

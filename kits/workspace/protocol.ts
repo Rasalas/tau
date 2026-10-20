@@ -589,7 +589,9 @@ export interface WorkspaceKitState {
   /** Each project's main line as the host read it, by workspace id or path. */
   defaultBranches: Readonly<Record<string, string>>;
   /** The rail shows only this repository's threads (the row menu's "Filter by"). */
-  railProjectFilter?: string;
+  railProjectFilter?: string | readonly string[];
+  /** Named project selections, kept on this client for this host. */
+  railProjectGroups: readonly { id: string; name: string; projects: readonly string[] }[];
   /** The project whose settings dialog is open. */
   projectSettings?: UiProject;
   /** Each thread's last file-changing turn, for the row's `+N −N`. */
@@ -896,7 +898,7 @@ export interface WorkspaceStoreApi {
   /** Places beside the list a dragged thread can go: other machines (design 2f). */
   registerThreadDropTargets?(targets: ThreadDropTargets): () => void;
   /** Shows only the threads of one repository, by its project name; `undefined` shows all again (API 1.11.0). */
-  setRailProjectFilter(projectName: string | undefined): void;
+  setRailProjectFilter(project: string | readonly string[] | undefined): void;
   /** Opens the settings of the project a thread runs in: its icon, name and path (API 1.11.0). */
   openProjectSettings(thread: Pick<UiSession, "projectPath" | "projectName" | "workspaceId">): void;
   /**

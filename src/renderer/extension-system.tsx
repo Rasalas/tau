@@ -72,7 +72,7 @@ export interface WorkbenchActions {
    * A new thread's draft in the project on screen, else where the host last worked, else through the picker (API 1.25.0).
    * With `workspace`, in that project, and nothing when the window does not know it yet; with `pick`, through the picker.
    */
-  newSession(options?: { workspace?: string; pick?: boolean }): void;
+  newSession(options?: { workspace?: string; pick?: boolean; project?: UiProject }): void;
   switchSession(path: string): Promise<boolean>;
   /** Makes a new thread's draft from the list (`threadStore.getDrafts()`) the one on screen (API 1.21.0). */
   openDraft?(draftId: string): void;

@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runningTurn } from "../../src/renderer/test-support/kit-harness.js";
-import { ProjectSwitcherPopover, railThreadCounts, rankProjects } from "./navigation.js";
+import { ProjectSwitcherPopover, rankProjects } from "./navigation.js";
 
 afterEach(cleanup);
 
@@ -74,110 +74,17 @@ describe("ProjectSwitcherPopover", () => {
   });
 });
 
-describe("ProjectSwitcherPopover as the rail's project filter", () => {
-  const projects = [
-    { name: "tau", path: "/repos/tau", lastOpenedAt: 2 },
-    { name: "satchel", path: "/repos/satchel", lastOpenedAt: 1 },
-  ];
-
-  it("leads with All projects, checks the shown one, and picks from the keyboard", () => {
-    const all = vi.fn();
-    const onSelect = vi.fn();
-    render(<ProjectSwitcherPopover
-      label="Filter by project"
-      open
-      projects={projects}
-      all={{ label: "All projects", onSelect: all }}
-      selectedName="satchel"
-      onClose={() => {}}
-      onSelect={onSelect}
-    />);
-    const options = screen.getAllByRole("option");
-    expect(options.map((option) => option.getAttribute("aria-label"))).toEqual(["All projects", "tau", "satchel"]);
-    expect(options.map((option) => option.getAttribute("aria-checked"))).toEqual(["false", "false", "true"]);
-    expect(screen.queryByText("current")).toBeNull();
-    // The shown project is where the keyboard starts.
-    expect(options[2]!.getAttribute("aria-selected")).toBe("true");
-    const search = screen.getByRole("textbox", { name: "Search projects" });
-    fireEvent.keyDown(search, { key: "ArrowUp" });
-    fireEvent.keyDown(search, { key: "ArrowUp" });
-    fireEvent.keyDown(search, { key: "Enter" });
-    expect(all).toHaveBeenCalledOnce();
-    // A query hides the row for every project.
-    fireEvent.change(search, { target: { value: "sat" } });
-    expect(screen.getAllByRole("option").map((option) => option.getAttribute("aria-label"))).toEqual(["satchel"]);
-    fireEvent.keyDown(search, { key: "Enter" });
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ name: "satchel" }));
-  });
-
-  it("opens a project's settings from its row and draws its footer", () => {
-    const onSettings = vi.fn();
-    const onSelect = vi.fn();
-    render(<ProjectSwitcherPopover
-      label="Filter by project"
-      open
-      projects={projects}
-      all={{ label: "All projects", onSelect: () => {} }}
-      onClose={() => {}}
-      onSelect={onSelect}
-      onSettings={onSettings}
-      footer={<button type="button">Add project…</button>}
-    />);
-    fireEvent.click(screen.getByRole("button", { name: "Project settings for tau" }));
-    expect(onSettings).toHaveBeenCalledWith(expect.objectContaining({ path: "/repos/tau" }));
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Add project…" })).toBeTruthy();
-  });
-});
-
-describe("railThreadCounts", () => {
-  const session = (id: string, projectName: string, patch: Record<string, unknown> = {}) =>
-    ({ id, path: `/s/${id}`, title: id, modifiedAt: 1, projectPath: `/${projectName}`, projectName, messageCount: 1, ...patch });
-
-  it("counts what the rail lists, per project name", () => {
-    const counts = railThreadCounts([
-      session("a", "tau"), session("b", "tau"), session("c", "shop"),
-      session("draft", "tau", { messageCount: 0 }), session("agent", "tau", { parentThreadId: "a" }), session("spawned", "shop"),
-    ], { spawned: "c" });
-    expect(counts.all).toBe(3);
-    expect([...counts.byName]).toEqual([["tau", 2], ["shop", 1]]);
-  });
-
-  it("puts the count and the home-relative path under each name", () => {
-    render(<ProjectSwitcherPopover
-      label="Filter by project"
-      heading="Show threads from"
-      open
-      projects={[{ name: "tau", path: "/Users/me/dev/tau", lastOpenedAt: 1 }, { name: "empty", path: "/home/me/empty", lastOpenedAt: 0 }]}
-      all={{ label: "All projects", onSelect: () => {} }}
-      counts={{ all: 31, byName: new Map([["tau", 31]]) }}
-      onClose={() => {}}
-      onSelect={() => {}}
-    />);
-    expect(screen.getByText("Show threads from")).toBeTruthy();
-    const detail = (name: string) => screen.getByRole("option", { name }).querySelector("small")!;
-    expect(detail("All projects").textContent).toBe("31 threads");
-    expect(detail("tau").textContent).toBe("31 threads ·\u00a0~/dev/tau");
-    expect(detail("empty").textContent).toBe("0 threads ·\u00a0~/empty");
-    expect(screen.getByRole("option", { name: "All projects" }).closest(".picked")).toBeTruthy();
-  });
-});
-
 describe("a long project path", () => {
-  it("keeps the count and the last folder, cuts the middle, and has the whole path in its tooltip", () => {
+  it("keeps the last folder, cuts the middle, and has the whole path in its tooltip", () => {
     const path = "/Volumes/WD-Black-SN850X/tbuck/repos/_self/tau-public-worktrees/k141/tau-scratch";
     render(<ProjectSwitcherPopover
-      label="Filter by project"
       open
       projects={[{ name: "tau-scratch", path, lastOpenedAt: 1 }]}
-      all={{ label: "All projects", onSelect: () => {} }}
-      counts={{ all: 6, byName: new Map([["tau-scratch", 6]]) }}
       onClose={() => {}}
       onSelect={() => {}}
     />);
     const small = screen.getByRole("option", { name: "tau-scratch" }).querySelector("small")!;
-    const [count, truncated] = [...small.children] as HTMLElement[];
-    expect(count!.textContent).toBe("6 threads ·\u00a0");
+    const [truncated] = [...small.children] as HTMLElement[];
     expect(truncated!.getAttribute("data-tooltip")).toBe(path);
     // The head gives way with an ellipsis; the tail with its slash does not shrink.
     const [head, tail] = [...truncated!.children] as HTMLElement[];

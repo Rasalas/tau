@@ -1927,7 +1927,7 @@ released oldest first, and one nobody used for ten minutes is released too, so a
 released thread's transcript is projected from its session file, with the same
 paging, cursors and client-message correlation.
 
-`actions.newSession()` asks for the project first, as ⌘N, the rail's "+", the
+`actions.newSession()` asks for the project first, as ⌘N, the
 palette and a phone's button do (K98, for API 1.28.0), so a thread never starts
 in the wrong project: the project picker opens with the project in context first
 and selected, so Enter confirms it. That project is the draft's or thread's on
@@ -1940,13 +1940,25 @@ thread on screen; access and the workspace mode stay at their defaults (new
 in API 1.25.0). `actions.newSession({ pick: true })` asks even with one
 project, as "New thread in…" and ⇧⌘O do (new in API 1.25.0);
 `actions.newSession({ workspace, pick: true })` asks with that project first
-(a filtered rail, a thread's "New thread on <branch>"). `actions.newSession({
+(a thread's "New thread on <branch>"). `actions.newSession({
 workspace })` puts a new thread's draft straight into the project that
 workspace id names, without asking, and does nothing for a project the window
 does not know yet (new in API 1.10.0): a caller that knows the project, such
 as a project heading's own button or a settled thread's next draft. Workspace Kit's
 `tau app <path>` is the caller: it opens the folder with `openWorkspace` first,
 so a project Tau never saw arrives on its own empty thread.
+
+API 1.76.0 also accepts `actions.newSession({ project })` with a resolved
+`UiProject`. A project source can use this for a private workspace that must
+stay out of the project catalog. `UiProject.projectless: true` keeps that
+classification on the draft, including after a reload.
+
+Workspace Kit's rail filters by project identity and saves named project groups
+in this client's host-specific storage. A normal click selects one project;
+Ctrl/⌘-click or "Select multiple…" enters multi-selection. The current selection
+and saved groups survive restarts independently. The rail's "+" starts directly
+in a single selected project, or asks among the selected projects when several
+are shown. A filter change leaves the open conversation unchanged.
 
 `actions.activeThread().covered` (new in API 1.20.0) is true while something
 covers the thread on screen: a page, Settings, an overlay, or a phone's thread

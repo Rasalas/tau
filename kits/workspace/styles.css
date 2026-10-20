@@ -1051,3 +1051,57 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* The accepted project-filter study: a quiet menu until multi-selection is explicitly entered. */
+.rail-project-menu.project-switcher-popover { width: min(282px, calc(100vw - 24px)); gap: 0; padding: 0; overflow: hidden; font: 13px var(--sans); }
+.rail-project-search { flex: none; height: 38px; display: flex; align-items: center; gap: 9px; padding: 0 14px; color: var(--faint); border-bottom: 1px solid var(--line-soft); }
+.rail-project-search input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; background: none; color: var(--ink); font: inherit; }
+.rail-project-search input::placeholder { color: var(--faint); }
+.rail-project-results { max-height: min(435px, calc(100dvh - 210px)); overflow: auto; padding: 4px 5px; }
+.rail-project-heading { display: flex; align-items: center; height: 31px; padding: 0 9px; color: var(--faint); font-size: 12px; font-weight: 500; }
+.rail-project-entry { position: relative; display: flex; height: 31px; border-radius: 7px; }
+.rail-project-entry.highlighted { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.rail-project-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; width: 100%; height: 31px; padding: 0 9px; border: 0; border-radius: 7px; background: none; color: var(--ink-2); text-align: left; font: inherit; cursor: pointer; }
+.rail-project-pick:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.rail-project-pick > svg { flex: none; color: var(--muted); }
+.rail-project-tile.thread-project-icon { flex: none; width: 14px; height: 14px; font-size: 8px; }
+.rail-project-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-project-name.picked { color: var(--ink); font-weight: 600; }
+.rail-project-summary { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 12px; }
+.rail-project-current, .rail-project-count { flex: none; margin-left: auto; }
+.rail-project-pick .rail-project-current { color: var(--acid-text); }
+.rail-project-count { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rail-project-check, .rail-project-check-space { flex: none; width: 14px; height: 14px; display: grid; place-items: center; font-style: normal; }
+.rail-project-check { border-radius: 4px; background: var(--stage); box-shadow: inset 0 0 0 1.25px var(--line-strong); color: var(--acid-ink); }
+.rail-project-check.checked, [aria-checked="mixed"] .rail-project-check { background: var(--acid); box-shadow: none; }
+.rail-project-settings { display: grid; place-items: center; flex: none; width: 23px; height: 25px; align-self: center; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--faint); cursor: pointer; opacity: 0; margin-right: 3px; }
+.rail-project-entry:is(:hover, :focus-within) .rail-project-settings { opacity: 1; }
+.rail-project-settings:hover { color: var(--ink); background: var(--chip); }
+.rail-project-footer { flex: none; padding: 5px; border-top: 1px solid var(--line-soft); }
+.rail-project-footer button { border: 0; border-radius: 6px; background: none; color: var(--ink-2); cursor: pointer; font: 12px var(--sans); }
+.rail-project-footer button:hover:not(:disabled) { background: var(--hover); }
+.rail-project-footer button:disabled { opacity: .45; cursor: default; }
+.rail-project-multiple { width: 100%; display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 9px; }
+.rail-project-multiple span { flex: 1; text-align: left; }
+.rail-project-multiple small { color: var(--faint); font-size: var(--text-2xs); }
+.rail-project-selection { display: flex; align-items: center; gap: 2px; min-height: 30px; padding-left: 9px; }
+.rail-project-selection > small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.rail-project-selection > button { flex: none; height: 26px; padding: 0 10px; }
+.rail-project-selection .primary { background: var(--acid); color: var(--acid-ink); font-weight: 600; }
+.rail-project-selection .primary:hover:not(:disabled) { background: var(--acid-strong); }
+.rail-project-name-field { display: flex; align-items: center; gap: 9px; height: 31px; padding: 0 9px; border-radius: 7px; background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line-field); color: var(--muted); }
+.rail-project-name-field:focus-within { box-shadow: inset 0 0 0 1px var(--acid-line); }
+.rail-project-name-field input { flex: 1; width: 0; padding: 0; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; }
+.rail-project-management { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--line-soft); margin-top: 4px; padding-top: 4px; }
+.rail-project-management button { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 9px; }
+.rail-project-management button:first-child { flex: 1; }
+.project-filter > small { opacity: .65; font-size: 11px; }
+.rail-project-pick:disabled { cursor: default; opacity: .45; }
+.rail-project-results > p { margin: 10px; color: var(--muted); font-size: 12px; }
+@media (hover: none) { .rail-project-settings { opacity: 1; } }
+@media (pointer: coarse) { .rail-project-settings { width: 32px; } }
+
+.rail-project-name strong { font-weight: inherit; }
+.rail-project-menu .project-switcher-results :is(.rail-project-pick, .rail-project-entry) { height: 45px; }
+.rail-project-menu .project-switcher-results .rail-project-name { display: flex; flex-direction: column; align-items: stretch; min-width: 0; }
+.rail-project-menu .project-switcher-results .rail-project-name small { display: flex; color: var(--muted); }
