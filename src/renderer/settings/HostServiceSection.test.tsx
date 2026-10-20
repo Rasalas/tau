@@ -47,7 +47,7 @@ describe("Settings → Connections → Background", () => {
     await waitFor(() => expect(notify).toHaveBeenCalledWith("Tau runs as a service"));
     // The notice goes out before the section draws the new status.
     expect(await screen.findByText("Running · Tau 0.4.0")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Uninstall…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove service…" })).toBeTruthy();
   });
 
   it("reports the service by its status even when the call itself lost its connection", async () => {
@@ -80,7 +80,7 @@ describe("Settings → Connections → Background", () => {
     let current = service({ installed: true, running: true });
     const uninstallService = vi.fn(async () => { current = service(); return current; });
     const notify = renderSection({ serviceStatus: async () => current, uninstallService });
-    fireEvent.click(await screen.findByRole("button", { name: "Uninstall…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove service…" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove service" }));
     await waitFor(() => expect(notify).toHaveBeenCalledWith("The service is removed"));
     expect(uninstallService).toHaveBeenCalledOnce();

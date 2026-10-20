@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Badge, ListField, READ_ONLY_REASON, SettingRow, SettingsSection, Switch, errorMessage, useCommandAllowed } from "tau";
+import { Badge, ListField, READ_ONLY_REASON, SettingRow, SettingsSection, SettingsState, Switch, errorMessage, useCommandAllowed } from "tau";
 import type { DesktopExtensionContext } from "tau";
 import { SERVERS_EXTENSION_ID, decodeServerNetworkState, type ServerNetworkState } from "./protocol.js";
 
@@ -13,14 +13,20 @@ export const RUNTIME_ENFORCEMENT = "Pi runs them in a sandbox that reaches this 
  */
 export function NetworkSection({ context, cwd, onNotify }: { context: DesktopExtensionContext; cwd: string; onNotify(message: string, level?: "info" | "warning" | "error"): void }) {
   const [state, setState] = useState<ServerNetworkState>();
+  const [error, setError] = useState<string>();
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const allowed = useCommandAllowed(SERVERS_EXTENSION_ID, "set-network");
 
   useEffect(() => {
     let current = true;
-    context.host.invoke("network", { cwd }).then((next) => { if (current) setState(decodeServerNetworkState(next)); }, () => undefined);
+    setError(undefined);
+    context.host.invoke("network", { cwd }).then(
+      (next) => { if (current) setState(decodeServerNetworkState(next)); },
+      (failure: unknown) => { if (current) setError(errorMessage(failure)); },
+    );
     return () => { current = false; };
-  }, [context, cwd]);
+  }, [context, cwd, attempt]);
 
   const change = useCallback((patch: { allowAll?: boolean; allowHosts?: string[] }, done?: string) => {
     setBusy(true);
@@ -29,6 +35,14 @@ export function NetworkSection({ context, cwd, onNotify }: { context: DesktopExt
       .finally(() => setBusy(false));
   }, [context, cwd, onNotify]);
 
+  // Whether the project is a server project is unknown until it loads, so a failure says so rather than hiding the limit.
+  if (error && !state) {
+    return (
+      <SettingsSection title="Network">
+        <SettingsState kind="error" title="Could not read the network limit" description={error} onRetry={() => setAttempt((count) => count + 1)} />
+      </SettingsSection>
+    );
+  }
   if (!state?.serverProject) return null;
   const disabled = busy || !allowed;
   return (

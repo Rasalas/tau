@@ -13,6 +13,7 @@ import { formatBytes } from "../format-bytes";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
 import { tooltipProps } from "./ui/Tooltip";
 import { Empty } from "./ui/Feedback";
+import { LoadError } from "./ui/LoadError";
 
 /** What a load error says about the file: gone with its project, gone itself, or something else. */
 export function missingReason(message: string): "project" | "file" | undefined {
@@ -48,6 +49,8 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
   const [content, setContent] = useState<UiFileContent>();
   const [error, setError] = useState<string>();
   const [media, setMedia] = useState<MediaResource>();
+  /** Retry reads the file again. */
+  const [attempt, setAttempt] = useState(0);
   const mainCheckout = isPlayableFile(relativePath) ? media?.mainCheckoutPath : content?.mainCheckoutPath;
   const resolvedPath = isPlayableFile(relativePath) ? media?.resolvedPath : content?.path;
   const { layout: mode, setLayout: setMode, wrap, setWrap } = useDiffPresentation();
@@ -66,7 +69,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
       (reason: unknown) => { if (!cancelled) setError(errorMessage(reason)); },
     );
     return () => { cancelled = true; };
-  }, [loadFile, relativePath]);
+  }, [attempt, loadFile, relativePath]);
 
   const meta = content?.kind === "text"
     ? `${formatBytes(content.size)} · ${lineCount(content.text ?? "")} ${lineCount(content.text ?? "") === 1 ? "line" : "lines"}`
@@ -112,14 +115,18 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
     {view === "diff"
       ? <DiffPane path={relativePath} mode={mode} wrap={wrap} loadDiff={loadDiff} />
       : isPlayableFile(relativePath) ? <FileMedia path={relativePath} load={loadMedia} onLoad={setMedia} />
-      : error
+      : error && missingReason(error)
         ? <Empty
           icon={<FileWarning size={20} />}
-          title={missingReason(error) ? "File not found" : "Could not open this file"}
+          title="File not found"
           description={<><code>{relativePath}</code><br />{missingReason(error) === "file"
             ? missingFileDescription(error, tab.path)
-            : missingReason(error) === "project" ? "Its project is not open in Tau any more." : error}</>}
+            : "Its project is not open in Tau any more."}</>}
         >{onClose ? <button type="button" className="text-button" onClick={onClose}>Close</button> : null}</Empty>
+      : error
+        ? <LoadError title="Could not open this file" description={<code>{relativePath}</code>} error={error} onRetry={() => setAttempt((count) => count + 1)}>
+          {onClose ? <button type="button" onClick={onClose}>Close</button> : null}
+        </LoadError>
         : !content
           ? <div className="stage-empty">Loading…</div>
           : content.kind === "image"

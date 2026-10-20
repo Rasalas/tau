@@ -33,7 +33,7 @@ describe("what narrows the list", () => {
       ["label:bug", "bug"],
       ["label:go", "go"],
       ["author", "@mona"],
-      ["host", "gitlab.com"],
+      ["site", "gitlab.com"],
     ]);
   });
 });

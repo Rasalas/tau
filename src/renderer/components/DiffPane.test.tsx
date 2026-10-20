@@ -11,6 +11,19 @@ it("reports a failed initial diff read", async () => {
   expect(await screen.findByText("Workspace is unavailable.")).toBeTruthy();
 });
 
+it("says a diff did not load in plain words and reads it again on Retry", async () => {
+  const loadDiff = vi.fn<(path: string) => Promise<UiFileDiff>>()
+    .mockRejectedValueOnce(new Error("ECONNRESET: socket hang up"))
+    .mockResolvedValueOnce({ path: "a.ts", added: 1, removed: 0, hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "added", newLine: 1, text: "fixed" }] }] });
+  render(<DiffPane path="a.ts" mode="unified" loadDiff={loadDiff} />);
+  expect(await screen.findByText("Could not load this diff")).toBeTruthy();
+  expect(screen.getByText("ECONNRESET: socket hang up").closest("details")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByRole("button", { name: "Collapse a.ts" });
+  expect(screen.queryByText("Could not load this diff")).toBeNull();
+  expect(loadDiff).toHaveBeenCalledTimes(2);
+});
+
 it("discards an old file's next hunk page after another file is opened", async () => {
   let finishPage!: (diff: UiFileDiff) => void;
   const loadDiff = vi.fn(async (path: string, options?: { hunkOffset?: number }): Promise<UiFileDiff> => {

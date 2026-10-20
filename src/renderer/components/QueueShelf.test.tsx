@@ -53,6 +53,14 @@ describe("QueueShelf", () => {
     expect(on.onRemove).toHaveBeenCalledWith("second");
   });
 
+  it("edits a message further down from a button, which a keyboard reaches", () => {
+    const on = handlers();
+    render(<QueueShelf queue={[queued("first", "one"), queued("second", "two")]} streaming={false} {...on} />);
+    fireEvent.click(screen.getByRole("button", { name: /Then 1 more/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit two" }));
+    expect(on.onEdit).toHaveBeenCalledWith("second");
+  });
+
   it("says when a held queue waits for the user", () => {
     render(<QueueShelf queue={[queued("first", "after the restart")]} streaming={false} held {...handlers()} />);
     expect(screen.getByText("Held · sends after your next message")).toBeTruthy();

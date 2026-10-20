@@ -52,6 +52,22 @@ describe("the machines a page reads", () => {
     environments.getSnapshot();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(environments.getSnapshot()).toBeUndefined();
+    expect(environments.loadError?.()).toEqual({ unsupported: true, message: "No machines in tests." });
+  });
+
+  it("keeps a failed load apart from no list, and asks again on reload", async () => {
+    const listEnvironments = vi.fn()
+      .mockRejectedValueOnce(new Error("The window did not answer."))
+      .mockResolvedValueOnce(list("laptop"));
+    const environments = createPlatformEnvironments(createFakeHostClient({ listEnvironments }));
+    const heard = vi.fn();
+    environments.subscribe(heard);
+    await vi.waitFor(() => expect(environments.loadError?.()).toEqual({ unsupported: false, message: "The window did not answer." }));
+    environments.reload?.();
+    expect(environments.loadError?.()).toBeUndefined();
+    await vi.waitFor(() => expect(environments.getSnapshot()?.shown).toBe("laptop"));
+    expect(listEnvironments).toHaveBeenCalledTimes(2);
+    expect(heard).toHaveBeenCalledTimes(3);
   });
 
   it("goes back to the window's own machine, reading the list when it has none yet", async () => {

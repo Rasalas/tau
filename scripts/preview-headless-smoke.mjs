@@ -14,6 +14,7 @@ const model = await startFakeModelServer();
 let typed = "";
 let recordedVideo;
 let videoProof;
+const paintedRecordingPages = new Set();
 let savedPageRequests = 0;
 let slowResponse;
 let startedDownload;
@@ -48,16 +49,32 @@ const fixture = createServer((request, response) => {
         const first = sample();
         const duration = video.duration;
         if (!Number.isFinite(duration) || duration <= 0) throw Error('Missing video duration');
-        await new Promise((resolve, reject) => { video.onseeked = resolve; video.onerror = reject; video.currentTime = Math.max(0.01, duration-0.1); });
-        await fetch('/video-proof?data='+encodeURIComponent(JSON.stringify({first,last:sample(),duration,width:video.videoWidth,height:video.videoHeight,firstFrameTime:firstFrame.mediaTime,browser:navigator.userAgent})));
+        const seekTarget = Math.max(0.01, duration-0.1);
+        // seeked can precede presentation; ignore a callback still queued by play/pause.
+        const presentedAtEnd = new Promise(resolve => {
+          const presented = (_now, metadata) => {
+            if (metadata.mediaTime >= seekTarget-0.05) resolve(metadata);
+            else video.requestVideoFrameCallback(presented);
+          };
+          video.requestVideoFrameCallback(presented);
+        });
+        await new Promise((resolve, reject) => { video.onseeked = resolve; video.onerror = reject; video.currentTime = seekTarget; });
+        const lastFrame = await presentedAtEnd;
+        await fetch('/video-proof?data='+encodeURIComponent(JSON.stringify({first,last:sample(),duration,width:video.videoWidth,height:video.videoHeight,firstFrameTime:firstFrame.mediaTime,lastFrameTime:lastFrame.mediaTime,browser:navigator.userAgent})));
       })().catch(error => fetch('/video-proof?data='+encodeURIComponent(JSON.stringify({error:String(error)}))));
     </script>`);
     return;
   }
+  if (url.pathname === "/record-painted") {
+    paintedRecordingPages.add(url.searchParams.get("color"));
+    response.end("ok");
+    return;
+  }
   if (url.pathname === "/record-red" || url.pathname === "/record-blue") {
     const color = url.pathname === "/record-red" ? "red" : "blue";
+    paintedRecordingPages.delete(color);
     response.setHeader("content-type", "text/html");
-    response.end(`<!doctype html><style>html,body{margin:0;height:100%;background:${color}}</style><title>Recording ${color} fixture</title><span></span><script>setInterval(()=>document.querySelector('span').textContent=Date.now(),50)</script>`);
+    response.end(`<!doctype html><style>html,body{margin:0;height:100%;background:${color}}</style><title>Recording ${color} fixture</title><span></span><script>const painted=()=>requestAnimationFrame(()=>requestAnimationFrame(()=>fetch('/record-painted?color=${color}')));painted();setInterval(()=>document.querySelector('span').textContent=Date.now(),50)</script>`);
     return;
   }
   if (url.pathname === "/typed") { typed = url.searchParams.get("value"); response.end("ok"); return; }
@@ -181,13 +198,18 @@ try {
   // Native MP4 encoding, incremental fragments and a navigation in the middle.
   const recordings = join(host.userData, "kit-state", "tau.preview", "recordings");
   await preview("open", { url: `${url}/record-red` });
+  await until(async () => paintedRecordingPages.has("red"), Boolean);
   assert((await preview("record-start")).recordingSince);
   const [recordingName] = await readdir(recordings);
   assert(recordingName.endsWith(".mp4"));
   const recordingPath = join(recordings, recordingName);
-  const redBytes = await until(async () => (await stat(recordingPath)).size, size => size > 100);
+  await until(async () => (await stat(recordingPath)).size, size => size > 100);
   await preview("open", { url: `${url}/record-blue` });
-  await until(async () => (await stat(recordingPath)).size, size => size > redBytes + 100);
+  // Buffered red frames can grow the file after navigation. Wait for blue to
+  // paint, then for a later fragment, before stopping and decoding the video.
+  await until(async () => paintedRecordingPages.has("blue"), Boolean);
+  const bluePaintBytes = (await stat(recordingPath)).size;
+  await until(async () => (await stat(recordingPath)).size, size => size > bluePaintBytes + 100);
   const recording = await preview("record-stop");
   assert.equal(recording.mimeType, "video/mp4");
   assert.equal(recording.path, recordingPath);

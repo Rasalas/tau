@@ -8,7 +8,9 @@ import { draftKey, writeComposerDraft } from "../workbench/draft-store";
 import type { HostClient } from "../workbench/host-client";
 import { ThreadStore } from "../workbench/thread-store";
 import type { WorkbenchActions } from "./extension-system";
-import { returnToComposer, threadComposer, useFollowUpQueue } from "./use-follow-up-queue";
+import { useFollowUpQueue } from "./use-follow-up-queue";
+import * as deferredSurfaces from "./deferred-surfaces";
+import { requeue, returnToComposer, threadComposer } from "./queued-message-actions";
 
 const image = { kind: "image" as const, name: "a.png", mimeType: "image/png", data: "AA", size: 1 };
 
@@ -39,9 +41,12 @@ describe("queued messages of a thread the user leaves while the host answers", (
     const storage = createMemoryStorage();
     const scopes = new ComposerScopeStore();
     const submit = vi.fn(async () => ({ accepted: true as const }));
-    const onScreen = { composerDraft: vi.fn(() => ""), setComposerDraft: vi.fn(), notify: vi.fn() } as unknown as WorkbenchActions;
+    const toast = vi.fn();
+    const queueMessage = vi.fn(async () => ({ id: "again" }));
+    const moveQueued = vi.fn(async () => undefined);
+    const onScreen = { composerDraft: vi.fn(() => ""), setComposerDraft: vi.fn(), notify: vi.fn(), toast } as unknown as WorkbenchActions;
     const rendered = renderHook(({ sessionId }) => useFollowUpQueue({
-      client: { takeQueued: vi.fn(take) } as unknown as HostClient,
+      client: { takeQueued: vi.fn(take), queueMessage, moveQueued } as unknown as HostClient,
       threads: new ThreadStore(),
       sessionId,
       currentSessionId: () => shown,
@@ -52,8 +57,21 @@ describe("queued messages of a thread the user leaves while the host answers", (
       composerOf: (threadId) => threadComposer(scopes, storage, threadId, vi.fn()),
     }), { initialProps: { sessionId: "A" } });
     const leave = () => { shown = "B"; rendered.rerender({ sessionId: "B" }); };
-    return { ...rendered, leave, submit, scopes, storage, onScreen };
+    return { ...rendered, leave, submit, scopes, storage, onScreen, toast, queueMessage, moveQueued };
   }
+
+  it("leaves the queue untouched when its action code cannot load", async () => {
+    const load = vi.spyOn(deferredSurfaces, "loadQueuedMessageActions").mockRejectedValueOnce(new Error("Chunk unavailable"));
+    const take = vi.fn(async () => []);
+    try {
+      const queue = queueOf(take);
+      await act(async () => { await queue.result.current.steerQueued("q1"); });
+      expect(take).not.toHaveBeenCalled();
+      expect(queue.submit).not.toHaveBeenCalled();
+    } finally {
+      load.mockRestore();
+    }
+  });
 
   it("sends one sent now to its own thread", async () => {
     let taken!: (items: UiQueuedPrompt[]) => void;
@@ -61,8 +79,24 @@ describe("queued messages of a thread the user leaves while the host answers", (
     let sending!: Promise<void>;
     act(() => { sending = queue.result.current.steerQueued("q1"); });
     queue.leave();
+    await vi.waitFor(() => expect(taken).toBeTypeOf("function"));
     await act(async () => { taken([{ id: "q1", text: "for A", attachments: [] }]); await sending; });
     expect(queue.submit).toHaveBeenCalledExactlyOnceWith("for A", [], undefined, undefined, "A");
+  });
+
+  it("undoes a removal into its original thread after navigation", async () => {
+    let taken!: (items: UiQueuedPrompt[]) => void;
+    const queue = queueOf(() => new Promise((resolve) => { taken = resolve; }));
+    act(() => queue.result.current.cancelQueued("q1"));
+    queue.leave();
+    await vi.waitFor(() => expect(taken).toBeTypeOf("function"));
+    await act(async () => { taken([{ id: "q1", text: "for A", attachments: [] }]); });
+    await vi.waitFor(() => expect(queue.toast).toHaveBeenCalledOnce());
+    act(() => queue.toast.mock.calls[0]![0].actions[0].run());
+    await vi.waitFor(() => {
+      expect(queue.queueMessage).toHaveBeenCalledExactlyOnceWith("A", "for A", [], undefined, undefined);
+      expect(queue.moveQueued).toHaveBeenCalledExactlyOnceWith("A", "again", 0);
+    });
   });
 
   it("returns a stopped thread's queue to that thread's composer, below its saved draft", async () => {
@@ -71,8 +105,23 @@ describe("queued messages of a thread the user leaves while the host answers", (
     queue.leave();
     writeComposerDraft(queue.storage, draftKey("A"), "saved in A");
     act(() => queue.result.current.returnQueued(undefined, "A"));
-    expect(take).toHaveBeenCalledWith("A", undefined);
+    await vi.waitFor(() => expect(take).toHaveBeenCalledWith("A", undefined));
     await vi.waitFor(() => expect(queue.scopes.getSnapshot(createDraftKey(draftKey("A"))).draft).toBe("saved in A\n\nfor A"));
     expect(queue.onScreen.setComposerDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe("undoing a removal from the queue", () => {
+  it("queues the message again with its time, and puts one of the line back in its place", async () => {
+    const queueMessage = vi.fn(async () => ({ id: "again" }));
+    const moveQueued = vi.fn(async () => undefined);
+    await requeue({ queueMessage, moveQueued }, "thread", { id: "old", text: "second thoughts", attachments: [image] }, 1);
+    expect(queueMessage).toHaveBeenCalledWith("thread", "second thoughts", [image], undefined, undefined);
+    expect(moveQueued).toHaveBeenCalledWith("thread", "again", 1);
+
+    moveQueued.mockClear();
+    await requeue({ queueMessage, moveQueued }, "thread", { id: "planned", text: "later", attachments: [], deliverAt: 99 }, 2);
+    expect(queueMessage).toHaveBeenLastCalledWith("thread", "later", [], undefined, 99);
+    expect(moveQueued).not.toHaveBeenCalled();
   });
 });

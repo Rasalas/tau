@@ -174,7 +174,7 @@ export function HostServiceSection({ onNotify }: { onNotify(message: string, lev
             ) : null}
             {service.installed ? (
               <Button variant="danger" busy={busy === "uninstall"} disabled={busy !== undefined} onClick={() => setConfirm("uninstall")}>
-                {busy === "uninstall" ? "Removing…" : "Uninstall…"}
+                {busy === "uninstall" ? "Removing…" : "Remove service…"}
               </Button>
             ) : (
               <Button busy={busy === "install"} disabled={busy !== undefined} onClick={() => setConfirm("install")}>

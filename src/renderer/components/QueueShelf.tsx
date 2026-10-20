@@ -93,7 +93,9 @@ export function QueueShelf({ queue, streaming, held = false, steerShortcut: shor
             return (
               <li key={entry.id} className="queue-shelf-row">
                 {entry.deliverAt !== undefined ? <AlarmClock size={13} className="planned" aria-hidden="true" /> : entry.wake ? <WakeIcon source={entry.wake.source} size={13} /> : <ListPlus size={13} aria-hidden="true" />}
-                <span className="queue-shelf-row-text" {...(entry.wake ? {} : { onClick: () => onEdit(entry.id) })}>{preview(entry)}</span>
+                {entry.wake
+                  ? <span className="queue-shelf-row-text">{preview(entry)}</span>
+                  : <button type="button" className="queue-shelf-row-text" aria-label={`Edit ${preview(entry)}`} onClick={() => onEdit(entry.id)}>{preview(entry)}</button>}
                 <small className={entry.deliverAt !== undefined ? "planned" : ""}>{entry.deliverAt !== undefined ? shortWhen(entry.deliverAt, now) : "after that"}</small>
                 <span className="queue-shelf-row-actions">
                   {inLine && onReorder ? <button type="button" className="queue-shelf-action" onClick={() => onReorder(entry.id, 0)}><ArrowUpToLine size={13} aria-hidden="true" />Move to front</button> : null}

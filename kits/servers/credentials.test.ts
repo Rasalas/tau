@@ -325,6 +325,18 @@ describe("forgetting", () => {
     await store.forgetApprovals(project());
     expect((await store.status(project(), site)).password.foreignItem).toEqual({ label: "tester@127.0.0.1 (site)", allowed: false });
   });
+
+  it("forgets only the secret it was asked for", async () => {
+    const site = await target({});
+    const k = keychain();
+    const password = { service: OWN_SERVICE.password, account: secretAccount(site, "password") };
+    const passphrase = { service: OWN_SERVICE.passphrase, account: secretAccount(site, "passphrase") };
+    await k.set({ ...password, label: "x" }, "ours");
+    await k.set({ ...passphrase, label: "x" }, "key words");
+    await credentials().forget(project(), site, ["passphrase"]);
+    expect(await k.has(passphrase)).toBe(false);
+    expect(await k.has(password)).toBe(true);
+  });
 });
 
 describe("the askpass source", () => {

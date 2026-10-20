@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  ConfirmDialog,
   DiffView,
   Empty,
   errorMessage,
@@ -47,7 +48,7 @@ import { mergeBlocker, mergedThisMonth, reviewRuntime, type HunkPick, type Local
 import type { LocalReviewsStore, ReviewRun } from "./local-reviews-store.js";
 import { runsPipeline } from "./pipeline.js";
 import { PipelineGraph, PipelineMini } from "./pipeline-view.js";
-import { REVIEW_HOST_EXTENSION_ID, requestNumber, type PendingReviewComment, type PullRequestListEntry } from "./protocol.js";
+import { providerInfo, REVIEW_HOST_EXTENSION_ID, requestNumber, type PendingReviewComment, type PullRequestListEntry } from "./protocol.js";
 import { requestLabelOf } from "./pull-request-logic.js";
 import { projectId } from "./pull-request-lists.js";
 import { baseName, lineTarget, lineText, noteMessage } from "./review-lines.js";
@@ -165,6 +166,13 @@ interface RowActions {
   mayAsk: boolean;
 }
 
+/** What a local merge does, said before it runs: where it lands and how. */
+function localMergeMessage(review: LocalReview, picked: boolean): string {
+  const where = review.remote ? ` The branch came back from ${review.remote.machine}.` : "";
+  const how = picked ? "with your pick in every conflicting hunk" : "after checking it merges cleanly";
+  return `“${review.title}” lands on ${review.target || "the target"} of ${review.project.name} as a merge commit, ${how}.${where}`;
+}
+
 /** Why a request's merge is off, from the row's side. */
 function pullMergeBlocker(item: InboxItem, act: RowActions): string | undefined {
   const entry = item.pull!.entry;
@@ -187,7 +195,7 @@ function RowAction({ item, act }: { item: InboxItem; act: RowActions }) {
   if (item.action === "merge") {
     if (pull) {
       const target = review?.target ?? pull.entry.baseRef;
-      return button(" go", "Merge", GitMerge, () => act.mergePull(item), pullMergeBlocker(item, act), `Merge ${numberOf(pull.entry)} into ${target} on its host`);
+      return button(" go", "Merge", GitMerge, () => act.mergePull(item), pullMergeBlocker(item, act), `Merge ${numberOf(pull.entry)} into ${target} on ${providerInfo(pull.entry.ref.service).name}`);
     }
     return button(" go", "Merge", GitMerge, () => act.merge(review!), !act.mayMerge ? READ_ONLY_REASON : mergeBlocker(review!), `Merge ${review!.branch} into ${review!.target}`);
   }
@@ -613,6 +621,8 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   const filter = useSyncExternalStore(parts.filter.subscribe, parts.filter.getSnapshot);
   const [busy, setBusy] = useState<string>();
   const [merging, setMerging] = useState<InboxItem>();
+  // A local merge waits for the user's yes, as a pull request's does.
+  const [confirming, setConfirming] = useState<{ review: LocalReview; picks?: Record<string, HunkPick[]> }>();
   const [updating, setUpdating] = useState<string>();
   const mayMerge = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-merge");
   const mayAsk = useCommandAllowed(REVIEW_HOST_EXTENSION_ID, "local-review-ask");
@@ -652,6 +662,13 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
   }, [listed]);
 
   const reloadPulls = () => { void parts.pulls.load(pulls.machines, true); };
+  const merge = (review: LocalReview, picks?: Record<string, HunkPick[]>) => {
+    setBusy(review.key);
+    void store.merge(review, picks).then((outcome) => {
+      if (outcome.state === "merged" || outcome.state === "already-merged") actions.toast?.({ type: "success", title: `Merged ${review.branch} into ${outcome.into}`, description: review.title });
+      else actions.toast?.({ type: "warning", title: outcome.state === "conflict" ? "Not merged: conflicts" : "Not merged", description: outcome.detail });
+    }, (error) => actions.toast?.({ type: "error", title: `${review.branch} was not merged`, description: errorMessage(error) })).finally(() => { setBusy(undefined); void store.refresh(); });
+  };
   const act: RowActions = {
     busy,
     mayMerge,
@@ -659,13 +676,7 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
     mayAsk,
     mayRemove,
     open: (item, focus) => item.review ? openReview(item.review, focus) : openPull(item),
-    merge: (review, picks) => {
-      setBusy(review.key);
-      void store.merge(review, picks).then((outcome) => {
-        if (outcome.state === "merged" || outcome.state === "already-merged") actions.toast?.({ type: "success", title: `Merged ${review.branch} into ${outcome.into}`, description: review.title });
-        else actions.toast?.({ type: "warning", title: outcome.state === "conflict" ? "Not merged: conflicts" : "Not merged", description: outcome.detail });
-      }, (error) => actions.toast?.({ type: "error", title: `${review.branch} was not merged`, description: errorMessage(error) })).finally(() => { setBusy(undefined); void store.refresh(); });
-    },
+    merge: (review, picks) => setConfirming({ review, ...(picks ? { picks } : {}) }),
     mergePull: (item) => setMerging(item),
     rebase: (review) => {
       setBusy(review.key);
@@ -834,6 +845,16 @@ export function ReviewsPage({ params, navigate, actions, close, parts, sidebar =
         <div className="rv-scroll" ref={scroller} onKeyDown={tab === "remote" || inDetail ? undefined : moveRow}>{body}</div>
         {tab === "remote" || inDetail ? null : footer}
       </div>
+      {confirming ? (
+        <ConfirmDialog
+          title={`Merge ${confirming.review.branch} into ${confirming.review.target || "the target"}?`}
+          message={localMergeMessage(confirming.review, Boolean(confirming.picks))}
+          confirmLabel="Merge"
+          icon={<GitMerge size={13} aria-hidden="true" />}
+          onCancel={() => setConfirming(undefined)}
+          onConfirm={() => { const { review, picks } = confirming; setConfirming(undefined); merge(review, picks); }}
+        />
+      ) : null}
       {merging?.pull ? (
         <Suspense fallback={null}>
           <PullMergeDialog

@@ -20,6 +20,7 @@ import { useHostClient } from "../host-client-context";
 import { tooltipProps } from "../components/ui/Tooltip";
 import { Dialog } from "../components/ui/Dialog";
 import { Empty } from "../components/ui/Feedback";
+import { ConfirmDialog } from "../deferred-surfaces";
 import { Badge, Button, DangerAction, DangerZone, SegmentedControl, Select, SettingsState, TextField } from "./controls";
 import { AccessChoice, PairingRequestDialog } from "../pairing/PairingRequestDialog";
 import { DialogClose, submitOnEnter, useFieldValue } from "../pairing/dialog-parts";
@@ -71,6 +72,14 @@ function DeviceMark({ kind }: { kind?: "desktop" | "phone" | "tablet" | "unknown
 /** What the host keeps of a device's or a link's name. */
 const NAME_LIMIT = 60;
 
+/** A one-click loss on a row of the table, asked about first: a device signed out, a link revoked, a request denied. */
+type Asking =
+  | { kind: "client"; paired: UiPairedClient }
+  | { kind: "link"; link: UiPairingLink }
+  | { kind: "request"; request: UiPairingRequest };
+
+const linkName = (link: UiPairingLink): string => link.label ?? "Pairing link";
+
 const idleLabel = (days: IdleTimeoutDays): string => (days === null ? "Never" : days === 365 ? "1 year unused" : `${days} days unused`);
 
 /**
@@ -93,6 +102,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
   const [editing, setEditing] = useState<UiPairedClient>();
   const [findingMachines, setFindingMachines] = useState(false);
   const [busy, setBusy] = useState<string>();
+  const [asking, setAsking] = useState<Asking>();
   // A shown access key is out of date once rotated; a new row asks again.
   const [rotations, setRotations] = useState(0);
   const now = useNow(15_000);
@@ -161,8 +171,8 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
     const title = state.code === "forbidden" ? "Connections are managed on your machine"
       : state.code === "unsupported" || state.code === "unknown-method" ? "This machine takes no other clients"
         : "Connections did not load";
-    const description = state.code === "forbidden" ? "Pairing links, waiting devices and unpairing are handled in Tau on the machine itself. A paired phone or browser can use Tau there, but cannot change who may reach it."
-      : state.code === "unsupported" || state.code === "unknown-method" ? "It has no socket listener, so there is nobody to pair or revoke. The Tau a window starts for itself has one."
+    const description = state.code === "forbidden" ? "Pairing links, waiting devices and signing devices out are handled in Tau on the machine itself. A paired phone or browser can use Tau there, but cannot change who may reach it."
+      : state.code === "unsupported" || state.code === "unknown-method" ? "It has no socket listener, so there is nobody to pair or sign out. The Tau a window starts for itself has one."
         : state.message;
     return <div className="settings-page">{state.code === "forbidden" || state.code === "unsupported" || state.code === "unknown-method"
       ? <Empty icon={<Link2 size={18} />} title={title} description={description} />
@@ -190,7 +200,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
             {requests.map((request) => (
               <RequestRow key={request.id} request={request} now={now} busy={busy === `request:${request.id}`}
                 onReview={() => setReviewing(request)}
-                onDeny={() => void act(`request:${request.id}`, () => client!.denyPairing(request.id), `${requestTitle(request)} was denied`)} />
+                onDeny={() => setAsking({ kind: "request", request })} />
             ))}
             {/* Gone once used: the client it paired takes its place below. */}
             {created && links.some((link) => link.id === created.link.id)
@@ -198,16 +208,13 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
               : null}
             {links.map((link) => (
               <LinkRow key={link.id} link={link} now={now} busy={busy === `link:${link.id}`}
-                onRevoke={() => void act(`link:${link.id}`, async () => {
-                  await client?.revokePairingLink(link.id);
-                  if (created?.link.id === link.id) setCreated(undefined);
-                }, "Pairing link revoked")} />
+                onRevoke={() => setAsking({ kind: "link", link })} />
             ))}
             {data.clients.map((paired) => (
               <ClientRow key={paired.id} paired={paired} now={now} busy={busy === `client:${paired.id}`}
-                {...(paired.companionOf ? { companionOf: data.clients.find((other) => other.id === paired.companionOf)?.label ?? "a device since revoked" } : {})}
+                {...(paired.companionOf ? { companionOf: data.clients.find((other) => other.id === paired.companionOf)?.label ?? "a device since signed out" } : {})}
                 onEdit={() => setEditing(paired)}
-                onRevoke={() => void act(`client:${paired.id}`, () => client!.revokeClient(paired.id), `${paired.label} can no longer connect`)} />
+                onSignOut={() => setAsking({ kind: "client", paired })} />
             ))}
             {data.owners.map((owner) => <OwnerRow key={owner.id} owner={owner} now={now} />)}
             {nothing ? <tr><td colSpan={4}><SettingsState kind="empty" title="No device is paired yet" description="Pair a device and open the link on a phone or another machine; you allow it here when it asks." /></td></tr> : null}
@@ -288,11 +295,11 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
             id={settingAnchor("Sign out every other device")}
             title="Sign out every other device"
             description="Every paired device loses its key at once; each needs a new pairing to come back. Windows with the access key stay."
-            actionLabel="Revoke others…"
+            actionLabel="Sign out others…"
             disabled={others === 0}
             disabledReason="No other device is paired."
             busy={busy === "revoke-others"}
-            confirmTitle="Revoke every other device?"
+            confirmTitle="Sign out every other device?"
             confirmMessage="Every paired device is signed out at once and its open connections close. Each needs a new pairing to come back. Windows with the access key are not affected."
             onConfirm={() => void act("revoke-others", async () => {
               const { revoked } = await client!.revokeOtherClients();
@@ -302,7 +309,7 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
           <DangerAction
             id={settingAnchor("Rotate the access key")}
             title="Rotate the access key"
-            description={<>The owner’s key, kept in <code>{data.tokenPath}</code>. Every other connection that uses it closes; paired devices keep their own keys.</>}
+            description="The owner’s key. Every other connection that uses it closes; paired devices keep their own keys."
             actionLabel="Rotate…"
             busy={busy === "rotate"}
             confirmTitle="Rotate the access key?"
@@ -344,6 +351,51 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
           onSave={(update) => void act(`edit:${editing.id}`, async () => { await client!.updateClient(editing.id, update); setEditing(undefined); })}
         />
       ) : null}
+      {asking?.kind === "client" ? (
+        <ConfirmDialog
+          title={`Sign out ${asking.paired.label}?`}
+          message={`${asking.paired.label} loses its key and its open connections close. It needs a new pairing to come back.`}
+          confirmLabel="Sign out"
+          destructive
+          onCancel={() => setAsking(undefined)}
+          onConfirm={() => {
+            const { paired } = asking;
+            setAsking(undefined);
+            void act(`client:${paired.id}`, () => client!.revokeClient(paired.id), `${paired.label} is signed out`);
+          }}
+        />
+      ) : null}
+      {asking?.kind === "link" ? (
+        <ConfirmDialog
+          title={`Revoke ${linkName(asking.link)}?`}
+          message="The link stops working at once. A device that has not opened it yet needs a new link."
+          confirmLabel="Revoke"
+          destructive
+          onCancel={() => setAsking(undefined)}
+          onConfirm={() => {
+            const { link } = asking;
+            setAsking(undefined);
+            void act(`link:${link.id}`, async () => {
+              await client?.revokePairingLink(link.id);
+              if (created?.link.id === link.id) setCreated(undefined);
+            }, "Pairing link revoked");
+          }}
+        />
+      ) : null}
+      {asking?.kind === "request" ? (
+        <ConfirmDialog
+          title={`Deny ${requestTitle(asking.request)}?`}
+          message={`${requestTitle(asking.request)} stops waiting and is not let in.`}
+          confirmLabel="Deny"
+          destructive
+          onCancel={() => setAsking(undefined)}
+          onConfirm={() => {
+            const { request } = asking;
+            setAsking(undefined);
+            void act(`request:${request.id}`, () => client!.denyPairing(request.id), `${requestTitle(request)} was denied`);
+          }}
+        />
+      ) : null}
       {findingMachines ? <NearbyMachinesDialog onClose={() => setFindingMachines(false)} /> : null}
     </div>
   );
@@ -354,11 +406,11 @@ function LinkRow({ link, now, busy, onRevoke }: { link: UiPairingLink; now: numb
     <tr>
       <DeviceMark />
       <td className="settings-table-name">
-        <span>{link.label ?? "Pairing link"}{link.access === "read-only" ? <Badge>Read only</Badge> : null}</span>
+        <span>{linkName(link)}{link.access === "read-only" ? <Badge>Read only</Badge> : null}</span>
         <small title={new Date(link.expiresAt).toLocaleString()}>{formatExpiresIn(link.expiresAt, now)} · single use · you allow the device when it asks</small>
       </td>
       <State tone="warn">Link open</State>
-      <td className="settings-table-actions"><Button variant="ghost" icon={<X size={13} aria-hidden />} busy={busy} onClick={onRevoke}>Revoke</Button></td>
+      <td className="settings-table-actions"><Button variant="ghost" icon={<X size={13} aria-hidden />} aria-label={`Revoke ${linkName(link)}`} busy={busy} onClick={onRevoke}>Revoke…</Button></td>
     </tr>
   );
 }
@@ -376,14 +428,14 @@ function RequestRow({ request, now, busy, onReview, onDeny }: { request: UiPairi
       </td>
       <State tone="warn">Wants to connect</State>
       <td className="settings-table-actions">
-        <Button variant="ghost" disabled={busy} onClick={onDeny}>Deny</Button>
-        <Button disabled={busy} onClick={onReview}>Allow…</Button>
+        <Button variant="ghost" aria-label={`Deny ${requestTitle(request)}`} disabled={busy} onClick={onDeny}>Deny…</Button>
+        <Button aria-label={`Allow ${requestTitle(request)}`} disabled={busy} onClick={onReview}>Allow…</Button>
       </td>
     </tr>
   );
 }
 
-function ClientRow({ paired, companionOf, now, busy, onEdit, onRevoke }: { paired: UiPairedClient; companionOf?: string; now: number; busy: boolean; onEdit(): void; onRevoke(): void }) {
+function ClientRow({ paired, companionOf, now, busy, onEdit, onSignOut }: { paired: UiPairedClient; companionOf?: string; now: number; busy: boolean; onEdit(): void; onSignOut(): void }) {
   const live = paired.connections > 0;
   const details = [describeDevice(paired.device), companionOf ? `agents of ${companionOf}` : undefined, paired.lastAddress, paired.proxyUser ? `as ${paired.proxyUser}` : undefined, `paired ${formatAgo(paired.pairedAt, now)}`,
     live ? "connected" : paired.lastSeenAt ? `last seen ${formatAgo(paired.lastSeenAt, now)}` : "not connected yet",
@@ -407,7 +459,7 @@ function ClientRow({ paired, companionOf, now, busy, onEdit, onRevoke }: { paire
       <State tone={live || phone ? "success" : "muted"}>{live ? "Online" : phone ? "Paired" : "Offline"}</State>
       <td className="settings-table-actions">
         <Button variant="ghost" icon={<SlidersHorizontal size={13} aria-hidden />} aria-label={`Settings for ${paired.label}`} {...tooltipProps("Name, access and sign-out")} disabled={busy} onClick={onEdit}>Access</Button>
-        {paired.current ? null : <Button variant="ghost" icon={<X size={13} aria-hidden />} busy={busy} onClick={onRevoke}>Unpair</Button>}
+        {paired.current ? null : <Button variant="ghost" icon={<X size={13} aria-hidden />} aria-label={`Sign out ${paired.label}`} busy={busy} onClick={onSignOut}>Sign out…</Button>}
       </td>
     </tr>
   );
@@ -522,8 +574,8 @@ function CreateLinkDialog({ busy, onCreate, onCancel }: { busy: boolean; onCreat
       <p>A one-time link another device opens to ask for a key of its own. You allow it here when it asks. It never sees the access key.</p>
       <div className="dialog-fields" onKeyDown={submitOnEnter(submit)}>
         <label className="dialog-field">
-          <span>Client label (optional)</span>
-          <TextField label="Client label" value={label} placeholder="e.g. Kitchen iPad" width="full" disabled={busy} onCommit={(text) => setLabel(text.trim().slice(0, NAME_LIMIT))} />
+          <span>Name (optional)</span>
+          <TextField label="Name" value={label} placeholder="e.g. Kitchen iPad" width="full" disabled={busy} onCommit={(text) => setLabel(text.trim().slice(0, NAME_LIMIT))} />
         </label>
         <label className="dialog-field">
           <span>Expires after</span>

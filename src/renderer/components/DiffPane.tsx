@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { DiffLoadOptions, UiFileDiff } from "../../shared/workspace-kit-types";
 import { DiffStack } from "./DiffStack";
+import { LoadError } from "./ui/LoadError";
+import { errorMessage } from "../../workbench/error-message";
 
 const HUNK_PAGE = 40;
 
@@ -17,6 +19,8 @@ export function DiffPane({ path, mode, loadDiff, onLoaded, wrap = true }: {
   const scroll = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string>();
   const [diff, setDiff] = useState<UiFileDiff>();
+  /** Retry reads the diff again. */
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const currentRequest = ++request.current;
@@ -28,10 +32,10 @@ export function DiffPane({ path, mode, loadDiff, onLoaded, wrap = true }: {
       if (cancelled) return;
       setDiff(next);
       onLoaded?.(next);
-    }).catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Could not load this diff."); });
+    }).catch((reason: unknown) => { if (!cancelled) setError(errorMessage(reason)); });
     return () => { cancelled = true; if (request.current === currentRequest) request.current++; };
   // onLoaded is a notification hook; a new callback identity must not refetch.
-  }, [loadDiff, path]);
+  }, [attempt, loadDiff, path]);
 
   const loadMore = diff?.truncated && diff.nextHunkOffset !== undefined
     ? () => {
@@ -44,15 +48,17 @@ export function DiffPane({ path, mode, loadDiff, onLoaded, wrap = true }: {
           ? { ...next, hunks: [...current.hunks, ...next.hunks], truncated: next.truncated, nextHunkOffset: next.nextHunkOffset }
           : next);
       }).catch((reason: unknown) => {
-        if (request.current === currentRequest) setError(reason instanceof Error ? reason.message : "Could not load more diff hunks.");
+        if (request.current === currentRequest) setError(errorMessage(reason));
       }).finally(() => { if (request.current === currentRequest) paging.current = false; });
     }
     : undefined;
 
   return <div className="stage-diff-cards" ref={scroll}>
-    {error && diff ? <p className="rvd-note-line rvd-error" role="alert">{error}</p> : null}
-    <DiffStack files={[{ path, added: diff?.added ?? 0, removed: diff?.removed ?? 0 }]} layout={mode} wrap={wrap}
-      diffs={diff ? new Map([[path, diff]]) : undefined} unavailable={diff ? undefined : error} scroll={scroll}
-      onLoadMore={loadMore} />
+    {error && diff ? <LoadError title="Could not load more of this diff" error={error} onRetry={loadMore && (() => { setError(undefined); loadMore(); })} /> : null}
+    {error && !diff
+      ? <LoadError title="Could not load this diff" description={<code>{path}</code>} error={error} onRetry={() => setAttempt((count) => count + 1)} />
+      : <DiffStack files={[{ path, added: diff?.added ?? 0, removed: diff?.removed ?? 0 }]} layout={mode} wrap={wrap}
+        diffs={diff ? new Map([[path, diff]]) : undefined} scroll={scroll}
+        onLoadMore={loadMore} />}
   </div>;
 }

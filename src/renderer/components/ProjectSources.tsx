@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, Search, X } from "lucide-react";
 import { useClientEnvironment } from "../client-environment";
+import { errorMessage } from "../../workbench/error-message";
 import type { ContributionOwner, ProjectSourceContribution, WorkbenchActions } from "../extension-system";
 import { useEscapeLayer } from "./ui/escape-layers";
 import { focusableElements, useFocusReturn, useFocusTrap } from "./ui/focus";
@@ -27,6 +28,8 @@ export function ProjectSourcesModal({
   const { profile } = useClientEnvironment();
   const [activeSourceId, setActiveSourceId] = useState<string | undefined>(() => sources.find((source) => source.id === initialSource && source.Component)?.id);
   const [busySourceId, setBusySourceId] = useState<string>();
+  // A source that threw stays in the list with the reason, so choosing it again is the retry.
+  const [failure, setFailure] = useState<{ label: string; message: string }>();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const activeSource = sources.find((source) => source.id === activeSourceId);
@@ -53,9 +56,12 @@ export function ProjectSourcesModal({
       return;
     }
     setBusySourceId(source.id);
+    setFailure(undefined);
     try {
       const completed = await source.run(actions);
       if (completed !== false) onClose();
+    } catch (error) {
+      setFailure({ label: source.label, message: errorMessage(error).replace(/[.\s]*$/u, ".") });
     } finally {
       setBusySourceId(undefined);
     }
@@ -101,6 +107,7 @@ export function ProjectSourcesModal({
                 </button>
               ))}
               {visibleSources.length === 0 ? <p>No matching sources</p> : null}
+              {failure ? <p role="alert">{failure.label} did not finish: {failure.message} Choose it again to retry.</p> : null}
             </div>
             <footer className="project-modal-footer"><small className="keyboard-hint"><kbd>↑↓</kbd> select <kbd>↵</kbd> open</small></footer>
           </>

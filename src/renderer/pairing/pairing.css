@@ -2,7 +2,8 @@
 .pairing-request { width: 420px; }
 .pairing-code {
   display: block; padding: 8px 0 4px; text-align: center;
-  font: 600 32px/1 var(--mono); letter-spacing: 0.08em; font-variant-numeric: tabular-nums; color: var(--ink);
+  /* Twice the body text and a little more: 32px at the default Text size, and larger with it. */
+  font: 600 calc(2 * var(--text-md) + 4px)/1 var(--mono); letter-spacing: 0.08em; font-variant-numeric: tabular-nums; color: var(--ink);
 }
 .pairing-access { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); }
 .pairing-access > small { color: var(--muted); font: var(--text-sm)/1.4 var(--sans); }

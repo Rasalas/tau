@@ -41,7 +41,7 @@ function renderPage(overrides: Partial<HostClient>, sections: ComponentProps<typ
 }
 
 describe("Settings → Connections", () => {
-  it("lists paired clients and this window, and revokes a client", async () => {
+  it("lists paired clients and this window, and signs a client out only after asking", async () => {
     const revokeClient = vi.fn(async () => ({ revoked: true }));
     const { notify } = renderPage({ listConnections: async () => connections(), revokeClient });
     expect(await screen.findByText("Kitchen iPad")).toBeTruthy();
@@ -51,9 +51,26 @@ describe("Settings → Connections", () => {
     // A tablet that is connected reads Online; the window has its own row.
     expect(screen.getByText("Kitchen iPad").closest("tr")?.querySelector(".connection-state")?.textContent).toBe("Online");
     expect(screen.getByText("Tau window")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Unpair" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out Kitchen iPad" }));
+    const dialog = await screen.findByRole("dialog", { name: "Sign out Kitchen iPad?" });
+    expect(revokeClient).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(revokeClient).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Sign out Kitchen iPad" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Sign out Kitchen iPad?" })).getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(revokeClient).toHaveBeenCalledWith("c1"));
-    expect(notify).toHaveBeenCalledWith("Kitchen iPad can no longer connect");
+    expect(notify).toHaveBeenCalledWith("Kitchen iPad is signed out");
+  });
+
+  it("revokes a pairing link only after asking, by its name", async () => {
+    const link = { id: "l1", label: "Laptop", access: "full" as const, createdAt: soon(0), expiresAt: soon(10 * 60_000) };
+    const revokePairingLink = vi.fn(async () => ({ revoked: true }));
+    renderPage({ listConnections: async () => connections({ clients: [], links: [link] }), revokePairingLink });
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke Laptop" }));
+    expect(revokePairingLink).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Revoke Laptop?" })).getByRole("button", { name: "Revoke" }));
+    await waitFor(() => expect(revokePairingLink).toHaveBeenCalledWith("l1"));
   });
 
   it("shows a new link once, without a QR code for loopback, and copies it", async () => {
@@ -68,7 +85,7 @@ describe("Settings → Connections", () => {
     renderPage({ listConnections: async () => listed, createPairingLink, copyText });
     fireEvent.click(await screen.findByRole("button", { name: /Pair a device/u }));
     const dialog = screen.getByRole("dialog", { name: "Create pairing link" });
-    const label = within(dialog).getByRole("textbox", { name: "Client label" });
+    const label = within(dialog).getByRole("textbox", { name: "Name" });
     fireEvent.change(label, { target: { value: "Laptop" } });
     fireEvent.blur(label);
     fireEvent.click(within(dialog).getByRole("radio", { name: "Read only" }));
@@ -95,6 +112,8 @@ describe("Settings → Connections", () => {
     const rotateHostToken = vi.fn(async () => undefined);
     renderPage({ listConnections: async () => connections(), rotateHostToken });
     fireEvent.click(await screen.findByRole("button", { name: "Rotate…" }));
+    // The access key is described by what it does, never by the file it is kept in.
+    expect(screen.queryByText(/host-token/u)).toBeNull();
     expect(rotateHostToken).not.toHaveBeenCalled();
     fireEvent.click(within(screen.getByRole("dialog", { name: "Rotate the access key?" })).getByRole("button", { name: "Rotate" }));
     await waitFor(() => expect(rotateHostToken).toHaveBeenCalledOnce());
@@ -141,7 +160,7 @@ describe("Settings → Connections", () => {
     const { notify } = renderPage({ listConnections: async () => connections({ requests: [request] }), approvePairing });
     expect(await screen.findByText("482 913")).toBeTruthy();
     expect(screen.getByText(/without a pairing link/u)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Allow…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow Alex’s iPhone" }));
     const dialog = await screen.findByRole("dialog", { name: "Alex’s iPhone wants to connect" });
     fireEvent.click(within(dialog).getByRole("radio", { name: "Read only" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Allow" }));
@@ -149,11 +168,13 @@ describe("Settings → Connections", () => {
     expect(notify).toHaveBeenCalledWith("Alex’s iPhone can connect now");
   });
 
-  it("denies a waiting device from its row", async () => {
+  it("denies a waiting device from its row only after asking", async () => {
     const request = { id: "r1", device: { kind: "desktop" as const, browser: "Firefox", os: "Linux" }, link: { label: "Laptop" }, verification: "000001", access: "read-only" as const, createdAt: soon(0), expiresAt: soon(120_000) };
     const denyPairing = vi.fn(async () => ({ denied: true }));
     renderPage({ listConnections: async () => connections({ requests: [request] }), denyPairing });
-    fireEvent.click(await screen.findByRole("button", { name: "Deny" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Deny Laptop" }));
+    expect(denyPairing).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Deny Laptop?" })).getByRole("button", { name: "Deny" }));
     await waitFor(() => expect(denyPairing).toHaveBeenCalledWith("r1"));
   });
 
@@ -190,9 +211,9 @@ describe("Settings → Connections", () => {
   it("signs out every other device only after asking", async () => {
     const revokeOtherClients = vi.fn(async () => ({ revoked: 1 }));
     const { notify } = renderPage({ listConnections: async () => connections(), revokeOtherClients });
-    fireEvent.click(await screen.findByRole("button", { name: "Revoke others…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out others…" }));
     expect(revokeOtherClients).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Revoke every other device?" })).getByRole("button", { name: "Revoke others" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Sign out every other device?" })).getByRole("button", { name: "Sign out others" }));
     await waitFor(() => expect(revokeOtherClients).toHaveBeenCalledOnce());
     expect(notify).toHaveBeenCalledWith("1 device signed out");
   });

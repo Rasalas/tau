@@ -421,6 +421,24 @@ export function ReviewMode({
       .catch((error) => setDiffErrors((current) => new Map(current).set(path, error instanceof Error ? error.message : "Could not load more diff hunks.")));
   };
 
+  /** Retry on a file whose diff failed: reads its first page again. */
+  const retryDiff = (path: string) => {
+    setDiffErrors((current) => {
+      const updated = new Map(current);
+      updated.delete(path);
+      return updated;
+    });
+    const options: DiffLoadOptions = {
+      hunkLimit: 40,
+      contextLines,
+      ...whitespace,
+      ...(readOnly ? {} : { scope, baseRef: visibleChanges.baseRef, baseCommit: visibleChanges.baseCommit }),
+    };
+    void loadDiff(path, options)
+      .then((next) => setDiffs((current) => new Map(current).set(path, next)))
+      .catch((error) => setDiffErrors((current) => new Map(current).set(path, error instanceof Error ? error.message : String(error))));
+  };
+
   const scopeTitle = readOnly
     ? checkpointTitle ?? "Turn changes"
     : scope === "branch" ? "Branch changes" : "Working tree";
@@ -613,6 +631,7 @@ export function ReviewMode({
               {...(find.find ? { find: find.find } : {})}
               onExpandContext={() => setContextMode("expand")}
               onLoadMore={loadMore}
+              onRetry={retryDiff}
               renderFileHeader={renderFileHeader}
               onVisiblePathChange={onVisiblePathChange}
               wrap={wordWrap}

@@ -97,7 +97,7 @@ export function InspectorPage({ registry, cwd, onNotify = () => undefined }: { r
       <SettingsSection title={`Loaded (${ids.length})`} plain>
         {ids.length > 0 ? (
           <table className="inspector-table" aria-label="Loaded extensions">
-            <thead><tr><th>Extension</th><th>Desktop</th><th>Host</th><th>Isolation</th><th>Source</th></tr></thead>
+            <thead><tr><th>Extension</th><th>Desktop</th><th>Machine</th><th>Isolation</th><th>Source</th></tr></thead>
             <tbody>
               {ids.map((id) => {
                 const desktopHalf = desktop.find((entry) => entry.id === id);
@@ -136,7 +136,7 @@ export function InspectorPage({ registry, cwd, onNotify = () => undefined }: { r
         plain
         headerAction={<span className="inspector-profile">
           <Badge>{registry.getProfile()} profile</Badge>
-          <HelpTip label="About profiles" text="A contribution names the clients it draws on. What this client leaves out keeps running: the extensions and their host halves stay active." />
+          <HelpTip label="About profiles" text="A contribution names the clients it draws on. What this client leaves out keeps running: the extensions and their halves on the machine stay active." />
         </span>}
       >
         {unrendered.length > 0 ? (
@@ -168,7 +168,7 @@ export function InspectorPage({ registry, cwd, onNotify = () => undefined }: { r
               {packages.map((pkg) => (
                 <tr key={pkg.directory}>
                   <td><strong>{pkg.name}</strong><small>{pkg.id}{pkg.version ? ` · ${pkg.version}` : ""}</small></td>
-                  <td>{[pkg.desktop ? "desktop" : "", pkg.host ? "host" : ""].filter(Boolean).join(" + ")}</td>
+                  <td>{[pkg.desktop ? "desktop" : "", pkg.host ? "machine" : ""].filter(Boolean).join(" + ")}</td>
                   <td>{pkg.engines ? Object.entries(pkg.engines).map(([engine, range]) => `${engine} ${range}`).join(", ") : "any"}</td>
                   <td>{pkg.permissions && pkg.permissions.length > 0 ? pkg.permissions.join(", ") : "none"}</td>
                   <td>{pkg.isolation ?? "worker"}</td>

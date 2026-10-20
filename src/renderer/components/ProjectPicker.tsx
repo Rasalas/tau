@@ -3,8 +3,11 @@ import { Check, ChevronRight, MessageSquare, Plus, Search, Trash2 } from "lucide
 import type { UiProject, UiSession } from "../../shared/contracts";
 import { pickerOrder } from "../../workbench/new-thread-project";
 import { namesWorkspace } from "../../shared/workspace-identity";
+import type { ToastHandle, ToastOptions } from "../../workbench/toast-store";
 import { Sheet } from "../deferred-surfaces";
 import { Popover } from "./ui/Dialog";
+import { useContextMenu } from "./ui/ContextMenu";
+import { tooltipProps } from "./ui/Tooltip";
 import { ProjectIcon } from "./ProjectIcon";
 import { VirtualList } from "./VirtualList";
 import { useFocusReturn } from "./ui/focus";
@@ -29,6 +32,15 @@ interface ProjectPickerProps {
   onClose: () => void;
   onRemove: (project: UiProject) => void | Promise<void>;
   onSelect: (project: UiProject) => void;
+  /** With a toast, a removal waits for it and its Undo; without one it goes at once. */
+  toast?: ((options: ToastOptions) => ToastHandle) | undefined;
+}
+
+const keyOf = (project: UiProject) => project.workspaceId ?? project.path;
+
+/** A text field with text in it, where Shift+Delete cuts (Linux, Windows). */
+function cutsText(target: EventTarget | null): boolean {
+  return (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) && target.value !== "";
 }
 
 function compactPath(path: string): string {
@@ -51,11 +63,14 @@ export function ProjectPicker({
   onClose,
   onRemove,
   onSelect,
+  toast,
 }: ProjectPickerProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
-  const [contextMenu, setContextMenu] = useState<{ project: UiProject; x: number; y: number }>();
+  /** Removed, while their toast still offers Undo. */
+  const [removing, setRemoving] = useState<ReadonlySet<string>>(() => new Set());
+  const openMenu = useContextMenu();
   const inputRef = useRef<HTMLInputElement>(null);
   const surfaceRef = useRef<HTMLElement>(null);
   useFocusReturn(open, surfaceRef);
@@ -64,11 +79,12 @@ export function ProjectPicker({
   const ordered = useMemo(() => pickerOrder(projects, threads, preselect), [projects, preselect, open]);
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return ordered;
-    return ordered.filter((project) =>
+    const kept = removing.size ? ordered.filter((project) => !removing.has(keyOf(project))) : ordered;
+    if (!needle) return kept;
+    return kept.filter((project) =>
       `${project.name} ${project.displayPath ?? project.path}`.toLocaleLowerCase().includes(needle),
     );
-  }, [ordered, query]);
+  }, [ordered, query, removing]);
   // The row after the projects is "Add project…".
   const last = matches.length + (onNoProject ? 1 : 0);
 
@@ -76,29 +92,50 @@ export function ProjectPicker({
     if (!open) return;
     setQuery("");
     setSelected(0);
-    setContextMenu(undefined);
     // A touch keyboard would cover the list; there the search waits for a tap.
     if (!sheet) window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [open, sheet]);
 
+  /** Hides the project at once; it leaves Tau when its toast goes without Undo. */
+  const remove = (project: UiProject) => {
+    if (!toast) { void onRemove(project); return; }
+    const key = keyOf(project);
+    const show = (hidden: boolean) => setRemoving((current) => {
+      const next = new Set(current);
+      if (hidden) next.add(key); else next.delete(key);
+      return next;
+    });
+    let undone = false;
+    show(true);
+    toast({
+      id: `project-picker.remove:${key}`,
+      type: "success",
+      title: `Removed ${project.name} from Tau`,
+      description: "Its files stay on disk.",
+      actions: [{ label: "Undo", run: () => { undone = true; } }],
+      onClose: () => {
+        if (undone) show(false);
+        else void Promise.resolve(onRemove(project)).finally(() => show(false));
+      },
+    });
+  };
+  const removeRef = useRef(remove);
+  removeRef.current = remove;
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (contextMenu) setContextMenu(undefined);
-        else onClose();
-      }
-      if (event.key === "Delete" && event.shiftKey) {
+      if (event.key === "Escape") onClose();
+      if (event.key === "Delete" && event.shiftKey && !cutsText(event.target)) {
         const project = matches[selected];
         if (!project) return;
         event.preventDefault();
-        setContextMenu(undefined);
-        void onRemove(project);
+        removeRef.current(project);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [contextMenu, matches, onClose, onRemove, open, selected]);
+  }, [matches, onClose, open, selected]);
 
   useEffect(() => {
     setSelected((index) => Math.min(index, last));
@@ -157,19 +194,15 @@ export function ProjectPicker({
           onMouseMove={() => setSelected(index)}
           onClick={() => onSelect(project)}
           onContextMenu={(event) => {
-            event.preventDefault();
             setSelected(index);
-            setContextMenu({
-              project,
-              x: Math.min(event.clientX, window.innerWidth - 216),
-              y: Math.min(event.clientY, window.innerHeight - 78),
-            });
+            void openMenu(event, [{ items: [{ id: "remove", label: "Remove from Tau", description: "Files stay on disk", icon: <Trash2 size={14} />, destructive: true }] }])
+              .then((choice) => { if (choice === "remove") remove(project); });
           }}
         >
           <ProjectIcon project={project} />
           <span>
             <strong>{project.name}</strong>
-            <small>{machine ? `${machine} · ` : ""}{compactPath(project.displayPath ?? project.path)}</small>
+            <small {...tooltipProps(project.displayPath ?? project.path, { when: "truncated", variant: "code" })}>{machine ? `${machine} · ` : ""}{compactPath(project.displayPath ?? project.path)}</small>
           </span>
           {sheet ? <ChevronRight size={18} /> : preselect !== undefined && namesWorkspace(preselect, project.workspaceId, project.path) ? <Check size={14} aria-label="current" /> : null}
         </button>
@@ -193,23 +226,5 @@ export function ProjectPicker({
     <section ref={surfaceRef} className="project-picker" role="dialog" aria-modal="true" aria-label="Search projects">{body}</section>
   </>;
 
-  return (
-    <>
-      {surface}
-      {contextMenu ? <div
-        className="project-picker-context-menu"
-        role="menu"
-        style={{ left: contextMenu.x, top: contextMenu.y }}
-      >
-        <button type="button" role="menuitem" onClick={() => {
-          const project = contextMenu.project;
-          setContextMenu(undefined);
-          void onRemove(project);
-        }}>
-          <Trash2 size={14} />
-          <span><strong>Remove from Tau</strong><small>Files stay on disk</small></span>
-        </button>
-      </div> : null}
-    </>
-  );
+  return <>{surface}</>;
 }

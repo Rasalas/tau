@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ComponentProps } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StageFileTab } from "../../workbench/stage";
 import type { CommandContribution, WorkbenchActions } from "../extension-system";
@@ -109,10 +109,16 @@ describe("FileViewer loading", () => {
     expect(screen.getByText(/Its project is not open in Tau any more/u)).toBeTruthy();
   });
 
-  it("keeps another failure's own words", async () => {
-    viewer(async () => { throw new Error("Not a file."); });
+  it("keeps another failure's own words under Details and reads the file again on Retry", async () => {
+    const loadFile = vi.fn<(path: string) => Promise<UiFileContent>>()
+      .mockRejectedValueOnce(new Error("Not a file."))
+      .mockResolvedValueOnce({ kind: "text", path: "/repo/src/a.ts", name: "a.ts", size: 6, text: "a = 1;" } as UiFileContent);
+    viewer(loadFile);
     await screen.findByText("Could not open this file");
-    expect(screen.getByText(/Not a file\./u)).toBeTruthy();
+    expect(screen.getByText("Not a file.").closest("details")?.querySelector("summary")?.textContent).toBe("Details");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByText("Could not open this file")).toBeNull());
+    expect(loadFile).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -1,7 +1,7 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { Crosshair, Plus, Trash2 } from "lucide-react";
 import {
-  Button, DangerAction, DangerZone, Empty, READ_ONLY_REASON, SettingRow, SettingsPageAction, SettingsPageSections, SettingsSection, Switch, TextField,
+  Button, ConfirmDialog, DangerAction, DangerZone, Empty, READ_ONLY_REASON, SettingRow, SettingsPageAction, SettingsPageSections, SettingsSection, Switch, TextField,
   hostIsReadOnly, type CustomizablePart, type SettingsPageProps,
 } from "tau";
 import type { CustomizeEdit, CustomizeStore } from "./client-store.js";
@@ -62,6 +62,7 @@ export function CustomizeSettings({ store, parts, subscribeParts, pick, onNotify
   const readOnly = hostIsReadOnly();
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string>();
+  const [removing, setRemoving] = useState<{ kind: "style" | "script"; id: string; name: string }>();
   const update = (edit: CustomizeEdit) => { void store.update(edit).then(setError); };
 
   // Its own parts (the picker, the scripts' regions) are switched by their entries below.
@@ -89,6 +90,9 @@ export function CustomizeSettings({ store, parts, subscribeParts, pick, onNotify
     ...current,
     scripts: current.scripts.map((entry) => entry.id === id ? { ...entry, ...patch } : entry),
   }));
+  // One the user wrote in has no undo, so it asks first; one still as added just goes.
+  const removeStyle = (id: string) => update((current) => ({ ...current, styles: current.styles.filter((entry) => entry.id !== id) }));
+  const removeScript = (id: string) => update((current) => ({ ...current, scripts: current.scripts.filter((entry) => entry.id !== id) }));
   const replacing = (name: string) => state.scripts.find((script) => "replace" in script.target && script.target.replace === name);
 
   return (
@@ -138,7 +142,7 @@ export function CustomizeSettings({ store, parts, subscribeParts, pick, onNotify
               title={<TextField label="Style name" value={style.name} width="md" disabled={readOnly} onCommit={(name) => update((current) => ({ ...current, styles: current.styles.map((entry) => entry.id === style.id ? { ...entry, name } : entry) }))} />}
               control={<span className="customize-row-controls">
                 <Switch label={`Use ${style.name}`} checked={style.enabled} disabled={readOnly} onChange={(enabled) => update((current) => ({ ...current, styles: current.styles.map((entry) => entry.id === style.id ? { ...entry, enabled } : entry) }))} />
-                <Button variant="ghost" aria-label={`Remove ${style.name}`} icon={<Trash2 size={14} />} disabled={readOnly} onClick={() => update((current) => ({ ...current, styles: current.styles.filter((entry) => entry.id !== style.id) }))} />
+                <Button variant="ghost" aria-label={`Remove ${style.name}`} icon={<Trash2 size={14} />} disabled={readOnly} onClick={() => { if (style.css === STYLE_TEMPLATE) removeStyle(style.id); else setRemoving({ kind: "style", id: style.id, name: style.name }); }} />
               </span>}
             />
             <TextField label={`${style.name} CSS`} value={style.css} rows={10} mono width="full" disabled={readOnly} onCommit={(css) => update((current) => ({ ...current, styles: current.styles.map((entry) => entry.id === style.id ? { ...entry, css } : entry) }))} />
@@ -155,7 +159,7 @@ export function CustomizeSettings({ store, parts, subscribeParts, pick, onNotify
               description={describeTarget(script.target)}
               control={<span className="customize-row-controls">
                 <Switch label={`Use ${script.name}`} checked={script.enabled} disabled={readOnly} onChange={(enabled) => editScript(script.id, { enabled })} />
-                <Button variant="ghost" aria-label={`Remove ${script.name}`} icon={<Trash2 size={14} />} disabled={readOnly} onClick={() => update((current) => ({ ...current, scripts: current.scripts.filter((entry) => entry.id !== script.id) }))} />
+                <Button variant="ghost" aria-label={`Remove ${script.name}`} icon={<Trash2 size={14} />} disabled={readOnly} onClick={() => { if (script.html === SCRIPT_TEMPLATE) removeScript(script.id); else setRemoving({ kind: "script", id: script.id, name: script.name }); }} />
               </span>}
             />
             <TextField
@@ -171,6 +175,15 @@ export function CustomizeSettings({ store, parts, subscribeParts, pick, onNotify
           </div>
         ))}
       </SettingsSection>
+
+      {removing ? <ConfirmDialog
+        title={`Remove “${removing.name}”?`}
+        message={removing.kind === "style" ? "Its CSS is deleted on every device of this machine." : "Its HTML and JavaScript are deleted on every device of this machine."}
+        confirmLabel="Remove"
+        destructive
+        onCancel={() => setRemoving(undefined)}
+        onConfirm={() => { setRemoving(undefined); (removing.kind === "style" ? removeStyle : removeScript)(removing.id); }}
+      /> : null}
 
       <DangerZone>
         <DangerAction

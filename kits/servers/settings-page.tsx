@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Info, OctagonAlert } from "lucide-react";
-import { Button, READ_ONLY_REASON, SegmentedControl, Select, SettingRow, SettingsSection, SettingsState, errorMessage, useCommandAllowed, useSetting } from "tau";
+import { Button, ConfirmDialog, READ_ONLY_REASON, SegmentedControl, Select, SettingRow, SettingsSection, SettingsState, errorMessage, useCommandAllowed, useSetting } from "tau";
 import type { DesktopExtensionContext, SettingsPageProps } from "tau";
 import {
   DEFAULT_RETENTION_COUNT, DEFAULT_RETENTION_DAYS, RETENTION_COUNT_KEY, RETENTION_DAYS_KEY, SERVERS_EXTENSION_ID, TARGET_LEVELS, decodeServerTargetsState, type TargetLevel,
@@ -68,17 +68,20 @@ export const LEVEL_WORDS: Readonly<Record<TargetLevel, { label: string; descript
   full: { label: "Full access", description: "The agent runs commands on the server without asking. Writing Git there stays blocked." },
 };
 
-function TargetSection({ target, credential, level, busy, allowed, levelAllowed, onProfile, onLevel, onCheck, onForget }: {
+function TargetSection({ target, credential, level, levelError, busy, allowed, levelAllowed, onProfile, onLevel, onRetryLevel, onCheck, onForget }: {
   target: ServerTargetRow;
   credential: CredentialStatus | undefined;
   level: TargetLevel | undefined;
+  /** Why what the agent may run did not load. */
+  levelError: string | undefined;
   busy: boolean;
   allowed: boolean;
   levelAllowed: boolean;
   onProfile(profile: string | undefined): void;
   onLevel(level: TargetLevel): void;
+  onRetryLevel(): void;
   onCheck(kind: SecretKind): void;
-  onForget(): void;
+  onForget(kind: SecretKind): void;
 }) {
   return (
     <SettingsSection title={target.label} id={`servers-target-${target.id}`}>
@@ -101,7 +104,11 @@ function TargetSection({ target, credential, level, busy, allowed, levelAllowed,
         />}
       /> : null}
       {/* FTP runs no commands: nothing to allow. */}
-      {target.protocol === "ftp" ? null : <SettingRow
+      {target.protocol === "ftp" ? null : !level && levelError ? <SettingRow
+        title="Commands on the server"
+        description={`Tau could not read what the agent may run here: ${levelError.replace(/[.\s]*$/u, ".")} Uploads are always yours.`}
+        control={<Button onClick={onRetryLevel}>Try again</Button>}
+      /> : <SettingRow
         title="Commands on the server"
         description={`${level ? LEVEL_WORDS[level].description : "Reading what the agent may run…"} Uploads are always yours.`}
         disabledReason={levelAllowed ? undefined : READ_ONLY_REASON}
@@ -113,9 +120,9 @@ function TargetSection({ target, credential, level, busy, allowed, levelAllowed,
           onChange={onLevel}
         />}
       />}
-      <SecretRow title="Password" spec={target.password} status={credential?.password} busy={busy} allowed={allowed} onCheck={() => onCheck("password")} onForget={onForget} />
+      <SecretRow title="Password" spec={target.password} status={credential?.password} busy={busy} allowed={allowed} onCheck={() => onCheck("password")} onForget={() => onForget("password")} />
       {target.privateKeyPath ? <SettingRow title="Key" description={<code>{target.privateKeyPath}</code>} /> : null}
-      {target.passphrase || target.privateKeyPath ? <SecretRow title="Key passphrase" spec={target.passphrase ?? "Asked when the key needs one"} status={credential?.passphrase} busy={busy} allowed={allowed} onCheck={() => onCheck("passphrase")} onForget={onForget} /> : null}
+      {target.passphrase || target.privateKeyPath ? <SecretRow title="Key passphrase" spec={target.passphrase ?? "Asked when the key needs one"} status={credential?.passphrase} busy={busy} allowed={allowed} onCheck={() => onCheck("passphrase")} onForget={() => onForget("passphrase")} /> : null}
       <Issues issues={target.issues} />
     </SettingsSection>
   );
@@ -130,6 +137,7 @@ const COUNT_OPTIONS = RETENTION_COUNTS.map((value) => ({ value, label: value ===
 
 /** How long Tau keeps the recorded server states and deployments; this machine's setting. */
 function RetentionSection({ busy, cleanAllowed, onClean }: { busy: boolean; cleanAllowed: boolean; onClean(): void }) {
+  const [asking, setAsking] = useState(false);
   const days = useSetting<string>(`values.${SERVERS_EXTENSION_ID}.${RETENTION_DAYS_KEY}`, { defaultValue: String(DEFAULT_RETENTION_DAYS), scope: "host", read: readChoice(RETENTION_DAYS), format: (value) => `${value} days` });
   const count = useSetting<string>(`values.${SERVERS_EXTENSION_ID}.${RETENTION_COUNT_KEY}`, { defaultValue: String(DEFAULT_RETENTION_COUNT), scope: "host", read: readChoice(RETENTION_COUNTS), format: (value) => `${value} entries` });
   return (
@@ -153,8 +161,16 @@ function RetentionSection({ busy, cleanAllowed, onClean }: { busy: boolean; clea
         title="Clean up now"
         description="Tau cleans up every hour. Dropped deployments can no longer be rolled back."
         disabledReason={cleanAllowed ? undefined : READ_ONLY_REASON}
-        control={<Button busy={busy} disabled={!cleanAllowed} onClick={onClean}>Clean up</Button>}
+        control={<Button busy={busy} disabled={!cleanAllowed} onClick={() => setAsking(true)}>Clean up…</Button>}
       />
+      {asking ? <ConfirmDialog
+        title="Clean up the server history now?"
+        message="Recorded server states and deployments beyond what Tau keeps are deleted. A dropped deployment can no longer be rolled back."
+        confirmLabel="Clean up"
+        destructive
+        onCancel={() => setAsking(false)}
+        onConfirm={() => { setAsking(false); onClean(); }}
+      /> : null}
     </SettingsSection>
   );
 }
@@ -185,6 +201,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
     const levelAllowed = useCommandAllowed(SERVERS_EXTENSION_ID, "set-target-level");
     const cleanAllowed = useCommandAllowed(SERVERS_EXTENSION_ID, "cleanup-history");
     const [levels, setLevels] = useState<Record<string, TargetLevel>>({});
+    const [levelError, setLevelError] = useState<string>();
 
     const loadCredentials = useCallback(() => {
       if (!cwd) return;
@@ -194,13 +211,22 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
       }, () => undefined);
     }, [cwd]);
 
+    const loadLevels = useCallback(() => {
+      if (!cwd) return;
+      setLevelError(undefined);
+      context.host.invoke("target-levels", { cwd }).then(
+        (next) => setLevels((next as { levels?: Record<string, TargetLevel> } | undefined)?.levels ?? {}),
+        (failure: unknown) => setLevelError(errorMessage(failure)),
+      );
+    }, [cwd]);
+
     const load = useCallback(() => {
       if (!cwd) return;
       setError(undefined);
       context.host.invoke("targets", { cwd }).then((next) => setState(decodeServerTargetsState(next)), (failure: unknown) => setError(errorMessage(failure)));
-      context.host.invoke("target-levels", { cwd }).then((next) => setLevels((next as { levels?: Record<string, TargetLevel> } | undefined)?.levels ?? {}), () => undefined);
+      loadLevels();
       loadCredentials();
-    }, [cwd, loadCredentials]);
+    }, [cwd, loadCredentials, loadLevels]);
     useEffect(load, [load]);
 
     const run = (step: Promise<unknown>, done?: (value: unknown) => void) => {
@@ -212,7 +238,7 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
       const what = kind === "password" ? "password" : "passphrase";
       onNotify(result.found ? `${target.label}: found the ${what}. Source: ${result.source ?? "a store"}.` : `${target.label}: no ${what} stored. ${result.message ?? ""}`.trim());
     });
-    const forget = (target: ServerTargetRow) => run(context.host.invoke("forget-credential", { cwd, targetId: target.id }), () => onNotify(`Tau forgot what it kept for ${target.label}.`));
+    const forget = (target: ServerTargetRow, kind: SecretKind) => run(context.host.invoke("forget-credential", { cwd, targetId: target.id, kind }), () => onNotify(`Tau forgot the ${kind === "password" ? "password" : "key passphrase"} it kept for ${target.label}.`));
     const withdraw = () => run(context.host.invoke("forget-credential-approvals", { cwd }), () => onNotify("Tau will ask again before it runs a command or reads VS Code's items."));
     const approvals = Object.values(credentials).some((entry) => [entry.password, entry.passphrase].some((secret) => secret?.command === "allowed" || secret?.foreignItem?.allowed));
 
@@ -251,13 +277,15 @@ export function createServersSettingsPage(context: DesktopExtensionContext) {
             target={target}
             credential={credentials[target.id]}
             level={levels[target.id]}
+            levelError={levelError}
             busy={busy}
             allowed={allowed}
             levelAllowed={levelAllowed}
             onProfile={(profile) => chooseProfile(target, profile)}
             onLevel={(level) => chooseLevel(target, level)}
+            onRetryLevel={loadLevels}
             onCheck={(kind) => check(target, kind)}
-            onForget={() => forget(target)}
+            onForget={(kind) => forget(target, kind)}
           />)}
         <NetworkSection context={context} cwd={cwd} onNotify={onNotify} />
         {approvals ? <SettingsSection title="Approvals">

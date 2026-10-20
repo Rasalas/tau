@@ -803,9 +803,75 @@ describe("Settings → Machines", () => {
     const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
     const Page = createMachinesPage(environments);
     render(withSettings(<Page />));
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Remove" }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: "Remove studio" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }));
     expect(environments.remove).toHaveBeenCalledWith("studio");
+  });
+
+  it("says so when a machine was not removed or renamed", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    environments.remove.mockRejectedValue(new Error("The window did not answer."));
+    environments.rename.mockRejectedValue(new Error("Name taken."));
+    const Page = createMachinesPage(environments);
+    render(withSettings(<Page />));
+    fireEvent.click(screen.getByRole("button", { name: "Remove studio" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("studio was not removed: The window did not answer.");
+    fireEvent.click(screen.getByRole("button", { name: "Rename studio" }));
+    fireEvent.change(screen.getByLabelText("Name for studio"), { target: { value: "attic" } });
+    fireEvent.submit(screen.getByLabelText("Name for studio").closest("form")!);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("studio was not renamed: Name taken."));
+    expect(environments.rename).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the name back on Escape instead of saving it", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop, studio], secureStorage: true });
+    const Page = createMachinesPage(environments);
+    render(withSettings(<Page />));
+    fireEvent.click(screen.getByRole("button", { name: "Rename studio" }));
+    const field = screen.getByLabelText("Name for studio");
+    fireEvent.change(field, { target: { value: "attic" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    fireEvent.blur(field);
+    expect(screen.queryByLabelText("Name for studio")).toBeNull();
+    expect(environments.rename).not.toHaveBeenCalled();
+  });
+
+  it("tells loading, a failure and a window without a list apart", async () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    let error: { unsupported: boolean; message: string } | undefined;
+    const listeners = new Set<() => void>();
+    const reload = vi.fn(() => { error = undefined; listeners.forEach((listener) => listener()); });
+    const missing: PlatformEnvironments = {
+      ...environments,
+      getSnapshot: () => undefined,
+      subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+      loadError: () => error,
+      reload,
+    };
+    const Page = createMachinesPage(missing);
+    render(withSettings(<Page />));
+    expect(screen.getByRole("status", { name: "Loading machines" })).toBeTruthy();
+    error = { unsupported: false, message: "The window did not answer." };
+    act(() => listeners.forEach((listener) => listener()));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/The machines did not load.*The window did not answer\./u);
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect(reload).toHaveBeenCalledOnce();
+    await screen.findByRole("status", { name: "Loading machines" });
+    error = { unsupported: true, message: "Only a desktop window keeps a list of machines." };
+    act(() => listeners.forEach((listener) => listener()));
+    await screen.findByText(/This window keeps no list of machines/u);
+  });
+
+  it("chooses how to connect with the app's own select", () => {
+    const { environments } = fakeEnvironments({ shown: "laptop", environments: [laptop], secureStorage: true });
+    const Page = createMachinesPage(environments);
+    render(withSettings(<Page />));
+    const method = screen.getByRole("combobox", { name: "Connection method" });
+    expect(method.closest(".tau-select")).toBeTruthy();
+    fireEvent.change(method, { target: { value: "ssh" } });
+    expect(screen.getByLabelText("SSH target")).toBeTruthy();
   });
 });
 

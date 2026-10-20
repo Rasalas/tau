@@ -79,7 +79,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
 
     const request = status?.request;
     const open = request && (request.state === undefined || request.state === "open") ? request : undefined;
-    const { short, sign, capabilities } = providerInfo(status?.service ?? "github");
+    const { name: provider, short, sign, capabilities } = providerInfo(status?.service ?? "github");
     const methods = METHODS.filter((entry) => capabilities.merge.includes(entry.value));
     // A provider without the chosen method merges by its first one.
     const chosen = methods.some((entry) => entry.value === method) ? method : methods[0]?.value ?? method;
@@ -130,7 +130,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
       const next = await client.autoMerge({ workspace: cwd, number: open.number, headSha: open.headSha }, enable, enable ? chosen : undefined, enable && deleteBranch && capabilities.deleteBranch);
       publish(next);
       setMode("idle");
-      actions.notify(enable ? `Auto-merge turned on for ${short} ${sign}${open?.number ?? ""}: it merges as soon as the host allows.` : `Auto-merge turned off for ${short} ${sign}${open?.number ?? ""}.`);
+      actions.notify(enable ? `Auto-merge turned on for ${short} ${sign}${open?.number ?? ""}: it merges as soon as ${provider} allows.` : `Auto-merge turned off for ${short} ${sign}${open?.number ?? ""}.`);
     });
 
     const save = () => run(`Saving ${short}…`, async () => {
@@ -236,7 +236,7 @@ export function createRequestSection(plugin: DesktopExtensionContext, store: Wor
               Merge {short} {sign}{open.number} into <code>{open.baseRef}</code> ({METHODS.find((entry) => entry.value === chosen)?.label.toLowerCase()})?
               {open.draft ? " It is still a draft." : ""}
               {open.checks && open.checks.failed > 0 ? ` ${open.checks.failed} check${open.checks.failed === 1 ? " is" : "s are"} failing.` : ""}
-              {waiting ? " Auto-merge lets the host merge it once its checks and approvals pass." : ""}
+              {waiting ? ` Auto-merge lets ${provider} merge it once its checks and approvals pass.` : ""}
             </p>
             {capabilities.deleteBranch && open.headRef ? (
               <label className="request-draft">
@@ -267,7 +267,7 @@ export function RequestSummary({ request, onOpen, onOpenInTau, onBrowse }: { req
   const armed = request.state === "open" && request.autoMerge ? `auto-merge${request.autoMerge.method ? ` · ${request.autoMerge.method}` : ""}` : undefined;
   const state = requestStateLabel(request);
   const checks = checksLabel(request.checks);
-  const { short, sign } = providerInfo(request.provider);
+  const { name: provider, short, sign } = providerInfo(request.provider);
   return (
     <>
       <button className="request-link" title={`${request.title} · opens ${inBrowser ? "it in the browser" : `the ${short} view`}`} onClick={onOpen}>
@@ -283,7 +283,7 @@ export function RequestSummary({ request, onOpen, onOpenInTau, onBrowse }: { req
       ) : null}
       <RequestStateIcon state={state} size={12} />
       {checks ? <span className={`request-checks ${checksTone(request.checks)}`}>checks {checks}</span> : null}
-      {armed ? <span className="request-state state-armed" title="The host merges it on its own once its requirements are met">{armed}</span> : null}
+      {armed ? <span className="request-state state-armed" title={`${provider} merges it on its own once its requirements are met`}>{armed}</span> : null}
     </>
   );
 }

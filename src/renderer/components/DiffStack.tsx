@@ -4,6 +4,7 @@ import { DiffView, type DiffLineSlot } from "./DiffView";
 import { errorMessage } from "../../workbench/error-message";
 import { FileKindIcon } from "./FileKindIcon";
 import { tooltipProps } from "./ui/Tooltip";
+import { LoadError } from "./ui/LoadError";
 import type { UiFileDiff } from "../../shared/workspace-kit-types";
 import type { DiffContext } from "./use-diff-context";
 import type { DiffFind } from "./diff-find";
@@ -61,6 +62,8 @@ const FileBody = memo(function FileBody({ path, diff, read, version, layout, wra
 }) {
   const [read_, setRead] = useState<UiFileDiff>();
   const [error, setError] = useState<string>();
+  /** Retry reads the diff again. */
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!read || diff) return;
     let live = true;
@@ -68,10 +71,10 @@ const FileBody = memo(function FileBody({ path, diff, read, version, layout, wra
     setRead(undefined);
     read(path).then((answer) => { if (live) setRead(answer); }, (reason) => { if (live) setError(errorMessage(reason)); });
     return () => { live = false; };
-  }, [read, diff, path, version]);
+  }, [read, diff, path, version, attempt]);
   const shown = diff ?? read_;
   if (unavailable) return <p className="rvd-note-line">{unavailable}</p>;
-  if (error) return <p className="rvd-note-line rvd-error" role="alert">{error}</p>;
+  if (error) return <LoadError title="Could not load this diff" error={error} onRetry={() => setAttempt((count) => count + 1)} />;
   if (!shown) return <div className="rvd-loading" role="status" aria-label={`Loading ${path}`} />;
   const expanded = context?.can(path) ? context.apply(shown) : undefined;
   const bounded = lineCount(expanded?.diff ?? shown) > BOUNDED_LINES;

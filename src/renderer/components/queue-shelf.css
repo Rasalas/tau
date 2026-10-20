@@ -44,6 +44,7 @@
 .queue-shelf-row > svg { flex: none; color: var(--faint); }
 .queue-shelf-row > svg.planned, .queue-shelf-row > small.planned { color: var(--acid-text); }
 .queue-shelf-row-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); cursor: text; }
+button.queue-shelf-row-text { padding: 0; border: 0; background: transparent; font: inherit; text-align: left; }
 .queue-shelf-row > small { flex: none; color: var(--faint); font-size: var(--text-xs); white-space: nowrap; }
 .queue-shelf-row-actions { display: none; align-items: center; gap: 2px; }
 .queue-shelf-row:is(:hover, :focus-within) > .queue-shelf-row-actions { display: flex; }

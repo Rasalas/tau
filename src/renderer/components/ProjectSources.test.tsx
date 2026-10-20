@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContributionOwner, ProjectSourceContribution, ProjectSourceProps, WorkbenchActions } from "../extension-system";
 import { ProjectSourcesModal } from "./ProjectSources";
@@ -65,5 +65,24 @@ describe("ProjectSourcesModal", () => {
     expect(onClose).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe("adding a project from a source", () => {
+  it("says why a source failed and keeps the list open to choose it again", async () => {
+    const run = vi.fn()
+      .mockRejectedValueOnce(new Error("The folder is gone"))
+      .mockResolvedValueOnce(true);
+    const onClose = vi.fn();
+    const source = { id: "test.folder", label: "Open folder", description: "A folder on this machine", glyph: "F", extensionId: "test", extensionName: "Test", run };
+    render(<ProjectSourcesModal actions={{} as WorkbenchActions} onClose={onClose} sources={[source]} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Open folder/u })); });
+    expect((await screen.findByRole("alert")).textContent).toBe("Open folder did not finish: The folder is gone. Choose it again to retry.");
+    expect(onClose).not.toHaveBeenCalled();
+    const button = screen.getByRole("button", { name: /Open folder/u }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    await act(async () => { fireEvent.click(button); });
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

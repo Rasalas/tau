@@ -33,6 +33,13 @@ export interface PlatformEnvironments {
   readonly shownElsewhere?: string;
   getSnapshot(): UiEnvironments | undefined;
   subscribe(listener: () => void): () => void;
+  /**
+   * Why `getSnapshot` has no list: nothing while it loads or once it came;
+   * `unsupported` where the window keeps no list (a browser, a phone), and
+   * otherwise the failure, which `reload` asks again after. New in API 1.76.0.
+   */
+  loadError?(): { unsupported: boolean; message: string } | undefined;
+  reload?(): void;
   /** A pairing link, QR text or address; resolves once the other machine's owner decided. */
   pair(input: EnvironmentPairInput): Promise<EnvironmentPairResult>;
   cancelPairing(): Promise<void>;
@@ -151,12 +158,24 @@ function createLookIns(client: HostClient) {
 export function createPlatformEnvironments(client: HostClient, options: { shownElsewhere?: string } = {}): PlatformEnvironments {
   let snapshot: UiEnvironments | undefined;
   let requested = false;
+  let failure: { unsupported: boolean; message: string } | undefined;
   const listeners = new Set<() => void>();
   const watchThread = createLookIns(client);
   const extensionListeners = new Map<string, { listeners: Set<(name: string, payload: unknown) => void>; off(): void }>();
+  const publish = () => { for (const listener of listeners) listener(); };
   const set = (next: UiEnvironments) => {
     snapshot = next;
-    for (const listener of listeners) listener();
+    failure = undefined;
+    publish();
+  };
+  const fetchList = () => {
+    // A window without a list refuses as unsupported; the page then says it keeps none. Anything else is a failure to show.
+    void client.listEnvironments().then((list) => { if (!snapshot) set(list); }, (error: unknown) => {
+      if (snapshot) return;
+      const code = (error as { code?: unknown } | undefined)?.code;
+      failure = { unsupported: code === "unsupported", message: error instanceof Error ? error.message : String(error) };
+      publish();
+    });
   };
   // Nothing is asked or listened to until something reads the list.
   const load = () => {
@@ -165,8 +184,7 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
     client.onHostEvent((event: HostEvent) => {
       if (event.type === "environments") set(event.environments);
     });
-    // A window without a list refuses; the page then simply shows no other machines.
-    void client.listEnvironments().then((list) => { if (!snapshot) set(list); }, () => undefined);
+    fetchList();
   };
   return {
     ...(options.shownElsewhere ? { shownElsewhere: options.shownElsewhere } : {}),
@@ -178,6 +196,14 @@ export function createPlatformEnvironments(client: HostClient, options: { shownE
       load();
       listeners.add(listener);
       return () => { listeners.delete(listener); };
+    },
+    loadError: () => failure,
+    reload: () => {
+      if (!requested) { load(); return; }
+      if (snapshot || !failure) return;
+      failure = undefined;
+      publish();
+      fetchList();
     },
     pair: (input) => client.pairEnvironment(input),
     cancelPairing: () => client.cancelEnvironmentPairing(),

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { WorkbenchActions } from "tau";
 import { createKitHarness, WorkbenchShellContext } from "../../src/renderer/test-support/kit-harness.js";
@@ -86,6 +86,19 @@ describe("Customize Kit desktop extension", () => {
     await settled();
     expect(calls.find(([command]) => command === "set")?.[1]).toMatchObject({ state: { hidden: ["region:usage.juicebars"] } });
     expect(registry.getRegions("thread-list-title").map((region) => region.id)).not.toContain("usage.juicebars");
+  });
+
+  it("asks before removing a style the user wrote in", async () => {
+    const { registry, calls } = world({ styles: [{ id: "a", name: "Mine", css: ".a{color:red}", enabled: true }] });
+    await settled();
+    const page = registry.getSettingsPages().find((entry) => entry.id === "customize")!;
+    render(<page.Component onNotify={() => undefined} />);
+    act(() => screen.getByRole("button", { name: "Remove Mine" }).click());
+    const ask = await screen.findByRole("dialog", { name: "Remove “Mine”?" });
+    expect(calls.some(([command]) => command === "set")).toBe(false);
+    act(() => within(ask).getByRole("button", { name: "Remove" }).click());
+    await settled();
+    expect(calls.find(([command]) => command === "set")?.[1]).toMatchObject({ state: { styles: [] } });
   });
 
   it("offers one palette command and draws what other extensions attach to its page above its own sections", async () => {

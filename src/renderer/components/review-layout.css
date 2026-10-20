@@ -130,9 +130,6 @@ body.review-resizing { cursor: col-resize; user-select: none; }
 .diff-row:hover .diff-annotate, .diff-annotate.has-comments { display: flex; }
 .diff-annotate.has-comments { color: var(--acid-text); }
 .diff-annotate span { font: var(--text-xs) var(--mono); }
-.diff-error { display: flex; flex-direction: column; gap: 5px; }
-.diff-error strong { color: var(--removed); font-size: var(--text-sm); }
-.diff-error span { color: var(--faint); }
 @media (max-width: 900px) {
   .review-list { max-width: 42vw; }
   .review-scope { margin-left: 6px; }

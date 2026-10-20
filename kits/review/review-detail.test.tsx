@@ -326,6 +326,9 @@ describe("a local review's detail (1e)", () => {
     fireEvent.click(within(within(article).getByRole("group", { name: "Hunk 2 of 2" })).getByRole("button", { name: "Keep both" }));
     await waitFor(() => expect(merge.disabled).toBe(false));
     fireEvent.click(merge);
+    const asked = await screen.findByRole("dialog", { name: "Merge fix/pagination into main?" });
+    expect(asked.textContent).toContain("with your pick in every conflicting hunk");
+    fireEvent.click(within(asked).getByRole("button", { name: "Merge" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-merge", expect.objectContaining({ workspace: "ws-pagination", picks: { "src/watcher.ts": ["thread", "both"] } })));
     fireEvent.click(within(article).getByRole("button", { name: "Ask the thread to rebase" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-ask", expect.objectContaining({ kind: "rebase", threadId: "t3", conflicts: ["src/watcher.ts"] })));
@@ -344,6 +347,7 @@ describe("a local review's detail (1e)", () => {
     fireEvent.click(within(hunk).getByRole("button", { name: "Done" }));
     await within(hunk).findByText("Edited by hand");
     fireEvent.click(screen.getByRole("button", { name: "Merge with my picks" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Merge fix/pagination into main?" })).getByRole("button", { name: "Merge" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-merge", expect.objectContaining({ picks: { "src/watcher.ts": [{ text: "ab" }] } })));
   });
 
@@ -372,10 +376,16 @@ describe("a local review's detail (1e)", () => {
     await within(talk).findByText("The thread has not answered yet.");
   });
 
-  it("merges from the header", async () => {
+  it("merges from the header once the user said yes to the branch and its target", async () => {
     const { invoke } = setupLocal();
     const merge = await screen.findByRole("button", { name: "Merge into main" });
     fireEvent.click(merge);
+    const asked = await screen.findByRole("dialog", { name: "Merge fix/pairing-flake into main?" });
+    fireEvent.click(within(asked).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Merge fix/pairing-flake into main?" })).toBeNull());
+    expect(invoke).not.toHaveBeenCalledWith("local-review-merge", expect.anything());
+    fireEvent.click(merge);
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Merge fix/pairing-flake into main?" })).getByRole("button", { name: "Merge" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("local-review-merge", expect.objectContaining({ workspace: "ws-pairing-flake", tip: "pairing-flake-tip" })));
   });
 });

@@ -266,7 +266,7 @@ function DraftSubline({ source, touch, snapshot, actions }: RegionProps & { sour
   const project = draftProjectName(threads.getProjects(), threads.getDrafts(), state.cwd, state.workspaceId);
   const info = state.workspace;
   const where = touch || !info?.isRepo ? undefined : state.workspaceMode === "worktree" ? "no worktree yet" : info.branch;
-  return <>{[project, machine?.name, where].filter(Boolean).map((part) => <span key={part} className="thread-detail draft-detail"><span>{part}</span></span>)}</>;
+  return <>{[project, machine?.name, where].filter(Boolean).map((part) => <span key={part} className="thread-detail draft-detail" {...tooltipProps(part, { side: "bottom", when: "truncated" })}><span>{part}</span></span>)}</>;
 }
 
 /** The header's branch slot: a draft's "project · machine · no worktree yet" (design 1k), else the thread's branch. */
@@ -277,6 +277,6 @@ export function createHeadingBranch(touch: boolean) {
     if (state.draftPending) return <DraftSubline key={source === hostMachine ? "host" : "machines"} source={source} touch={touch} {...props} />;
     if (!touch) return <ThreadBranch {...props} />;
     const label = props.snapshot?.projectLabel;
-    return label ? <span className="thread-detail thread-detail-branch"><GitBranch size={12} aria-hidden /><span>{label}</span></span> : null;
+    return label ? <span className="thread-detail thread-detail-branch" {...tooltipProps(label, { side: "bottom", when: "truncated" })}><GitBranch size={12} aria-hidden /><span>{label}</span></span> : null;
   };
 }

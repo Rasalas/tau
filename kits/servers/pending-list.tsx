@@ -52,7 +52,7 @@ function Row({ row, active, selection, onOpen }: { row: PendingUploadRow; active
       <Choice row={row} selection={selection} />
       <button type="button" className="servers-file-open" aria-current={active} aria-label={`${row.path}, ${row.unchecked ? "not compared" : WORDS[row.change]}`} onClick={() => onOpen(row.path)}>
         <span className={`servers-change ${row.unchecked ? "unchecked" : row.change}`} aria-hidden="true">{row.unchecked ? "?" : LETTERS[row.change]}</span>
-        <span className="servers-file-name">{name}{dir ? <small>{dir}</small> : null}</span>
+        <span className="servers-file-name"><span {...tooltipProps(row.path, { when: "truncated", variant: "code" })}>{name}</span>{dir ? <small {...tooltipProps(row.path, { when: "truncated", variant: "code" })}>{dir}</small> : null}</span>
         {row.unchecked ? <span className="servers-file-tag unchecked">Not compared</span> : null}
         {left ? <span className="servers-file-tag">Stays on the server</span> : null}
         {row.blocked ? <span className="servers-file-guard" role="img" aria-label={row.blocked} {...tooltipProps(row.blocked)}><Lock size={13} /></span> : null}
@@ -93,7 +93,7 @@ export function PendingList({ rows, total, withheld, active, onOpen, selection }
       {withheld.length > 0 ? (
         <section className="servers-withheld" aria-label="Never uploaded">
           <h3 className="servers-group-head"><EyeOff size={12} aria-hidden="true" />Never uploaded <span className="servers-count">{withheld.length}</span></h3>
-          <ul className="servers-files">{withheld.map((path) => <li key={path} className="servers-file muted"><span className="servers-file-name">{path}</span></li>)}</ul>
+          <ul className="servers-files">{withheld.map((path) => <li key={path} className="servers-file muted"><span className="servers-file-name" {...tooltipProps(path, { when: "truncated", variant: "code" })}>{path}</span></li>)}</ul>
         </section>
       ) : null}
       {total > rows.length ? <p className="servers-group-note">Showing {rows.length} of {total} files.</p> : null}

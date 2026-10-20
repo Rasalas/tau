@@ -2,7 +2,9 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArchiveRestore, ArrowLeft, Check, ChevronDown, CircleCheck, Eye, Folder, FolderOpen, GitBranch, MessageSquare, PanelLeft, Plus, Search, Server, SquarePen, Trash2 } from "lucide-react";
 import {
+  ConfirmDialog,
   DraftRow,
+  draftTitle,
   errorMessage,
   findProjectForSession,
   Menu,
@@ -379,6 +381,7 @@ const RailDrafts = memo(function RailDrafts({ actions, project, projects, listed
   const drafts = useSyncExternalStore(store.subscribeToDrafts, store.getDrafts);
   const shown = useMemo(() => railDrafts(drafts, { project, projects, listed }), [drafts, listed, project, projects]);
   const openContextMenu = useContextMenu();
+  const [discarding, setDiscarding] = useState<DraftThread>();
   if (!actions.openDraft || shown.length === 0) return null;
   // Discard is the draft's menu: the row keeps its quiet "draft" on hover, as a thread keeps its state.
   const menu = (event: ReactMouseEvent, draft: DraftThread) => {
@@ -388,7 +391,8 @@ const RailDrafts = memo(function RailDrafts({ actions, project, projects, listed
       ...(actions.discardDraft ? [{ items: [{ id: "discard", label: "Discard draft", icon: <Trash2 size={13} />, destructive: true }] }] : []),
     ]).then((choice) => {
       if (choice === "open") actions.openDraft?.(draft.draftId);
-      if (choice === "discard") actions.discardDraft?.(draft.draftId);
+      // A draft with something in it has no undo, so it asks first.
+      if (choice === "discard") { if (draft.preview || draft.attachments) setDiscarding(draft); else actions.discardDraft?.(draft.draftId); }
     });
   };
   return (
@@ -398,6 +402,14 @@ const RailDrafts = memo(function RailDrafts({ actions, project, projects, listed
           <DraftRailRow draft={draft} onOpen={actions.openDraft!} />
         </div>
       ))}
+      {discarding ? <ConfirmDialog
+        title="Discard this draft?"
+        message={`“${draftTitle(discarding)}” and its attachments are gone for good.`}
+        confirmLabel="Discard draft"
+        destructive
+        onCancel={() => setDiscarding(undefined)}
+        onConfirm={() => { setDiscarding(undefined); actions.discardDraft?.(discarding.draftId); }}
+      /> : null}
     </div>
   );
 });

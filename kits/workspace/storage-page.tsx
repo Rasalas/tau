@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderGit2, RefreshCw } from "lucide-react";
-import { Badge, Button, NumberField, SegmentedControl, SettingRow, SettingsSection, SettingsState, Switch, errorMessage, useThreadStore, type SettingsPageProps, type ThreadStore } from "tau";
+import { Badge, Button, ConfirmDialog, NumberField, SegmentedControl, SettingRow, SettingsSection, SettingsState, Switch, errorMessage, useThreadStore, type SettingsPageProps, type ThreadStore } from "tau";
 import type {
   CleanupBlocker,
   CleanupPolicy,
@@ -287,6 +287,7 @@ export function createStoragePage(host: StorageHost) {
     const [error, setError] = useState<string>();
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
+    const [asking, setAsking] = useState(false);
     const [scope, setScope] = useState<Scope>("host");
     const titles = useThreadTitles();
 
@@ -400,8 +401,16 @@ export function createStoragePage(host: StorageHost) {
               title="Clean up now"
               description={`${due.length === 0 ? "The rules would remove nothing now." : `The rules would remove ${due.length} worktree${due.length === 1 ? "" : "s"} now.`}${lastSweep}`}
               {...(due.length === 0 ? { disabledReason: "No worktree matches the rules now." } : {})}
-              control={<Button variant="primary" busy={busy} disabled={due.length === 0} onClick={() => void cleanUp()}>{due.length === 0 ? "Clean up now" : `Clean up ${due.length} now`}</Button>}
+              control={<Button variant="primary" busy={busy} disabled={due.length === 0} onClick={() => setAsking(true)}>{due.length === 0 ? "Clean up now" : `Clean up ${due.length} now`}</Button>}
             />
+            {asking && due.length > 0 ? <ConfirmDialog
+              title={due.length === 1 ? "Remove 1 worktree?" : `Remove ${due.length} worktrees?`}
+              message={`${due.map((tree) => tree.branch ?? tree.path).join(", ")}: removed from disk, their branches stay. One that changed since this list stays too.`}
+              confirmLabel={due.length === 1 ? "Remove worktree" : `Remove ${due.length} worktrees`}
+              destructive
+              onCancel={() => setAsking(false)}
+              onConfirm={() => { setAsking(false); void cleanUp(); }}
+            /> : null}
             <ul className="workspace-storage-list" aria-label="Worktrees">
               {report.worktrees.map((tree) => <WorktreeRow key={tree.path} tree={tree} now={now} titles={titles} busy={busy} onRemove={onRemove} />)}
             </ul>

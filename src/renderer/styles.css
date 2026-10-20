@@ -1957,15 +1957,16 @@ button.chip[aria-pressed="true"] { background: var(--acid-chip); border-color: v
 .changes-tree-actions button:hover { border-color: var(--line-control); background: var(--field); color: var(--ink); }
 .changes-tree-actions button.danger { width: auto; border-color: var(--danger-line); color: var(--removed); }
 .changes-tree-actions button:disabled { opacity: .45; cursor: default; }
-.changes-action-popover {
-  position: absolute; z-index: 30; right: 5px; bottom: 32px; width: 188px;
-  display: flex; flex-direction: column; gap: 4px; padding: 10px;
-  border: 1px solid var(--line-float); border-radius: 8px; background: var(--overlay); box-shadow: var(--elevation-2);
-}
+.popover.changes-action-popover { width: 188px; display: flex; flex-direction: column; gap: 4px; padding: 10px; }
 .changes-action-popover strong { color: var(--ink); font: 600 var(--text-xs) var(--sans); }
 .changes-action-popover small { color: var(--faint); font: var(--text-2xs) var(--mono); }
 .changes-action-popover > span { display: flex; justify-content: flex-end; gap: 5px; margin-top: 5px; }
-.changes-action-popover > span button { width: auto; padding: 0 8px; border-color: var(--line-control); }
+.changes-action-popover > span button {
+  height: 25px; padding: 0 8px; border: 1px solid var(--line-control); border-radius: 5px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.changes-action-popover > span button:hover { background: var(--field); color: var(--ink); }
+.changes-action-popover > span button.danger { border-color: var(--danger-line); color: var(--removed); }
 .diff-context-gap {
   width: calc(100% - 8px); height: 24px; display: flex; align-items: center; gap: 12px; margin: 1px 4px; padding: 0 17px;
   border: 0; border-radius: 6px; background: var(--raised-strong); color: var(--muted); font: var(--text-2xs) var(--mono); text-align: left;

@@ -4647,6 +4647,7 @@ show no other machines. Like `attention`, hold the context, not the value.
 | `environments[].update`, `update?(id, action)` | New in API 1.28.0 (K103). Each machine's own Tau as its host reports it (`HostUpdateStatus`: `version`, `phase`, `latest`, `automatic`, `installer`, `reason`, …; absent from a host too old to report one), followed live. `update(id, "check" \| "install" \| { automatic })` asks that machine over the window's connection there; it decides with the window's key (Full access, and its owner's `devicesMayInstall`) and answers the new status. |
 | `setPreferences({ reopenShown })` | New in API 1.13.0. Whether the window shows the machine it showed last again at start (`UiEnvironments.reopenShown`); it does when that machine answers within 2.5 s. |
 | `rename(id, name)`, `remove(id)`, `retry(id)` | Rename or forget a saved machine (its key goes with it), or try to reach it now. |
+| `loadError?()`, `reload?()` | New in API 1.76.0. Why `getSnapshot()` is still `undefined`: nothing while the list loads, `{ unsupported: true, message }` where the window keeps no list, and `{ unsupported: false, message }` when asking for it failed; `reload()` asks again after a failure. Settings → Machines shows loading, the failure with Try again, or "keeps no list" from these. |
 
 The window's process answers all of it through client-side methods
 (`environments-list`, `-pair`, `-cancel-pairing`, `-rename`, `-remove`, `-retry`,
