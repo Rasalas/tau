@@ -17,6 +17,7 @@ import { usePlatform } from "../platform-context";
 import { RemoteThreadDocument } from "./RemoteThreadDocument";
 import { ThreadDocument } from "./ThreadDocument";
 import { tooltipProps } from "./ui/Tooltip";
+import { LazyFeatureBoundary } from "./LazyFeature";
 import "./stage-panels.css";
 
 export { StageTools } from "./StageSpine";
@@ -72,7 +73,7 @@ function OriginFileViewer({ registry, workspace, ...props }: ComponentProps<type
 export function Stage({
   stage, cwd, workspace, changes, editor, maximize, tools, trailingActions, focusRef, registry, stageTabs, actions,
   loadFile, loadDiff, loadThread,
-  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread, renderPanel, onReopen,
+  onActivate, onClose, onPin, onUnpin, onCloseOthers, onCloseToRight, onChangeView, onOpenInEditor, onTakeOverThread, renderPanel, onReopen, resetKey,
 }: {
   stage: StageState;
   focusRef?: RefObject<HTMLElement | null>;
@@ -113,6 +114,8 @@ export function Stage({
   renderPanel?(panelId: string): ReactNode;
   /** Brings a closed tab back ("Recently closed"). */
   onReopen?(id: string): void;
+  /** The thread on screen: a tab that failed for one is drawn again for the next. */
+  resetKey?: string;
 }) {
   const closed = useMemo(() => recentlyClosed(stage).map((entry) => entry.tab), [stage]);
   const reopenShortcut = registry?.keybindingLabel?.("workbench.reopen-stage-tab");
@@ -157,16 +160,29 @@ export function Stage({
     return () => { for (const kind of kinds) removeEventListener(kind, on); };
   }, [tabCount, stageTabs]);
 
+  // Each tab fails alone: the strip stays, so a tab that cannot draw can still be closed.
   const pane = (tab: StageTab | undefined) => {
-    const lookIn = tab?.kind === "thread" ? lookInMachine(tab.machine, environments) : undefined;
-    return !tab ? (
-      <div className="stage-empty" role="status">
-        <span>Nothing is open here.</span>
-        {onReopen && closed[0] ? <button type="button" className="text-button" onClick={() => onReopen(closed[0]!.id)}>
-          Reopen {stageTabGlyph(closed[0], registry).label}{reopenShortcut ? <kbd>{reopenShortcut}</kbd> : null}
-        </button> : null}
-      </div>
-    ) : tab.kind === "panel" ? (
+    if (!tab) return <div className="stage-empty" role="status">
+      <span>Nothing is open here.</span>
+      {onReopen && closed[0] ? <button type="button" className="text-button" onClick={() => onReopen(closed[0]!.id)}>
+        Reopen {stageTabGlyph(closed[0], registry).label}{reopenShortcut ? <kbd>{reopenShortcut}</kbd> : null}
+      </button> : null}
+    </div>;
+    const label = stageTabGlyph(tab, registry).label;
+    const owner = tab.kind === "extension" ? registry?.getStageTabKind(tab.tabKind) : undefined;
+    return <LazyFeatureBoundary
+      key={tab.id}
+      label={label}
+      resetKey={resetKey}
+      onClose={() => onClose(tab.id)}
+      frame={(content) => <section className="stage-pane" aria-label={label}>{content}</section>}
+      {...(owner ? { extensionId: owner.extensionId, extensionName: owner.extensionName, registry, onNotify: actions.notify } : {})}
+    >{tabContent(tab)}</LazyFeatureBoundary>;
+  };
+
+  const tabContent = (tab: StageTab) => {
+    const lookIn = tab.kind === "thread" ? lookInMachine(tab.machine, environments) : undefined;
+    return tab.kind === "panel" ? (
       <section key={tab.id} className="stage-pane panel-pane" aria-label={registry?.getPanels().find((panel) => panel.id === tab.panelId)?.label ?? tab.panelId}>
         {renderPanel?.(tab.panelId) ?? <div className="stage-empty" role="status">The extension that draws this panel is not active.</div>}
       </section>

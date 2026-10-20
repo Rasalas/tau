@@ -14,6 +14,8 @@ export interface LazyFeatureBoundaryProps {
   onClose?: () => void;
   /** The container the feature draws itself in, so the card takes its place rather than the next free cell. */
   frame?: (content: ReactNode) => ReactNode;
+  /** A new value draws the feature again: what failed for one thread need not fail for the next. */
+  resetKey?: unknown;
   recovery?: ChunkRecovery;
   children: ReactNode;
 }
@@ -59,6 +61,10 @@ export class LazyFeatureBoundary extends Component<LazyFeatureBoundaryProps, Laz
       }
     }
     this.props.onError?.(error);
+  }
+
+  componentDidUpdate(previous: LazyFeatureBoundaryProps) {
+    if (this.state.error && !this.state.stale && !Object.is(previous.resetKey, this.props.resetKey)) this.setState({ error: undefined, stale: undefined });
   }
 
   render() {

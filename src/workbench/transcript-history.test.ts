@@ -126,6 +126,26 @@ describe("TranscriptHistoryController", () => {
     expect(controller.getCurrentSnapshot()?.messages.map((entry) => entry.id)).toEqual(["a"]);
   });
 
+  it("keeps a bootstrap current through a pushed detail and an older-page request", () => {
+    const controller = new TranscriptHistoryController();
+    const bootstrap = controller.beginBootstrap();
+    controller.applyDetail(detail("running", ["r"], "1"), snapshot("running", ["r"], "1"));
+    expect(controller.beginLoad({ messageId: "r", viewportOffset: 0 })).toBeDefined();
+
+    expect(controller.isCurrentBootstrap(bootstrap)).toBe(true);
+    expect(controller.syncSnapshot(snapshot("host", ["h"]), detail("host", ["h"]), bootstrap)).toBe(true);
+  });
+
+  it("does not cut off a thread switch already under way when a bootstrap starts", () => {
+    const controller = new TranscriptHistoryController(snapshot("thread-a", ["a"]));
+    const transition = controller.beginThreadSwitch("thread-b");
+    const bootstrap = controller.beginBootstrap();
+
+    expect(controller.isCurrentThreadTransition(transition)).toBe(true);
+    expect(controller.isCurrentBootstrap(bootstrap)).toBe(false);
+    expect(controller.confirmThreadTransition(transition, "thread-b")).toBe(true);
+  });
+
   it("accepts only the newest bootstrap request generation", () => {
     const controller = new TranscriptHistoryController();
     const first = controller.beginBootstrap();

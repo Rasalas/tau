@@ -376,6 +376,29 @@ describe("a tab a kit drew", () => {
     expect(screen.getByText(/extension that draws this tab is not active/u)).toBeTruthy();
   });
 
+  it("keeps the strip when the kind's content throws, names the kit, and lets the tab be closed", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const registry = new ExtensionRegistry();
+    registry.activate({
+      id: "acme.broken",
+      name: "Broken",
+      activate: (plugin) => {
+        plugin.registerStageTab({ kind: "terminal", title: () => "shell", render: () => { throw new Error("no shell"); } });
+      },
+    });
+    const notify = vi.fn();
+    const onClose = vi.fn();
+    render(<Harness initial={openFileTab(tab("t1"), `${CWD}/src/a.ts`, { pin: true })} registry={registry} actions={{ notify } as unknown as WorkbenchActions} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: /shell t1/u }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("Broken"), "error");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledWith("ext:terminal:t1");
+    expect(await findFileText()).toBeTruthy();
+  });
+
   it("closes the other tabs from the tab's own context menu", async () => {
     const registry = terminals();
     let stage = openFileTab(tab("t1"), `${CWD}/src/a.ts`, { pin: true });
