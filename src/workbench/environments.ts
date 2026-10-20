@@ -36,7 +36,7 @@ export interface PlatformEnvironments {
   /**
    * Why `getSnapshot` has no list: nothing while it loads or once it came;
    * `unsupported` where the window keeps no list (a browser, a phone), and
-   * otherwise the failure, which `reload` asks again after.
+   * otherwise the failure, which `reload` asks again after. New in API 1.76.0.
    */
   loadError?(): { unsupported: boolean; message: string } | undefined;
   reload?(): void;

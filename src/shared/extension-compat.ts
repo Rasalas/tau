@@ -5,6 +5,7 @@
  */
 export const EXTENSION_API_VERSION = "1.77.0";
 
+
 /** What a manifest's `engines` may constrain. */
 export interface ExtensionEngines {
   tau?: string;
