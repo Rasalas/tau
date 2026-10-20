@@ -39,18 +39,17 @@ import { draftImageInput, draftRuntimeSnapshot } from "../workbench/runtime-cata
 import { RuntimeExtensions, installSharedModules } from "./runtime-extensions";
 import { openFileTab, openThreadTab, stageFilePath as projectFilePath, type StageView } from "../workbench/stage";
 import { useWorkspaceResourceNavigation } from "./workspace-resource-navigation";
-import { machineThreadPath } from "./machine-thread-navigation";
+import { openMachineThread } from "./machine-thread-navigation";
 import { lookInMachine } from "../workbench/look-in";
 import { useStageTabs } from "./stage-tab-controller";
 import { useWorkbenchLayoutState } from "./use-workbench-layout-state";
 import { useRendererLayout } from "./use-renderer-layout";
 import { stageOwner } from "../workbench/thread-stages";
 import { usePanelLayout } from "./use-panel-layout";
-import { loadSubmissionController } from "./deferred-surfaces";
-import { submissionEnvironment } from "./submission-environment";
+import { loadSubmissionController, loadSubmissionEnvironment } from "./deferred-surfaces";
 import { useTurnActivityCache } from "./use-turn-activity-cache";
 import { useWorkbenchStartup } from "./use-workbench-startup";
-import { useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
+import { threadComposer, useFollowUpQueue, type SubmitPrompt } from "./use-follow-up-queue";
 import { usePreparedThreadCapability } from "./use-prepared-thread-capability";
 import { useThreadDropController } from "./use-thread-drop-controller";
 import { usePendingAttachments } from "./use-pending-attachments";
@@ -106,11 +105,14 @@ export default function App() {
     cached: cachedBootstrap,
     submission: {
       client: () => clientRef.current,
-      environment: submissionEnvironment({
-        client: () => clientRef.current, registry, preferences,
-        actions: () => actionsRef.current,
-        notify: (message, level) => actionsRef.current?.notify(message ?? "", level),
-      }),
+      environment: async () => {
+        const { submissionEnvironment } = await loadSubmissionEnvironment();
+        return submissionEnvironment({
+          client: () => clientRef.current, registry, preferences,
+          actions: () => actionsRef.current,
+          notify: (message, level) => actionsRef.current?.notify(message ?? "", level),
+        });
+      },
       load: loadSubmissionController,
     },
     settledThreadIds: () => preferences.getSnapshot().settledThreadIds,
@@ -278,19 +280,26 @@ export default function App() {
     ? transcriptTurnStart
     : undefined;
   const submitPrompt = useCallback<SubmitPrompt>(
-    (text, attachments, delivery, skillDraft) => workbenchSession.submit({ text, attachments, delivery, skillDraft }),
+    (text, attachments, delivery, skillDraft, threadId) => workbenchSession.submit({ text, attachments, delivery, skillDraft, threadId }),
     [workbenchSession],
   );
   const isVisibleThreadRunning = useCallback(() => threadStore.getActivity().isStreaming, [threadStore]);
   const currentActions = useCallback(() => actionsRef.current, []);
+  const queueSessionId = useCallback(() => currentPendingNewThread() ? undefined : viewStore.getSnapshot()?.sessionId, [currentPendingNewThread, viewStore]);
+  const queueComposerOf = useCallback(
+    (threadId: string) => threadComposer(composerScopeStore, clientStorage, threadId, setNotice),
+    [clientStorage, composerScopeStore, setNotice],
+  );
   const { queue, cancelQueued, steerQueued, reorderQueue, planQueued, returnQueued, steerQueuedMessage } = useFollowUpQueue({
     client,
     threads: threadStore,
     sessionId: pendingNewThread ? undefined : snapshot?.sessionId,
+    currentSessionId: queueSessionId,
     isRunning: isVisibleThreadRunning,
     submit: submitPrompt,
     setNotice,
     actions: currentActions,
+    composerOf: queueComposerOf,
   });
 
 
@@ -309,7 +318,7 @@ export default function App() {
   }));
   const { abort: abortRun, duplicateThread, requireHost, settleActiveThread } = threadCommands;
   // Stop returns every queued message to the composer instead of sending it after the stop.
-  const abortThread = useCallback((sessionId?: string) => { returnQueued(); abortRun(sessionId); }, [abortRun, returnQueued]);
+  const abortThread = useCallback((sessionId?: string) => { returnQueued(undefined, sessionId); abortRun(sessionId); }, [abortRun, returnQueued]);
   const {
     activateStage, pinStage, unpinStage, setStageView, cycleStageTab,
     applyHostResult, openWorkspace, createThreadInProject, switchSession, takeOverThread, openDraft, discardDraft, openStartDraft, beginStartDraft,
@@ -448,8 +457,8 @@ export default function App() {
     const machine = lookInMachine(options?.machine, platform.environments);
     const lookIn = () => { setStage((current) => openThreadTab(current, sessionId, { ...(options?.pin ? { pin: true } : {}), ...(machine ? { machine } : {}) })); revealDocuments.current(); };
     if (!machine) { lookIn(); return; }
-    void machineThreadPath(machine, sessionId, client, threadStore).then(async (path) => { if (path) await switchSession(path); else lookIn(); }).catch((error: unknown) => setNotice(errorMessage(error), "error"));
-  }, [client, platform, threadStore, switchSession, setNotice]);
+    void openMachineThread(machine, sessionId, { client, threads: threadStore, scope: currentDraftKey, switchSession, lookIn }).catch((error: unknown) => setNotice(errorMessage(error), "error"));
+  }, [client, currentDraftKey, platform, threadStore, switchSession, setNotice]);
   // A sub-agent's question waits on every thread above it: it is answered from any of them (design 1c).
   useEffect(() => {
     threadStore.setAsking(uiPrompts);

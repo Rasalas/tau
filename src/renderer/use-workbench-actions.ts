@@ -7,7 +7,7 @@ import type { Platform } from "../workbench/platform";
 import type { ThreadStore } from "../workbench/thread-store";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import type { ToastStore } from "../workbench/toast-store";
-import { allocateAttachmentId, type ComposerScopeStore, type DraftKey } from "../workbench/composer-scope-store";
+import { allocateAttachmentId, createDraftKey, type ComposerScopeStore, type DraftKey } from "../workbench/composer-scope-store";
 import { writeComposerDraft } from "../workbench/draft-store";
 import type { ThreadCommands } from "../workbench/thread-commands";
 import type { NewThreadDraft } from "../workbench/draft-store";
@@ -336,13 +336,12 @@ export function useWorkbenchActions(options: UseWorkbenchActionsOptions): Workbe
       openPromptEditor: async () => {
         if (!client) return;
         try {
-          const current = activeDraftKey ? options.composerScopeStore.getSnapshot(activeDraftKey).draft : "";
-          const result = await client.openExternalEditor(current);
+          // The text goes back to the draft it came from, whichever thread is on screen by then.
+          const scope = createDraftKey(activeDraftKey);
+          const result = await client.openExternalEditor(options.composerScopeStore.getSnapshot(scope).draft);
           if (result?.modified) {
-            if (activeDraftKey) {
-              options.composerScopeStore.setDraft(activeDraftKey, result.text);
-            }
-            options.setComposerSeed(result.text);
+            options.composerScopeStore.setDraft(scope, result.text);
+            writeComposerDraft(options.platform.storage, activeDraftKey, result.text);
             options.setNotice("Draft updated from external editor.");
           }
         } catch (error) {

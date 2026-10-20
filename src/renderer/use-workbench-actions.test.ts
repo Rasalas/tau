@@ -318,18 +318,29 @@ describe("useWorkbenchActions", () => {
     expect(executeCommand).toHaveBeenCalledWith("runtime.open-prompt-editor");
   });
 
-  it("opens prompt editor and updates draft when modified", async () => {
-    const openExternalEditor = vi.fn().mockResolvedValue({ text: "edited prompt", modified: true });
-    const client = { openExternalEditor } as any;
+  it("puts the edited text back into the draft it came from, though another thread is on screen by then", async () => {
+    let finish!: (value: { text: string; modified: boolean }) => void;
+    const openExternalEditor = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const setDraft = vi.fn();
     const setComposerSeed = vi.fn();
     const setNotice = vi.fn();
-    const options = createMockOptions({ client, setComposerSeed, setNotice });
-    const { result } = renderHook(() => useWorkbenchActions(options));
+    const storage = { get: vi.fn(() => undefined), set: vi.fn(), remove: vi.fn() };
+    const options = createMockOptions({
+      client: { openExternalEditor } as any, platform: { storage } as any, setComposerSeed, setNotice,
+      composerScopeStore: { getSnapshot: () => ({ draft: "draft of A" }), setDraft } as any,
+      activeDraftKey: "session:A" as any,
+    });
+    const { result, rerender } = renderHook((props: UseWorkbenchActionsOptions) => useWorkbenchActions(props), { initialProps: options });
 
-    await result.current.openPromptEditor?.();
+    const editing = result.current.openPromptEditor?.();
+    rerender({ ...options, activeDraftKey: "session:B" as any });
+    finish({ text: "edited prompt", modified: true });
+    await editing;
 
-    expect(openExternalEditor).toHaveBeenCalled();
-    expect(setComposerSeed).toHaveBeenCalledWith("edited prompt");
+    expect(openExternalEditor).toHaveBeenCalledWith("draft of A");
+    expect(setDraft).toHaveBeenCalledExactlyOnceWith("session:A", "edited prompt");
+    expect(storage.set).toHaveBeenCalledWith("tau.composer-drafts.v1:entry:session%3AA", "edited prompt");
+    expect(setComposerSeed).not.toHaveBeenCalled();
     expect(setNotice).toHaveBeenCalledWith("Draft updated from external editor.");
   });
 

@@ -43,12 +43,15 @@ export function useThreadTree(ports: ThreadTreePorts) {
   portsRef.current = ports;
   const seedComposer = useCallback((text: string) => portsRef.current.seedComposer(text), []);
 
+  // Each opening asks again; only the latest answer fills the modal.
+  const treeRequest = useRef(0);
   const openThreadTree = useCallback((mode: ThreadTreeMode = "navigate") => {
     if (!requireHost("Thread tree")) return;
+    const request = ++treeRequest.current;
     setThreadTreeModal({ mode, busy: false });
     client!.threadTree(sessionId())
-      .then((tree) => setThreadTreeModal((current) => current && { ...current, tree }))
-      .catch((error) => setThreadTreeModal((current) => current && { ...current, error: errorMessage(error) }));
+      .then((tree) => { if (request === treeRequest.current) setThreadTreeModal((current) => current && { ...current, tree }); })
+      .catch((error) => { if (request === treeRequest.current) setThreadTreeModal((current) => current && { ...current, error: errorMessage(error) }); });
   }, [client, requireHost, sessionId]);
 
   const navigateThreadTree = useCallback(async (entryId: string, summarize: boolean) => {

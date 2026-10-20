@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HostClient } from "../workbench/host-client";
 import { ThreadStore } from "../workbench/thread-store";
-import { machineThreadPath } from "./machine-thread-navigation";
+import { machineThreadPath, openMachineThread } from "./machine-thread-navigation";
 
 describe("opening a thread of another machine", () => {
   it("uses indexed backend ownership and preserves separators in remote ids", async () => {
@@ -22,5 +22,24 @@ describe("opening a thread of another machine", () => {
     expect(invokeHostExtension).toHaveBeenCalledWith("tau.environments", "agents");
     invokeHostExtension.mockRejectedValue(new Error("Older host"));
     expect(await machineThreadPath("rex", "t1", client)).toBeUndefined();
+  });
+});
+
+describe("opening another machine's thread from a thread the user then leaves", () => {
+  it("neither switches nor opens a look into it on the thread on screen by then", async () => {
+    let answer!: (agents: unknown) => void;
+    const client = { invokeHostExtension: vi.fn(() => new Promise((resolve) => { answer = resolve; })) } as unknown as HostClient;
+    let scope = "session:A";
+    const switchSession = vi.fn(async () => true);
+    const lookIn = vi.fn();
+    const opening = openMachineThread("old", "t1", { client, scope: () => scope, switchSession, lookIn });
+    scope = "session:B";
+    answer({ machines: [] });
+    await opening;
+    expect(lookIn).not.toHaveBeenCalled();
+    expect(switchSession).not.toHaveBeenCalled();
+    scope = "session:A";
+    await openMachineThread("old", "t1", { client: undefined, scope: () => scope, switchSession, lookIn });
+    expect(lookIn).toHaveBeenCalledOnce();
   });
 });

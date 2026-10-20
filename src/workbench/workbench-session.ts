@@ -2,7 +2,7 @@ import type { HostClient } from "./host-client";
 import type { SubmissionController, SubmissionEnvironment, SubmissionInput } from "./submission-controller";
 import type { HostBootstrap, HostSnapshot, NewThreadRequestId, ThreadIndexSnapshot, UiMessage, SubmissionResult, HostEvent } from "../shared/contracts";
 import type { HostActionResult, HostUpdate } from "../shared/host-protocol";
-import { draftKey, draftKeyOwner, writeNewThreadDraft } from "./draft-store";
+import { draftKey, draftKeyOwner, readComposerDraft, writeNewThreadDraft } from "./draft-store";
 import { createDraftKey, ComposerScopeStore } from "./composer-scope-store";
 import { HostSessionState } from "./host-session-state";
 import {
@@ -29,7 +29,7 @@ export interface WorkbenchSessionOptions {
   cached?: CachedBootstrap;
   submission?: {
     client(): HostClient | undefined;
-    environment: SubmissionEnvironment;
+    environment: SubmissionEnvironment | (() => Promise<SubmissionEnvironment>);
     /** Optional renderer loader shares its idle preload with the first send. */
     load?(): Promise<typeof import("./submission-controller")>;
   };
@@ -159,10 +159,11 @@ export class WorkbenchSession {
     if (!adapter) return { accepted: false, message: "The workbench is not ready yet." };
     if (!this.submission) {
       this.submissionLoading ??= (adapter.load ? adapter.load() : import("./submission-controller"))
-        .then(({ createSubmissionController }) => {
+        .then(async ({ createSubmissionController }) => {
+          const environment = typeof adapter.environment === "function" ? await adapter.environment() : adapter.environment;
           const controller = createSubmissionController({
             client: adapter.client,
-            environment: adapter.environment,
+            environment,
             storage: this.options.storage,
             view: this.view,
             threads: this.threads,
@@ -264,9 +265,11 @@ export class WorkbenchSession {
     const pendingDraft = inheritDraft ? this.scopes.getSnapshot(currentScope).draft : "";
     this.applyActionResult(result);
     const detail = result.updates.find((update) => update.type === "thread-detail");
-    if (pendingDraft && detail?.type === "thread-detail") {
-      this.scopes.setDraft(createDraftKey(draftKey(detail.detail.sessionId)), pendingDraft);
-    }
+    if (!pendingDraft || detail?.type !== "thread-detail") return;
+    // A thread with a draft of its own keeps it; the carried text stays where it was typed.
+    const destination = draftKey(detail.detail.sessionId);
+    if (this.scopes.getSnapshot(createDraftKey(destination)).draft || readComposerDraft(this.options.storage, destination)) return;
+    this.scopes.setDraft(createDraftKey(destination), pendingDraft);
   };
 
   prepareThreadDetail = (sessionId: string): boolean => this.history.prepareActionDetail(sessionId);

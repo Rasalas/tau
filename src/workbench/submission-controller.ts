@@ -51,6 +51,8 @@ export interface SubmissionInput {
    */
   delivery?: SubmitDelivery;
   skillDraft?: UiSkillDraft;
+  /** The thread the message was meant for when it is not the one on screen by the time it is sent. */
+  threadId?: string;
 }
 
 /** The unstarted thread a draft stands for, owned by the new-thread controller. */
@@ -266,6 +268,9 @@ export class SubmissionController {
     // UI commands are intercepted before any host or submission state changes.
     const command = attachments.length === 0 && !skillDraft ? environment.command(commandText) : undefined;
     if (command) return command();
+    if (input.threadId !== undefined && (newThread.current() || view.getSnapshot()?.sessionId !== input.threadId)) {
+      return this.sendOffScreen(input.threadId, text, attachments, skillDraft);
+    }
     const client = getClient();
     let pendingNewThread = newThread.current();
     const newThreadRequestId = newThread.requestId();
@@ -606,6 +611,26 @@ export class SubmissionController {
     } catch (error) {
       return rejectSubmission(error);
     }
+  };
+
+  /** A message for a thread the user has left: it goes there, and the transcript on screen does not show it. */
+  private sendOffScreen = async (threadId: string, text: string, attachments: UiPromptAttachment[], skillDraft?: UiSkillDraft): Promise<SubmissionResult> => {
+    const client = this.ports.client();
+    const sessionId = this.ports.hostSession.sessionIdFor(threadId);
+    if (!client || !sessionId) return { accepted: false, message: "Sending to another thread requires a connected machine." };
+    try {
+      const prepared = await client.preparePrompt(text, sessionId, skillDraft);
+      const { clientTurn } = buildOptimisticMessage({ text, attachments, skillDraft, prepared, sequence: this.turnSequence++ });
+      if (this.ports.threads.getSnapshot().runningThreadIds.includes(threadId)) {
+        await client.steer(text, attachments, sessionId, clientTurn, prepared);
+      } else {
+        this.ports.environment.unsettle(threadId);
+        await client.sendPrompt(text, attachments, sessionId, clientTurn, prepared);
+      }
+    } catch (error) {
+      return { accepted: false, message: errorMessage(error) };
+    }
+    return { accepted: true };
   };
 
   /** Whether a new-thread delivery still holds this client message. */
