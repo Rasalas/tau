@@ -755,7 +755,7 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = requiredString(input, "path");
         const info = await git.getWorkspaceInfo(project);
         const branch = optionalString(input, "branch") ?? info.worktrees.find((tree) => tree.path === path)?.branch;
-        const restored = await worktrees.storage.restoreMissing(path);
+        const restored = await worktrees.storage.restoreMissing(path, { branch });
         const recreated = Boolean(restored) || await workspaceWorktrees.ensureWorktree(project, path, branch);
         if (recreated) {
           await worktrees.storage.restored(path).catch(noteFailure("git.worktree.record-failed"));

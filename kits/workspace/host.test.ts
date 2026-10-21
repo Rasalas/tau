@@ -538,6 +538,31 @@ describe("Workspace Kit host extension", () => {
     } finally { await registry.dispose(); }
   });
 
+  it.each(["switched", "renamed"])("restores the %s branch the picker selected instead of the original branch", async (change) => {
+    const root = await workspace();
+    const repo = join(root, "repo");
+    await mkdir(join(repo, ".tau"), { recursive: true });
+    await writeFile(join(repo, ".tau", "project.json"), JSON.stringify({ worktreeDirectory: "beside" }));
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args], { encoding: "utf8", stdio: "pipe" }).trim();
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "commit", "-qm", "initial", "--allow-empty");
+    const registry = await activated(repo, { stateDir: join(root, "state") });
+    try {
+      const created = await registry.invoke("tau.workspace", "create-worktree", { workspace: repo, branch: "original", startFromOrigin: false }) as { path: string };
+      if (change === "switched") git(created.path, "switch", "-c", "current");
+      else git(created.path, "branch", "-m", "current");
+      await writeFile(join(created.path, "current.txt"), "current branch\n");
+      git(created.path, "add", "current.txt");
+      git(created.path, "commit", "-qm", "Current branch content");
+      await rm(created.path, { recursive: true });
+      await expect(registry.invoke("tau.workspace", "ensure-worktree", { workspace: repo, path: created.path, branch: "current" })).resolves.toBe(true);
+      expect(git(created.path, "branch", "--show-current")).toBe("current");
+      expect(await readFile(join(created.path, "current.txt"), "utf8")).toBe("current branch\n");
+      const records = JSON.parse(await readFile(join(root, "state", "tau.workspace", "worktrees.json"), "utf8")) as { worktrees: Array<{ branch: string }> };
+      expect(records.worktrees[0]?.branch).toBe("current");
+    } finally { await registry.dispose(); }
+  });
+
   it("reads visualization fragments from the named workspace and refuses unknown origins", async () => {
     const active = await workspace();
     const origin = await workspace();

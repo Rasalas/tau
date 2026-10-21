@@ -210,11 +210,17 @@ export class WorktreeStorage {
     return this.records.map((entry) => ({ ...entry }));
   }
 
-  /** Restores only a recorded worktree, on its own branch, before a thread runs there again. */
-  async restoreMissing(path: string): Promise<WorktreeRecord | undefined> {
+  /** Restores a recorded worktree, using the picker's current branch when supplied. */
+  async restoreMissing(path: string, options: { branch?: string } = {}): Promise<WorktreeRecord | undefined> {
     const target = resolve(path);
     const pending = this.restoring.get(target);
-    if (pending) return pending;
+    if (pending) {
+      const restored = await pending;
+      if (options.branch && restored && options.branch !== restored.branch) {
+        throw new HostCommandError("This worktree was restored on another branch. Refresh the worktree list before retrying.");
+      }
+      return restored;
+    }
     const recovery = (async () => {
       const folder = await stat(target).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
@@ -224,12 +230,13 @@ export class WorktreeStorage {
       await this.load();
       const entry = this.records.find((candidate) => candidate.path === target);
       if (!entry) return undefined;
+      const branch = options.branch ?? entry.branch;
       try {
-        if (!await ensureWorktree(entry.repository, target, entry.branch, this.options.runGit, entry.worktreeParent)) return undefined;
+        if (!await ensureWorktree(entry.repository, target, branch, this.options.runGit, entry.worktreeParent)) return undefined;
       } catch (error) {
-        throw new Error(`Could not restore this thread's worktree at ${target} from branch "${entry.branch ?? "unknown"}". Restore the branch or folder before retrying. ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+        throw new Error(`Could not restore this thread's worktree at ${target} from branch "${branch ?? "unknown"}". Restore the branch or folder before retrying. ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
-      await this.restored(target);
+      await this.restored(target, branch);
       return { ...entry };
     })();
     this.restoring.set(target, recovery);
@@ -256,13 +263,16 @@ export class WorktreeStorage {
   }
 
   /** The folder is back (recreated for a thread): it counts again, and its clock starts over. */
-  async restored(path: string): Promise<void> {
+  async restored(path: string, branch?: string): Promise<void> {
     await this.load();
     const target = resolve(path);
     const entry = this.records.find((candidate) => candidate.path === target);
-    if (!entry?.removedAt) return;
-    delete entry.removedAt;
-    entry.createdAt = this.now();
+    if (!entry || entry.removedAt === undefined && (branch === undefined || branch === entry.branch)) return;
+    if (entry.removedAt !== undefined) {
+      delete entry.removedAt;
+      entry.createdAt = this.now();
+    }
+    if (branch !== undefined) entry.branch = branch;
     await this.save();
   }
 

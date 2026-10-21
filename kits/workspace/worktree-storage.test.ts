@@ -241,6 +241,20 @@ describe("worktree storage", () => {
     expect(await storage.restoreMissing(path)).toMatchObject({ path, branch: "deleted-branch" });
   });
 
+  it("refuses a concurrent picker restore that requested a different branch", async () => {
+    const { repo, storage, tauWorktree } = await fixture();
+    const path = await tauWorktree("first-choice");
+    git(repo, "branch", "other-choice", "main");
+    await rm(path, { recursive: true });
+    const results = await Promise.allSettled([
+      storage.restoreMissing(path, { branch: "first-choice" }),
+      storage.restoreMissing(path, { branch: "other-choice" }),
+    ]);
+    expect(results[0]).toMatchObject({ status: "fulfilled", value: { branch: "first-choice" } });
+    expect(results[1]).toMatchObject({ status: "rejected", reason: expect.objectContaining({ message: expect.stringContaining("another branch") }) });
+    expect(git(path, "branch", "--show-current").trim()).toBe("first-choice");
+  });
+
   it("restores a worktree removed by cleanup and clears its removal record", async () => {
     const { storage, tauWorktree } = await fixture();
     const path = await tauWorktree("cleaned-thread");
