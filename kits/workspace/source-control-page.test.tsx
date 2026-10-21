@@ -9,6 +9,18 @@ afterEach(cleanup);
 const key = (name: string) => `tau.workspace.${name}`;
 
 describe("Settings → Source control", () => {
+  it("uses the central default and lets the user keep the beside location or reset it", async () => {
+    const { updates, cleared } = renderKitSettingsPage(SourceControlPage);
+    const folder = await screen.findByRole("textbox", { name: "Worktrees under" });
+    expect(folder.getAttribute("placeholder")).toBe("Tau's worktrees folder");
+    fireEvent.change(folder, { target: { value: "beside" } });
+    fireEvent.keyDown(folder, { key: "Enter" });
+    await waitFor(() => expect(updates).toContainEqual({ values: { [key("worktree-directory")]: "beside" } }));
+    fireEvent.change(folder, { target: { value: "" } });
+    fireEvent.keyDown(folder, { key: "Enter" });
+    await waitFor(() => expect(cleared).toContainEqual([`values.${key("worktree-directory")}`]));
+  });
+
   it("chooses how submodules fill and where projects start; where new threads run is General's", async () => {
     const { updates, cleared } = renderKitSettingsPage(SourceControlPage, { host: { values: { [key("worktree-submodules")]: "none" } } });
     expect(screen.queryByRole("radiogroup", { name: "New threads run in" })).toBeNull();

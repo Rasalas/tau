@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWorktree } from "./workspace-worktrees.js";
 import { WorktreeStorage, storageGit, type WorktreeStorageOptions, type WorktreeStorageThread } from "./worktree-storage.js";
 import { DAY_MS } from "./worktree-cleanup.js";
+import { resolveWorktreeParent } from "./agent-worktrees.js";
 
 const made: string[] = [];
 afterEach(async () => { await Promise.all(made.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -54,6 +55,80 @@ async function fixture(request?: WorktreeStorageOptions["request"], overrides: P
 const listed = (repo: string) => git(repo, "worktree", "list", "--porcelain");
 
 describe("worktree storage", () => {
+  it("keeps recorded custom worktrees manageable after the setting changes and a restart", async () => {
+    const { repo, storage, tauWorktree, reopen } = await fixture();
+    const clean = await tauWorktree("old-custom");
+    const dirty = await tauWorktree("old-custom-dirty");
+    await writeFile(join(dirty, "draft.txt"), "keep\n");
+    await writeFile(join(repo, ".tau", "project.json"), "{}\n");
+    const restarted = reopen();
+    await restarted.setPolicy({ rules: { unchanged: true } });
+    expect((await restarted.report({ sizes: false })).worktrees.find((tree) => tree.path === clean)?.verdict.remove).toBe(true);
+    expect((await restarted.sweep()).removed).toEqual([clean]);
+    expect(existsSync(dirty)).toBe(true);
+    expect((await storage.list()).find((entry) => entry.path === clean)?.worktreeParent).toBe(join(repo, "..", "worktrees", "repo"));
+  });
+
+  it("records the parent actually used by creation when its cached location is no longer configured", async () => {
+    const { repo, root, storage, reopen } = await fixture();
+    const original = join(root, "worktrees", "repo");
+    await writeFile(join(repo, ".tau", "project.json"), "{}\n");
+    const path = await createWorktree(repo, "cached-location", {}, async () => ({
+      root: repo, isRepo: true, isDirty: false, worktrees: [], refs: [], worktreeParent: original,
+    }));
+    await storage.remember(path, repo, "cached-location", { worktreeParent: dirname(path) });
+    const restarted = reopen();
+    await restarted.setPolicy({ rules: { unchanged: true } });
+    expect((await restarted.list())[0]?.worktreeParent).toBe(original);
+    expect((await restarted.sweep()).removed).toEqual([path]);
+  });
+
+  it("refuses to restore through a recorded parent that now points at another folder", async () => {
+    const { root, repo, storage, tauWorktree } = await fixture();
+    const path = await tauWorktree("restore-parent");
+    const parent = dirname(path);
+    const unrelated = join(root, "unrelated");
+    git(repo, "worktree", "remove", path);
+    await rm(parent, { recursive: true });
+    await mkdir(unrelated);
+    await symlink(unrelated, parent, "junction");
+    await expect(storage.restoreMissing(path)).rejects.toThrow(/storage folder has changed/u);
+    expect(existsSync(join(unrelated, "restore-parent"))).toBe(false);
+    expect(existsSync(join(unrelated, ".nomedia"))).toBe(false);
+  });
+
+  it("recognizes old beside records without moving them, and restores their original path", async () => {
+    const { root, repo, storage, reopen } = await fixture();
+    const parent = resolveWorktreeParent(repo, "beside");
+    const legacy = join(parent, "old");
+    git(repo, "worktree", "add", "-q", "-b", "old", legacy);
+    // Version 1 registries predate the parent field and the central default.
+    await mkdir(join(root, "state"), { recursive: true });
+    await writeFile(join(root, "state", "worktrees.json"), JSON.stringify({ version: 1, worktrees: [{ path: legacy, repository: repo, branch: "old", createdAt: 0 }] }));
+    await writeFile(join(repo, ".tau", "project.json"), "{}\n");
+    await storage.setPolicy({ rules: { unchanged: true } });
+    expect((await storage.report({ sizes: false })).worktrees[0]?.verdict.remove).toBe(true);
+    expect((await storage.sweep()).removed).toEqual([legacy]);
+    expect(await reopen().restoreMissing(legacy)).toMatchObject({ path: legacy, branch: "old" });
+    expect(existsSync(legacy)).toBe(true);
+  });
+
+  it("does not follow a recorded parent after it is replaced by a link to another folder", async () => {
+    const { root, repo, storage, tauWorktree } = await fixture();
+    const path = await tauWorktree("linked-parent");
+    const parent = join(path, "..");
+    const outside = join(root, "outside");
+    git(repo, "worktree", "move", path, outside);
+    await rm(parent, { recursive: true });
+    await symlink(root, parent, "junction");
+    // A similarly named linked worktree reached through the replacement must stay outside.
+    git(repo, "worktree", "move", outside, join(root, "linked-parent"));
+    await storage.setPolicy({ rules: { unchanged: true } });
+    expect((await storage.report({ sizes: false })).worktrees[0]?.verdict.blockers).toContain("outside-worktrees-dir");
+    expect((await storage.sweep()).removed).toEqual([]);
+    expect(existsSync(join(root, "linked-parent"))).toBe(true);
+  });
+
   it("removes only old fully settled worktrees and restores their kept branches after restart", async () => {
     let now = Date.now();
     const started = now;
@@ -327,6 +402,18 @@ describe("worktree storage", () => {
 
   describe("untracked worktrees", () => {
     const later = () => Date.now() + 2 * 60 * 60_000;
+
+    it("lists old beside orphans and previously recorded custom parents after switching to the default", async () => {
+      const { repo, storage, tauWorktree } = await fixture(undefined, { now: later });
+      await tauWorktree("known-custom-parent");
+      const custom = await createWorktree(repo, "custom-orphan");
+      const legacy = join(resolveWorktreeParent(repo, "beside"), "beside-orphan");
+      git(repo, "worktree", "add", "-q", "-b", "beside-orphan", legacy);
+      await writeFile(join(repo, ".tau", "project.json"), "{}\n");
+      expect((await storage.report({ sizes: false })).untracked?.map((tree) => tree.path).sort()).toEqual([custom, legacy].sort());
+      expect(await storage.removeByHand(custom, false)).toEqual({ removed: true });
+      expect(await storage.removeByHand(legacy, false)).toEqual({ removed: true });
+    });
 
     it("lists a linked worktree no record, thread or workspace names, and removes it by hand keeping the branch", async () => {
       const { repo, root, storage, threads, tauWorktree, removed } = await fixture(undefined, { now: later });

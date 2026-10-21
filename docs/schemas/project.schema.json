@@ -15,7 +15,7 @@
     "worktreeDirectory": {
       "type": "string",
       "minLength": 1,
-      "description": "Where worktrees go: a directory path such as \"~/.tau/worktrees\"; beside the repository when absent. Read by Workspace Kit."
+      "description": "Where new worktrees go: Tau's central worktrees folder when absent, \"beside\" for a sibling folder, or a custom directory path. Read by Workspace Kit."
     },
     "worktreeSubmodules": {
       "enum": ["recursive", "top-level", "none"],

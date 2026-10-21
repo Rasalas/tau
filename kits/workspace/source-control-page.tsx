@@ -45,8 +45,9 @@ export function SourceControlPage({ onNotify }: SettingsPageProps) {
     <div className="settings-page source-control-page">
       <h3>Source control</h3>
       <SettingsSection title="New worktrees">
-        <SettingRow id="setting-worktrees-under" title="Worktrees under" description="Empty puts a worktree beside its project." setting={folder}
-          control={<PathField label="Worktrees under" placeholder="Beside each project" setting={folder} />} />
+        <SettingRow id="setting-worktrees-under" title="Worktrees under" description={'Empty uses Tau\'s worktrees folder. Enter "beside" to put new worktrees next to each project.'}
+          help="Existing worktrees stay where they are and remain in Storage. Tau's default folder keeps new worktrees out of Spotlight; exclude a custom folder in your desktop's search settings." setting={folder}
+          control={<PathField label="Worktrees under" placeholder="Tau's worktrees folder" setting={folder} />} />
         <SettingRow id="setting-worktree-submodules" title="Submodules" description="How a new worktree fills its git submodules."
           help="Top level only stops at the ones the repository declares; Skip leaves them to a setup script. Project file reads worktreeSubmodules from the branch's .tau/project.json, else recursive." setting={submodules}
           control={<Select label="Submodules" value={submodules.value} options={SUBMODULES} onChange={(next) => (next === "" ? submodules.reset() : submodules.set(next))} />} />

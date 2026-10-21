@@ -517,6 +517,27 @@ describe("Workspace Kit host extension", () => {
     }
   });
 
+  it("uses the recorded parent approval when the picker restores a missing worktree", async () => {
+    const root = await workspace();
+    const repo = join(root, "repo");
+    await mkdir(join(repo, ".tau"), { recursive: true });
+    await writeFile(join(repo, ".tau", "project.json"), JSON.stringify({ worktreeDirectory: "beside" }));
+    const git = (...args: string[]) => execFileSync("git", ["-C", repo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args], { encoding: "utf8", stdio: "pipe" });
+    git("init", "-q", "-b", "main");
+    git("commit", "-qm", "initial", "--allow-empty");
+    const registry = await activated(repo, { stateDir: join(root, "state") });
+    try {
+      const created = await registry.invoke("tau.workspace", "create-worktree", { workspace: repo, branch: "picker-restore", startFromOrigin: false }) as { path: string };
+      git("worktree", "remove", created.path);
+      await rm(dirname(created.path), { recursive: true });
+      const unrelated = join(root, "unrelated");
+      await mkdir(unrelated);
+      await symlink(unrelated, dirname(created.path), "junction");
+      await expect(registry.invoke("tau.workspace", "ensure-worktree", { workspace: repo, path: created.path, branch: "picker-restore" })).rejects.toThrow(/storage folder has changed/u);
+      expect(existsSync(join(unrelated, "picker-restore"))).toBe(false);
+    } finally { await registry.dispose(); }
+  });
+
   it("reads visualization fragments from the named workspace and refuses unknown origins", async () => {
     const active = await workspace();
     const origin = await workspace();

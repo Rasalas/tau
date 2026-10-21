@@ -132,8 +132,8 @@ export interface ProjectDefaults {
    */
   runOnWorktreeCreate?: string;
   /**
-   * Directory where worktrees are placed: "beside" (default: <repo>-worktrees beside
-   * the repository) or a directory path (e.g. "~/.tau/worktrees" or an absolute path).
+   * Directory where worktrees are placed: Tau's central folder by default,
+   * "beside" for <repo>-worktrees beside the repository, or a directory path.
    */
   worktreeDirectory?: string;
   /** How far a new worktree initializes its submodules; the setting wins when it names one. */
