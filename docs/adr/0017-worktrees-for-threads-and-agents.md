@@ -211,3 +211,27 @@ session paths, and an index failure keeps the checkout.
 Both readers require a complete refresh through API 1.74.0. Scan errors,
 unavailable backend listings and unreadable Pi folders or session files stop
 cleanup instead of silently using the index's normal cached fallback.
+
+## Amendment, 2026-10-21: new worktrees use central storage
+
+The default parent is `~/.tau/worktrees/<repository>-<path hash>.noindex`,
+using Tau Dev's own home for that flavor. The canonical main-checkout path
+separates same-named repositories and gives linked worktrees the same parent.
+The `.noindex` suffix excludes the default bucket from Spotlight. Explicit
+`beside` and custom paths keep their existing layout and precedence.
+
+Existing checkouts are not moved: thread and runtime state, open tools and
+local files can still name their absolute paths. Neither completion nor an
+upgrade proves that a checkout is disposable. Recorded worktrees at the old
+beside-project location remain eligible for the user's existing cleanup rules;
+restoration retains the original path. New records persist the canonical
+parent approved at creation, so changing the location does not abandon their
+storage management. A canonical containment check and Git's linked-worktree
+check still guard removal. Unrecorded worktrees in either default location
+remain a manual Storage action after the existing grace period.
+
+On Linux the hidden Tau home uses LocalSearch/Tracker's and Baloo's default
+hidden-folder exclusions. Each central bucket also gets GNOME's `.nomedia`
+marker before Git fills it. No global indexer settings are changed. Custom
+locations keep their path contract and require the desktop's explicit folder
+exclusion; markers alone cannot exclude visible custom folders from Baloo.

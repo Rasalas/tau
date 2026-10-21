@@ -1,7 +1,7 @@
 import { gitEnvironment } from "tau/host-extension";
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -154,13 +154,19 @@ export function worktreeSetupCommand(
 
 /**
  * Resolves the parent directory where worktrees live for a repository.
- * Defaults to `<repo>-worktrees` beside the repository.
+ * Defaults to Tau's central worktrees folder, with one bucket per main checkout.
+ * The `.noindex` suffix keeps Spotlight out; the hash separates same-named clones.
  * If configured (e.g. `~/.tau/worktrees` or `/path/to/worktrees`), worktrees
  * are nested by repository name (or by `{project}` placeholder) to prevent cross-repo collisions.
  */
 export function resolveWorktreeParent(mainRoot: string, configured?: string): string {
   const trimmed = configured?.trim();
-  if (!trimmed || trimmed === "beside") {
+  if (!trimmed) {
+    const root = resolve(mainRoot);
+    const key = createHash("sha256").update(root).digest("hex").slice(0, 12);
+    return join(tauHomeDir(), "worktrees", `${basename(root)}-${key}.noindex`);
+  }
+  if (trimmed === "beside") {
     return join(dirname(mainRoot), `${basename(mainRoot)}-worktrees`);
   }
   const repoName = basename(mainRoot);
@@ -179,6 +185,24 @@ export function resolveWorktreeParent(mainRoot: string, configured?: string): st
     return resolve(expanded);
   }
   return resolve(join(expanded, repoName));
+}
+
+/** Create the parent, enforce a recorded approval and protect the default bucket from GNOME. */
+export async function prepareWorktreeParent(parent: string, options: { platform?: NodeJS.Platform; approvedParent?: string; defaultParent?: string } = {}): Promise<void> {
+  await mkdir(parent, { recursive: true });
+  const canonical = await realpath(parent);
+  if (options.approvedParent && canonical !== options.approvedParent) {
+    throw new HostCommandError("The worktree's storage folder has changed. Restore its original folder before retrying.");
+  }
+  if ((options.platform ?? process.platform) !== "linux" || resolve(parent) !== options.defaultParent) return;
+  const storageRoot = await realpath(join(tauHomeDir(), "worktrees"));
+  if (dirname(canonical) !== storageRoot) {
+    throw new HostCommandError("Tau's worktree folder points outside its storage folder. Restore the folder before retrying.");
+  }
+  // Write before Git populates the checkout. Never replace a marker that already exists.
+  await writeFile(join(parent, ".nomedia"), "", { flag: "wx" }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "EEXIST") throw error;
+  });
 }
 
 /**
@@ -246,7 +270,8 @@ export async function worktreeParentOf(
   configured?: string,
 ): Promise<string> {
   const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
-  const mainRoot = commonDir ? dirname(resolve(cwd, commonDir)) : cwd;
+  const root = commonDir ? dirname(resolve(cwd, commonDir)) : cwd;
+  const mainRoot = await realpath(root).catch(() => resolve(root));
   const config = configured ?? await readWorktreeConfig(mainRoot, cwd);
   return resolveWorktreeParent(mainRoot, config);
 }
@@ -321,7 +346,7 @@ export async function createAgentWorktree(options: {
   const commonPath = resolve(parentCwd, (await runGit(parentCwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim());
   const commonDir = await realpath(commonPath).catch(() => commonPath);
   const worktree = { path, branch, baseCommit, withUncommitted: state.dirty };
-  await mkdir(parent, { recursive: true });
+  await prepareWorktreeParent(parent, { defaultParent: resolveWorktreeParent(dirname(commonDir)) });
   await runGit(parentCwd, ["worktree", "add", "-b", branch, path, baseCommit]);
   return withConfigWrite(commonDir, async () => {
     try {

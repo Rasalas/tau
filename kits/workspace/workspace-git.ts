@@ -1,4 +1,4 @@
-import { open, stat } from "node:fs/promises";
+import { open, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ChangeStatus,
@@ -212,7 +212,8 @@ export async function readProjectGitState(
       worktreePath: heldByWorktree.get(metadata.name),
     }));
     const currentRef = refMetadata.find((ref) => ref.name === branch);
-    const mainRoot = worktrees.find((tree) => tree.isMain)?.path ?? workspaceRoot;
+    const mainPath = worktrees.find((tree) => tree.isMain)?.path ?? workspaceRoot;
+    const mainRoot = await realpath(mainPath).catch(() => mainPath);
     const configuredParent = options.worktreeParent ?? await readWorktreeConfig(mainRoot, workspaceRoot);
     const worktreeParent = resolveWorktreeParent(mainRoot, configuredParent);
     const workspace: WorkspaceInfo = {

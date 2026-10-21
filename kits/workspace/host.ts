@@ -692,7 +692,7 @@ export function createWorkspaceHostExtension(): HostExtension {
           services.rememberProjectName(destination, await services.projectName(project));
           git.invalidate(project, ["branch", "status", "workspace"]);
           services.log("git.worktree.added", destination);
-          await worktrees.storage.remember(destination, project, createdBranch).catch(noteFailure("git.worktree.record-failed"));
+          await worktrees.storage.remember(destination, project, createdBranch, { worktreeParent: dirname(destination) }).catch(noteFailure("git.worktree.record-failed"));
           // The setting wins; without one, the project file of the branch just checked out decides.
           const submodules = await initWorktreeSubmodules(destination, isWorktreeSubmodules(requestedSubmodules)
             ? requestedSubmodules
@@ -755,7 +755,8 @@ export function createWorkspaceHostExtension(): HostExtension {
         const path = requiredString(input, "path");
         const info = await git.getWorkspaceInfo(project);
         const branch = optionalString(input, "branch") ?? info.worktrees.find((tree) => tree.path === path)?.branch;
-        const recreated = await workspaceWorktrees.ensureWorktree(project, path, branch);
+        const restored = await worktrees.storage.restoreMissing(path, { branch });
+        const recreated = Boolean(restored) || await workspaceWorktrees.ensureWorktree(project, path, branch);
         if (recreated) {
           await worktrees.storage.restored(path).catch(noteFailure("git.worktree.record-failed"));
           git.invalidate(project, ["branch", "status", "workspace"]);

@@ -10,11 +10,13 @@ import {
   branchBaseConfigKey,
   branchReviewTargetConfigKey,
   branchTargetOfRef,
+  prepareWorktreeParent,
   resolveWorktreeParent,
+  worktreeParentOf,
 } from "./agent-worktrees.js";
 import { readRepositoryIdentity } from "./repository-identity.js";
 
-/** Where added worktrees live: beside the repository by default, or configured location. */
+/** Where added worktrees live: Tau's central folder by default, or a configured location. */
 export function worktreeParentFor(mainRoot: string, configured?: string): string {
   return resolveWorktreeParent(mainRoot, configured);
 }
@@ -306,7 +308,9 @@ export async function createWorktree(
   if (existing?.worktreePath) throw new Error(`${name} is already checked out in a worktree.`);
 
   let destination = join(info.worktreeParent, worktreeSlug(name));
-  await mkdir(info.worktreeParent, { recursive: true });
+  const mainPath = info.worktrees.find((tree) => tree.isMain)?.path ?? info.root;
+  const mainRoot = await realpath(mainPath).catch(() => mainPath);
+  await prepareWorktreeParent(info.worktreeParent, { defaultParent: resolveWorktreeParent(mainRoot) });
   if (existing) {
     options.onStep?.("checkout");
     await runGit(cwd, ["worktree", "add", destination, name]);
@@ -358,11 +362,14 @@ export async function ensureWorktree(
   worktreePath: string,
   branch: string | undefined,
   runGit: GitRunner = git,
+  approvedParent?: string,
 ): Promise<boolean> {
   if (await stat(worktreePath).then((entry) => entry.isDirectory()).catch(() => false)) return false;
   if (!branch) throw new Error(`${worktreePath} is gone and no branch names what it held.`);
   await runGit(cwd, ["worktree", "prune"]);
-  await mkdir(dirname(worktreePath), { recursive: true });
+  const defaultParent = process.platform === "linux"
+    ? await worktreeParentOf(cwd, (path, args) => runGit(path, args), "") : undefined;
+  await prepareWorktreeParent(dirname(worktreePath), { approvedParent, defaultParent });
   await runGit(cwd, ["worktree", "add", worktreePath, branch]);
   return true;
 }

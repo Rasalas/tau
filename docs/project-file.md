@@ -21,10 +21,40 @@ with a path or URL to the file).
 | Field | Read by | Meaning |
 |---|---|---|
 | `workspaceMode` | Workspace Kit | `"current"` or `"worktree"`: where a new thread runs by default ([ADR 0017](adr/0017-worktrees-for-threads-and-agents.md)). |
-| `worktreeDirectory` | Workspace Kit | Where worktrees go, e.g. `"~/.tau/worktrees"`; beside the repository when absent. |
+| `worktreeDirectory` | Workspace Kit | Where new worktrees go. Absent uses Tau's central worktrees folder; `"beside"` uses `<repo>-worktrees` beside the repository. A path such as `"~/worktrees"` overrides the location. |
 | `worktreeSubmodules` | Workspace Kit | How a new worktree fills its submodules: `"recursive"` (the default), `"top-level"` (only the ones this repository declares) or `"none"` (leave them to a setup script). Read from the branch being checked out; Settings → Source control → Submodules wins when it names a value. |
 | `scripts` | Project Scripts | Quick actions, below. |
 | `runOnWorktreeCreate` (a string) | Project Scripts, else Workspace Kit | The old spelling of a setup script. It still runs, as a blocking script with the id `setup`, and the Inspector suggests moving it into `scripts`. |
+
+## Worktree storage
+
+New worktrees default to `~/.tau/worktrees/<repository>-<path hash>.noindex/`.
+Tau Dev uses `~/.tau-dev/worktrees/`. The main checkout's canonical path determines
+the bucket, so linked worktrees share it and same-named clones stay separate.
+The `.noindex` directory suffix excludes the default bucket from macOS Spotlight.
+Apple documents this behavior when [locating debug symbol files](https://developer.apple.com/documentation/xcode/locating-a-missing-debug-symbol-file).
+
+On Linux, the hidden Tau folder keeps worktrees out of GNOME LocalSearch/Tracker
+and KDE Baloo with their default settings. Tau also creates `.nomedia` in each
+central bucket before filling it, a [GNOME directory exclusion marker](https://gnome.pages.gitlab.gnome.org/localsearch/indexed-data.html).
+Baloo has no equivalent local marker. If hidden folders are explicitly indexed,
+exclude Tau's worktrees folder in [KDE File Search](https://docs.kde.org/stable_kf6/en/plasma-desktop/kcontrol/baloo/index.html).
+Tau leaves the desktop's global search settings alone.
+
+Settings → Source control → Worktrees under changes the machine's location.
+The project file takes precedence; `TAU_WORKTREES_DIR` overrides the machine's
+saved setting. Custom paths retain their existing layout: Tau appends the
+repository name unless the path already ends with it, or substitutes `{project}`
+where present. Exclude a custom folder through your desktop's search settings;
+on macOS use [Spotlight search privacy](https://support.apple.com/guide/mac-help/mchl1bb43b84/mac).
+
+Existing worktrees stay at their recorded paths. Threads, runtime sessions and
+tools can still refer to those paths, and a worktree can hold local changes.
+Tau therefore neither moves nor discards them on upgrade. Settings → Storage
+continues to list and clean up recorded worktrees in the previous beside-project
+location, with the existing opt-in rules and Git protections. Newly recorded
+worktrees retain their approved parent even if the location setting later changes.
+Reopening a cleaned-up thread recreates its checkout at its original path.
 
 ## Scripts
 

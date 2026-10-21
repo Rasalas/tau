@@ -4,7 +4,7 @@ import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { HostCommandError, gitExecutable, readPersistedJson, writePersistedJson } from "tau/host-extension";
-import { readBranchBase, worktreeParentOf } from "./agent-worktrees.js";
+import { readBranchBase, resolveWorktreeParent, worktreeParentOf } from "./agent-worktrees.js";
 import { ensureWorktree } from "./workspace-worktrees.js";
 import { resolveDefaultBaseRef } from "./git-refs.js";
 import { type GitRunner } from "./git-command.js";
@@ -44,6 +44,8 @@ export interface WorktreeRecord {
   path: string;
   /** The repository's main checkout; `git worktree remove` runs there. */
   repository: string;
+  /** Canonical parent approved when Tau made this worktree; survives a setting change. */
+  worktreeParent?: string;
   branch?: string;
   createdAt: number;
   /** The last thread that worked here was deleted. */
@@ -94,6 +96,7 @@ function decodeRecords(value: unknown): WorktreeRecord[] {
     records.push({
       path: raw.path,
       repository: raw.repository,
+      ...(typeof raw.worktreeParent === "string" && isAbsolute(raw.worktreeParent) ? { worktreeParent: raw.worktreeParent } : {}),
       ...(typeof raw.branch === "string" && raw.branch ? { branch: raw.branch } : {}),
       createdAt: number("createdAt") ?? 0,
       ...(number("threadDeletedAt") === undefined ? {} : { threadDeletedAt: number("threadDeletedAt") }),
@@ -207,11 +210,17 @@ export class WorktreeStorage {
     return this.records.map((entry) => ({ ...entry }));
   }
 
-  /** Restores only a recorded worktree, on its own branch, before a thread runs there again. */
-  async restoreMissing(path: string): Promise<WorktreeRecord | undefined> {
+  /** Restores a recorded worktree, using the picker's current branch when supplied. */
+  async restoreMissing(path: string, options: { branch?: string } = {}): Promise<WorktreeRecord | undefined> {
     const target = resolve(path);
     const pending = this.restoring.get(target);
-    if (pending) return pending;
+    if (pending) {
+      const restored = await pending;
+      if (options.branch && restored && options.branch !== restored.branch) {
+        throw new HostCommandError("This worktree was restored on another branch. Refresh the worktree list before retrying.");
+      }
+      return restored;
+    }
     const recovery = (async () => {
       const folder = await stat(target).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
@@ -221,12 +230,13 @@ export class WorktreeStorage {
       await this.load();
       const entry = this.records.find((candidate) => candidate.path === target);
       if (!entry) return undefined;
+      const branch = options.branch ?? entry.branch;
       try {
-        if (!await ensureWorktree(entry.repository, target, entry.branch, this.options.runGit)) return undefined;
+        if (!await ensureWorktree(entry.repository, target, branch, this.options.runGit, entry.worktreeParent)) return undefined;
       } catch (error) {
-        throw new Error(`Could not restore this thread's worktree at ${target} from branch "${entry.branch ?? "unknown"}". Restore the branch or folder before retrying. ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+        throw new Error(`Could not restore this thread's worktree at ${target} from branch "${branch ?? "unknown"}". Restore the branch or folder before retrying. ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
-      await this.restored(target);
+      await this.restored(target, branch);
       return { ...entry };
     })();
     this.restoring.set(target, recovery);
@@ -238,22 +248,31 @@ export class WorktreeStorage {
   }
 
   /** Writes down a worktree Tau just made. */
-  async remember(path: string, project: string, branch?: string): Promise<void> {
+  async remember(path: string, project: string, branch?: string, options: { worktreeParent?: string } = {}): Promise<void> {
     await this.load();
     const repository = await this.repositoryOf(project);
-    const next: WorktreeRecord = { path: resolve(path), repository, ...(branch ? { branch } : {}), createdAt: this.now() };
+    const parent = await realOrSelf(options.worktreeParent ?? await worktreeParentOf(project, (cwd, args) => this.options.runGit(cwd, args)));
+    const approved = isInside(parent, await realOrSelf(path));
+    const next: WorktreeRecord = {
+      path: resolve(path), repository,
+      ...(approved ? { worktreeParent: parent } : {}),
+      ...(branch ? { branch } : {}), createdAt: this.now(),
+    };
     this.records = [...this.records.filter((entry) => entry.path !== next.path), next];
     await this.save();
   }
 
   /** The folder is back (recreated for a thread): it counts again, and its clock starts over. */
-  async restored(path: string): Promise<void> {
+  async restored(path: string, branch?: string): Promise<void> {
     await this.load();
     const target = resolve(path);
     const entry = this.records.find((candidate) => candidate.path === target);
-    if (!entry?.removedAt) return;
-    delete entry.removedAt;
-    entry.createdAt = this.now();
+    if (!entry || entry.removedAt === undefined && (branch === undefined || branch === entry.branch)) return;
+    if (entry.removedAt !== undefined) {
+      delete entry.removedAt;
+      entry.createdAt = this.now();
+    }
+    if (branch !== undefined) entry.branch = branch;
     await this.save();
   }
 
@@ -291,6 +310,17 @@ export class WorktreeStorage {
   private async repositoryOf(cwd: string): Promise<string> {
     const common = (await this.options.runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(() => "")).trim();
     return common ? dirname(resolve(cwd, common)) : resolve(cwd);
+  }
+
+  /** Older registries have no parent: recognize both defaults without moving any checkout. */
+  private async worktreeParents(repository: string): Promise<string[]> {
+    const root = await realOrSelf(repository);
+    const configured = await worktreeParentOf(repository, (cwd, args) => this.options.runGit(cwd, args));
+    return [...new Set(await Promise.all([
+      configured,
+      resolveWorktreeParent(root),
+      resolveWorktreeParent(root, "beside"),
+    ].map(realOrSelf)))];
   }
 
   private async threadsIn(path: string, threads: readonly WorktreeStorageThread[]): Promise<WorktreeStorageThread[]> {
@@ -349,8 +379,8 @@ export class WorktreeStorage {
     if (!exists) return base;
     try {
       const real = await realOrSelf(entry.path);
-      const parent = await worktreeParentOf(entry.repository, (cwd, args) => git(cwd, args));
-      const insideWorktreesDir = isInside(await realOrSelf(parent), real);
+      const parents = entry.worktreeParent ? [entry.worktreeParent] : await this.worktreeParents(entry.repository);
+      const insideWorktreesDir = parents.some((parent) => isInside(parent, real));
       const dotGit = await lstat(join(entry.path, ".git")).then((info) => info.isFile()).catch(() => false);
       const listed = (await git(entry.repository, ["worktree", "list", "--porcelain"]))
         .split("\n\n")
@@ -437,18 +467,20 @@ export class WorktreeStorage {
     const found: WorktreeRecord[] = [];
     for (const repository of repositories) {
       try {
-        const parent = await realOrSelf(await worktreeParentOf(repository, (cwd, args) => git(cwd, args)));
+        const parents = [...await this.worktreeParents(repository), ...this.records
+          .flatMap((entry) => entry.repository === repository && entry.worktreeParent ? [entry.worktreeParent] : [])];
         const blocks = (await git(repository, ["worktree", "list", "--porcelain"])).split("\n\n").slice(1);
         for (const block of blocks) {
           const path = /^worktree (.+)$/mu.exec(block)?.[1];
           if (!path) continue;
           const real = await realOrSelf(path);
-          if (!isInside(parent, real) || recorded.has(real) || real === host) continue;
+          const worktreeParent = parents.find((parent) => isInside(parent, real));
+          if (!worktreeParent || recorded.has(real) || real === host) continue;
           if ((await this.threadsIn(path, threads)).length > 0) continue;
           const modifiedAt = await fileModifiedAt(path);
           if (modifiedAt === undefined || this.now() - modifiedAt < UNTRACKED_GRACE_MS) continue;
           const branch = /^branch refs\/heads\/(.+)$/mu.exec(block)?.[1];
-          found.push({ path: resolve(path), repository, ...(branch ? { branch } : {}), createdAt: modifiedAt });
+          found.push({ path: resolve(path), repository, worktreeParent, ...(branch ? { branch } : {}), createdAt: modifiedAt });
         }
       } catch {
         // A repository that moved or went away has nothing to list.

@@ -41,7 +41,7 @@ import {
   toolLine,
   writeAgentLinks,
 } from "./host.js";
-import { captureWorktreeTree, runAgentGit, type AgentGitRunner } from "../workspace/agent-worktrees.js";
+import { captureWorktreeTree, resolveWorktreeParent, runAgentGit, type AgentGitRunner } from "../workspace/agent-worktrees.js";
 import { priorityPrefix, readAgentPriority } from "./priority.js";
 import { AgentThreadBook, decodeSpawnRequest, decodeThreadId, decodeTimeout, deriveStatus, parseModel, readMaxRunningAgents } from "./threads.js";
 import { waitingBelow } from "./model.js";
@@ -625,7 +625,7 @@ describe("Agents Kit", () => {
     expect(spawned.workspace).toBe("worktree");
     expect(spawned.branch).toMatch(/^tau\/agent-/u);
     // The thread runs in the worktree, not in the parent's checkout.
-    expect(bench.started[0]?.cwd).toBe(join(root, "project-worktrees", spawned.branch.replace("/", "-")));
+    expect(bench.started[0]?.cwd).toBe(join(resolveWorktreeParent(project), spawned.branch.replace("/", "-")));
     // The parent's working copy differs from HEAD, so the child starts from a state commit on it.
     expect(calls.some(([, ...args]) => args.join(" ").startsWith("commit-tree childtree -p headcommit"))).toBe(true);
     expect(calls.some(([, ...args]) => args.join(" ").startsWith(`worktree add -b ${spawned.branch}`))).toBe(true);
