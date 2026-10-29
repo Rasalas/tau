@@ -61,11 +61,12 @@ describe("TranscriptSearch", () => {
     expect(count()).toBe("0 matches");
   });
 
-  it("falls back to the loaded turns when the finder fails", async () => {
+  it("labels loaded matches as partial and offers retry when the finder fails", async () => {
     const onJump = vi.fn();
     render(<TranscriptSearch messages={loaded} find={async () => { throw new Error("host gone"); }} onJump={onJump} onClose={() => undefined} />);
     await type("quartz");
-    expect(count()).toBe("1 of 2");
+    expect(count()).toBe("1 of 2+ · Search failed; loaded messages only");
+    expect(screen.getByRole("button", { name: "Retry search" })).toBeTruthy();
     expect(onJump).toHaveBeenLastCalledWith("m5");
   });
 
@@ -103,4 +104,49 @@ describe("TranscriptSearch", () => {
     }
     expect(count()).toBe("1 of 1");
   });
+});
+
+it("keeps a truncated result visibly partial, including zero matches", async () => {
+  const find = vi.fn(async () => ({ messageIds: ["m3", "m5"], truncated: true }));
+  render(<TranscriptSearch messages={loaded} find={find} onJump={vi.fn()} onClose={vi.fn()} />);
+  await type("quartz");
+  expect(count()).toBe("1 of 2+ · Partial search");
+  find.mockResolvedValue({ messageIds: [], truncated: true });
+  await type("absent");
+  expect(count()).toBe("Partial search");
+});
+
+it("retries a failed query and clears the failure for a different query", async () => {
+  const find = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(["m0", "m3", "m5"]);
+  render(<TranscriptSearch messages={loaded} find={find} onJump={vi.fn()} onClose={vi.fn()} />);
+  await type("absent");
+  expect(count()).toBe("Search failed; loaded messages only");
+  fireEvent.click(screen.getByRole("button", { name: "Retry search" }));
+  expect(count()).toBe("Searching…");
+  await act(async () => { await vi.advanceTimersByTimeAsync(FIND_DEBOUNCE_MS); });
+  expect(find).toHaveBeenCalledTimes(2);
+  expect(count()).toBe("1 of 3");
+  await type("different");
+  expect(find).toHaveBeenLastCalledWith("different");
+});
+
+it("ignores a stale failure after a newer query succeeds", async () => {
+  let fail!: (reason: Error) => void;
+  const find = vi.fn().mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; })).mockResolvedValue(["m0"]);
+  render(<TranscriptSearch messages={loaded} find={find} onJump={vi.fn()} onClose={vi.fn()} />);
+  await type("old");
+  await type("new");
+  await act(async () => { fail(new Error("late")); });
+  expect(count()).toBe("1 of 1");
+  expect(screen.queryByRole("button", { name: "Retry search" })).toBeNull();
+});
+
+it("starts a different query after a failure instead of reusing the failure state", async () => {
+  const find = vi.fn().mockRejectedValueOnce(new Error("offline")).mockImplementation(() => new Promise(() => undefined));
+  render(<TranscriptSearch messages={loaded} find={find} onJump={vi.fn()} onClose={vi.fn()} />);
+  await type("absent");
+  expect(count()).toBe("Search failed; loaded messages only");
+  await type("different");
+  expect(count()).toBe("Searching…");
+  expect(screen.queryByRole("button", { name: "Retry search" })).toBeNull();
 });

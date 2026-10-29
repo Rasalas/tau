@@ -25,22 +25,40 @@ function messageText(content: unknown): string {
   }).filter(Boolean).join("\n");
 }
 
-export function sessionText(content: string): ThreadText[] {
-  const texts: ThreadText[] = [];
-  let total = 0;
-  for (const line of content.split("\n")) {
-    if (!line.includes('"type":"message"')) continue;
+/** Incremental JSONL collector shared by file reads and string callers. */
+export class SessionTextCollector {
+  readonly texts: ThreadText[] = [];
+  chars = 0;
+  truncated = false;
+
+  line(line: string): void {
     let entry: Record<string, unknown>;
-    try { entry = record(JSON.parse(line)); } catch { continue; }
+    try { entry = record(JSON.parse(line)); } catch { return; }
     const message = record(entry.message);
-    if (entry.type !== "message" || (message.role !== "user" && message.role !== "assistant")) continue;
+    if (entry.type !== "message" || (message.role !== "user" && message.role !== "assistant")) return;
     const text = messageText(message.content).trim();
-    if (!text) continue;
-    texts.push({ role: message.role, text });
-    total += text.length;
-    if (total >= THREAD_TEXT_LIMIT) break;
+    if (!text) return;
+    const remaining = THREAD_TEXT_LIMIT - this.chars;
+    if (text.length > remaining) this.truncated = true;
+    if (remaining <= 0) return;
+    // Copy out of the JSON line so a small slice cannot retain its tool payloads.
+    const kept = Buffer.from(text.slice(0, remaining), "utf16le").toString("utf16le");
+    this.texts.push({ role: message.role, text: kept });
+    this.chars += kept.length;
   }
-  return texts;
+}
+
+/** Compatibility helper; file callers feed the collector incrementally instead. */
+export function sessionText(content: string): ThreadText[] {
+  const collector = new SessionTextCollector();
+  let start = 0;
+  while (start < content.length && collector.chars < THREAD_TEXT_LIMIT) {
+    const end = content.indexOf("\n", start);
+    collector.line(content.slice(start, end < 0 ? undefined : end));
+    if (end < 0) break;
+    start = end + 1;
+  }
+  return collector.texts;
 }
 
 export function queryTokens(query: string): string[] {
@@ -84,11 +102,13 @@ export function findMessages(messages: readonly FindableMessage[], query: string
   const needle = query.trim().toLowerCase();
   const messageIds: string[] = [];
   if (!needle) return { messageIds, truncated: false };
-  for (const message of messages) {
+  // Walk backwards so the retained ids never exceed the result limit plus one.
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
     if (message.role !== "user" && message.role !== "assistant") continue;
     if (!(message.text?.toLowerCase().includes(needle) || message.thinking?.toLowerCase().includes(needle))) continue;
     messageIds.push(message.id);
+    if (messageIds.length > THREAD_FIND_LIMIT) return { messageIds: messageIds.slice(0, THREAD_FIND_LIMIT).reverse(), truncated: true };
   }
-  // The reader starts at the newest match, so a thread with too many keeps the newest ones.
-  return messageIds.length > THREAD_FIND_LIMIT ? { messageIds: messageIds.slice(-THREAD_FIND_LIMIT), truncated: true } : { messageIds, truncated: false };
+  return { messageIds: messageIds.reverse(), truncated: false };
 }

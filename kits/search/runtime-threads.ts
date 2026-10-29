@@ -18,6 +18,7 @@ export interface RuntimeThread {
 
 interface Held extends RuntimeThread {
   chars: number;
+  omitted?: boolean;
 }
 
 export interface RuntimeThreadIndexOptions {
@@ -51,6 +52,7 @@ export class RuntimeThreadIndex {
   private readonly threads = new Map<string, Held>();
   private readonly now: () => number;
   private chars = 0;
+  private readonly incompleteSources = new Set<string>();
   private syncing: Promise<void> | undefined;
   private syncedAt = Number.NEGATIVE_INFINITY;
 
@@ -75,6 +77,11 @@ export class RuntimeThreadIndex {
     return run;
   }
 
+  /** A source has more pages, lost text to the cache budget, or reached its 64k export cap. */
+  get truncated(): boolean {
+    return this.incompleteSources.size > 0 || [...this.threads.values()].some((thread) => thread.omitted || thread.chars >= 64_000);
+  }
+
   /** Every thread whose text is held, newest first. */
   entries(): RuntimeThread[] {
     return [...this.threads.values()].filter((thread) => thread.texts.length > 0).sort((left, right) => right.updatedAt - left.updatedAt);
@@ -88,7 +95,8 @@ export class RuntimeThreadIndex {
       try {
         answer = record(await this.options.ask(source, { known, limit: this.options.limit ?? 25 }));
       } catch {
-        // The kit is off, missing or older than this command: its threads are found by title only.
+        // An absent kit has no threads; a previously indexed one failing makes its cached answer partial.
+        if ([...this.threads.values()].some((thread) => thread.source === source)) this.incompleteSources.add(source);
         return;
       }
       for (const id of Array.isArray(answer.removed) ? answer.removed : []) if (typeof id === "string") this.drop(id);
@@ -101,7 +109,8 @@ export class RuntimeThreadIndex {
         this.threads.set(held.threadId, held);
         this.chars += held.chars;
       }
-      if (answer.more !== true) return;
+      if (answer.more !== true) { this.incompleteSources.delete(source); return; }
+      this.incompleteSources.add(source);
     }
   }
 
@@ -122,6 +131,7 @@ export class RuntimeThreadIndex {
       this.chars -= thread.chars;
       thread.chars = 0;
       thread.texts = [];
+      thread.omitted = true;
     }
   }
 }

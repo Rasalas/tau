@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { deviceReadPaths, hasFullFileAccess, type DeviceReadPaths } from "../_filesystem/device-read-paths.js";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
@@ -7,7 +6,8 @@ import { commandInvocation, THREAD_TEXTS_COMMAND } from "tau/host-extension";
 import { rankFuzzy } from "./fuzzy.js";
 import { parseRipgrepLine, projectPath, ripgrepArgs, ripgrepError, ripgrepFileArgs } from "./ripgrep.js";
 import { RuntimeThreadIndex } from "./runtime-threads.js";
-import { findInThread, findMessages, queryTokens, sessionText, type ThreadText } from "./threads.js";
+import { SessionTextIndex } from "./session-index.js";
+import { findInThread, findMessages, queryTokens, type ThreadText } from "./threads.js";
 import { contentPattern, searchWalkedFiles, walkProject } from "./walker.js";
 import {
   CONTENT_LIMIT,
@@ -22,6 +22,7 @@ import {
   type ThreadFindResult,
   type ThreadMatch,
   type ThreadRequestMatch,
+  type ThreadSearchResult,
 } from "./protocol.js";
 
 /** Bad input, not a broken command: it reaches the caller without counting against the kit. */
@@ -92,14 +93,14 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
     id: SEARCH_KIT_ID,
     name: "Search",
     permissions: ["workspace:read", "process", "sessions"],
-    activate(context: WorkerHostExtensionContext) {
+    async activate(context: WorkerHostExtensionContext) {
       const services = context.services;
       let ripgrep: Promise<string | undefined> | undefined;
       const findRipgrep = () => (ripgrep ??= Promise.resolve().then(() => services.findCommand("rg")).catch(() => undefined));
       /** The search each channel is running, so the next one can stop it. */
       const running = new Map<string, () => void>();
       const fileLists = new Map<string, { at: number; files: Promise<string[]> }>();
-      const threadTexts = new Map<string, { mtimeMs: number; size: number; texts: ThreadText[] }>();
+      const sessionIndex = new SessionTextIndex({ list: () => services.sessions.list(), now });
       const runtimeThreads = new RuntimeThreadIndex({
         sources: THREAD_TEXT_SOURCES,
         ask: (source, input) => context.invokeHostExtension(source, THREAD_TEXTS_COMMAND, input),
@@ -213,70 +214,77 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
         const cwd = text(record(raw).cwd);
         if (cwd) { fileLists.delete(cwd); fileLists.delete(`${cwd}\0device`); }
         else fileLists.clear();
+        sessionIndex.invalidate();
       }, { access: "read" });
 
-      const textsOf = async (path: string, mtimeMs: number, size: number): Promise<ThreadText[]> => {
-        const cached = threadTexts.get(path);
-        if (cached && cached.mtimeMs === mtimeMs && cached.size === size) return cached.texts;
-        let texts: ThreadText[] = [];
-        try { texts = sessionText(await readFile(path, "utf8")); } catch { /* a thread deleted meanwhile has nothing to say */ }
-        threadTexts.set(path, { mtimeMs, size, texts });
-        return texts;
-      };
-
-      context.registerCommand("threads", async (raw): Promise<ThreadMatch[]> => {
+      context.registerCommand("threads", async (raw): Promise<ThreadMatch[] | ThreadSearchResult> => {
         const fields = record(raw);
-        const query = text(fields.query);
-        const tokens = queryTokens(query);
-        if (tokens.length === 0) return [];
-        const phrase = tokens.join(" ");
-        const limit = count(fields.limit, 20, 100);
-        const [sessions] = await Promise.all([services.sessions.list(), runtimeThreads.sync()]);
-        const dated = await Promise.all(sessions.map(async (session) => {
-          try {
-            const info = await stat(session.path);
-            return { ...session, mtimeMs: info.mtimeMs, size: info.size };
-          } catch {
-            return undefined;
-          }
-        }));
-        const newest = dated.filter((entry) => entry !== undefined).sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, THREAD_FILES);
-        const listed = new Set(newest.map((entry) => entry.path));
-        for (const path of threadTexts.keys()) if (!listed.has(path)) threadTexts.delete(path);
+        const key = text(fields.channel) ? `threads:${text(fields.channel)}` : undefined;
+        if (key) running.get(key)?.();
+        let cancelled = false;
+        const cancel = () => { cancelled = true; };
+        if (key) running.set(key, cancel);
+        const result: ThreadSearchResult = { matches: [], truncated: false };
+        const answer = () => {
+          if (cancelled) { result.matches = []; result.cancelled = true; }
+          return fields.includeStatus === true ? result : result.matches;
+        };
+        try {
+          const query = text(fields.query);
+          const tokens = queryTokens(query);
+          if (tokens.length === 0) return answer();
+          const phrase = tokens.join(" ");
+          const limit = count(fields.limit, 20, 100);
+          const [metadata] = await Promise.all([sessionIndex.sessions(), runtimeThreads.sync()]);
+          if (cancelled) return answer();
+          const sessions = metadata.entries;
+          const newest = sessions.slice(0, THREAD_FILES);
+          result.truncated = metadata.incomplete || sessions.length > newest.length || runtimeThreads.truncated;
+          if (metadata.incomplete) result.error = "Some thread files could not be read.";
 
-        const matches: ThreadMatch[] = [];
-        const active = text(fields.activeSessionId);
-        const activeElsewhere = Boolean(active) && !sessions.some((session) => session.sessionId === active);
-        // A thread of another runtime has no session file; the one on screen is read from its runtime.
-        if (activeElsewhere) {
-          try {
-            const texts = (await services.transcript(active))
-              .filter((message) => message.role === "user" || message.role === "assistant")
-              .map((message) => ({ role: message.role as ThreadText["role"], text: message.text }));
-            const found = findInThread(texts, tokens, phrase);
-            if (found) matches.push({ sessionId: active, path: "", ...found });
-          } catch {
-            // Nothing open under that id: the files are all there is.
+          const matches = result.matches;
+          const active = text(fields.activeSessionId);
+          const activeElsewhere = Boolean(active) && !sessions.some((session) => session.sessionId === active);
+          // A thread of another runtime has no session file; the one on screen is read from its runtime.
+          if (activeElsewhere) {
+            try {
+              const texts = (await services.transcript(active))
+                .filter((message) => message.role === "user" || message.role === "assistant")
+                .map((message) => ({ role: message.role as ThreadText["role"], text: message.text }));
+              const found = findInThread(texts, tokens, phrase);
+              if (found) matches.push({ sessionId: active, path: "", ...found });
+            } catch {
+              result.truncated = true;
+              result.error = "The open thread could not be searched.";
+            }
           }
-        }
-        // Pi's session files and the other runtimes' threads, newest first, until the limit.
-        const runtime = runtimeThreads.entries().filter((thread) => !(activeElsewhere && thread.threadId === active));
-        let fileAt = 0;
-        let runtimeAt = 0;
-        while (matches.length < limit && (fileAt < newest.length || runtimeAt < runtime.length)) {
-          const session = newest[fileAt];
-          const thread = runtime[runtimeAt];
-          if (session && (!thread || session.mtimeMs >= thread.updatedAt)) {
-            fileAt += 1;
-            const found = findInThread(await textsOf(session.path, session.mtimeMs, session.size), tokens, phrase);
-            if (found) matches.push({ sessionId: session.sessionId, path: session.path, ...found });
-          } else if (thread) {
-            runtimeAt += 1;
-            const found = findInThread(thread.texts, tokens, phrase);
-            if (found) matches.push({ sessionId: thread.threadId, path: "", ...found });
+          // Pi's session files and the other runtimes' threads, newest first, until the limit.
+          const runtime = runtimeThreads.entries().filter((thread) => !(activeElsewhere && thread.threadId === active));
+          let fileAt = 0;
+          let runtimeAt = 0;
+          let bytesRead = 0;
+          while (!cancelled && matches.length < limit && (fileAt < newest.length || runtimeAt < runtime.length)) {
+            const session = newest[fileAt];
+            const thread = runtime[runtimeAt];
+            if (session && (!thread || session.mtimeMs >= thread.updatedAt)) {
+              fileAt += 1;
+              // Bound cold-query I/O as well as each file; cached text costs no read bytes.
+              if (bytesRead >= 32_000_000) { result.truncated = true; break; }
+              const read = await sessionIndex.texts(session, () => cancelled, 32_000_000 - bytesRead);
+              bytesRead += read.bytesRead;
+              result.truncated ||= read.truncated;
+              if (read.error) result.error = read.error;
+              const found = findInThread(read.texts, tokens, phrase);
+              if (found) matches.push({ sessionId: session.sessionId, path: session.path, ...found });
+            } else if (thread) {
+              runtimeAt += 1;
+              const found = findInThread(thread.texts, tokens, phrase);
+              if (found) matches.push({ sessionId: thread.threadId, path: "", ...found });
+            }
           }
-        }
-        return matches;
+          result.truncated ||= fileAt < newest.length || runtimeAt < runtime.length;
+          return answer();
+        } finally { if (key && running.get(key) === cancel) running.delete(key); }
       }, { access: "read", long: true });
 
       context.registerCommand("find-in-thread", async (raw): Promise<ThreadFindResult> => {
@@ -285,8 +293,12 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
         const query = text(fields.query);
         if (!sessionId || !query.trim()) return { messageIds: [], truncated: false };
         // The runtime holds the thread's whole transcript under the ids the client draws; a thread it has closed has none.
-        let messages: Awaited<ReturnType<typeof services.transcript>> = [];
-        try { messages = await services.transcript(sessionId); } catch { /* nothing open under that id */ }
+        let messages: Awaited<ReturnType<typeof services.transcript>>;
+        try { messages = await services.transcript(sessionId); }
+        catch (error) {
+          // A runtime read failure should reach Retry without counting as a broken search extension.
+          throw refuse(`The thread could not be searched: ${error instanceof Error ? error.message : String(error)}`);
+        }
         return findMessages(messages, query);
       }, { access: "read", long: true });
 
@@ -306,7 +318,12 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
           .slice(0, count(fields.limit, 20, 100));
       }, { access: "read", long: true });
 
+      const invalidateSessions = () => sessionIndex.invalidate();
+      const stopTurns = await services.registerTurnObserver({ ended: invalidateSessions, reset: invalidateSessions });
+      const stopLifecycle = await services.registerThreadLifecycle({ threadDeleted: invalidateSessions, afterFork: invalidateSessions });
       return () => {
+        stopTurns();
+        stopLifecycle();
         for (const cancel of running.values()) cancel();
         running.clear();
       };
