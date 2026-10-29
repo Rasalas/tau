@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { readPersistedSessionBranch } from "./persisted-transcript-reader-session.js";
-import type { UiComposerCommand, UiMessage, UiToolOutputReadResult, UiTaskProgressEntry, UiTurnActivityEntry } from "../shared/contracts.js";
-import { normalizeTranscriptCursorBoundaries, type TranscriptPage } from "../shared/host-protocol.js";
+import type { UiComposerCommand, UiMessage, UiToolOutputReadResult } from "../shared/contracts.js";
+import type { TranscriptPage } from "../shared/host-protocol.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
@@ -14,11 +14,10 @@ import {
   turnActivityHistoryFromMessages,
   type MessageMappingOptions,
 } from "./host-messages.js";
-import { localTranscriptCursorPolicy, localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
+import { localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
-import { startsTurn } from "../shared/message-turns.js";
-import { hostCursorAtLocalIndex } from "./transcript-cursor.js";
-import { branchRecords } from "./thread-projection.js";
+import { IndexedTranscript } from "./indexed-transcript.js";
+import { branchRecords } from "./branch-records.js";
 
 /** What the reader is told when the file behind a thread cannot be opened. */
 export const MISSING_SESSION_FILE = "That thread's session file is gone. It may have been deleted.";
@@ -88,10 +87,7 @@ export class PersistedThreadTranscript {
   private readonly mapping: MessageMappingOptions;
   readonly entries: readonly unknown[];
   private mapped?: UiMessage[];
-  private users: number[] = [];
-  private turnNumbers = new Map<number, number>();
-  private tasks = new Map<string, UiTaskProgressEntry[]>();
-  private activities = new Map<string, UiTurnActivityEntry[]>();
+  private index?: IndexedTranscript;
 
   constructor(thread: PersistedThreadInfo, options: PersistedTranscriptOptions, entriesFromWorker?: readonly unknown[]) {
     this.sessionId = thread.sessionId;
@@ -111,58 +107,15 @@ export class PersistedThreadTranscript {
   messages(): UiMessage[] {
     if (!this.mapped) {
       this.mapped = this.messagesWith(this.mapping);
-      let turn = 0;
-      this.mapped.forEach((message, index) => {
-        if (message.role === "user") this.users.push(index);
-        if (startsTurn(message)) this.turnNumbers.set(index, ++turn);
-      });
-      for (const entry of taskProgressHistoryFromMessages(this.records)) {
-        const key = entry.anchorMessageId ?? "";
-        this.tasks.set(key, [...(this.tasks.get(key) ?? []), entry]);
-      }
-      for (const entry of turnActivityHistoryFromMessages(this.records)) {
-        const key = entry.anchorMessageId ?? "";
-        this.activities.set(key, [...(this.activities.get(key) ?? []), entry]);
-      }
+      this.index = new IndexedTranscript(this.sessionId, this.mapped,
+        taskProgressHistoryFromMessages(this.records), turnActivityHistoryFromMessages(this.records));
     }
     return this.mapped;
   }
 
   page(cursor?: HostTranscriptCursor): TranscriptPage {
-    const messages = this.messages();
-    const end = cursor === undefined ? messages.length : localTranscriptCursorPolicy.indexFromCursor(cursor, messages.length);
-    // Binary search the user-turn index instead of walking the prefix on every page.
-    let low = 0;
-    let high = this.users.length;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if (this.users[middle]! < end) low = middle + 1;
-      else high = middle;
-    }
-    const user = Math.max(0, low - 20);
-    const start = low === 0 ? end : this.users[user]!;
-    const window = messages.slice(start, end);
-    const numbered = window.findIndex(startsTurn);
-    if (start > 0 && numbered >= 0) window[numbered] = { ...window[numbered]!, turnNumber: this.turnNumbers.get(start + numbered) };
-    const taskHistory = [...(this.tasks.get("") ?? [])];
-    const activityHistory = [...(this.activities.get("") ?? [])];
-    const ids = new Set(window.flatMap((message) => [message.id, ...(message.sourceEntryId ? [message.sourceEntryId] : [])]));
-    for (const id of ids) {
-      taskHistory.push(...(this.tasks.get(id) ?? []));
-      activityHistory.push(...(this.activities.get(id) ?? []));
-    }
-    const page = localTranscriptPage(this.sessionId, window, taskHistory, activityHistory, true);
-    const olderCursor = user > 0 ? hostCursorAtLocalIndex(start) : undefined;
-    return {
-      ...page,
-      ...(olderCursor ? { olderCursor } : {}),
-      hasMore: user > 0,
-      historyCompleteness: user > 0 ? "has-more" : "complete",
-      ...(olderCursor && window.find((message) => message.role === "user") ? {
-        cursorBeforeMessageId: window.find((message) => message.role === "user")!.id,
-        cursorBoundaries: normalizeTranscriptCursorBoundaries(undefined, window.find((message) => message.role === "user")!.id, olderCursor),
-      } : {}),
-    };
+    this.messages();
+    return this.index!.page(cursor);
   }
 
   toolOutput(toolCallId: string): UiToolOutputReadResult | undefined {

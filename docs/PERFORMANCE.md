@@ -154,6 +154,35 @@ What these actions send is bounded now; what the host computes to send it is not
 
 Each of those actions still builds the full `HostSnapshot` first, mapping every message of the branch, and a project action also re-reads the transcript for the thread's shell. That work is linear, 40–80 ms for 20,000 entries on the development machine (see "Opening a large thread" below). IPC cost stays constant as the transcript grows; host CPU does not yet.
 
+### Active transcript history pages
+
+`PiHost.getThreadDetail(cursor)` and live `PiHost.loadTranscript(id, cursor)`
+share the persisted reader's turn/history index. An unchanged Pi branch uses
+its SDK leaf id as the revision. A warm page binary-searches the turn index,
+reads only the selected messages and their task/tool groups, and resolves
+client-turn identities for that window. Streaming assistant text is a separate
+tail, so deltas do not invalidate the saved branch. Runtime paging capabilities,
+including attached Pi cursors, remain owned by their adapters.
+
+The deterministic regression in `src/main/host-publication.test.ts` uses Pi
+`SessionManager.inMemory` histories of 40 and 4,000 turns. Before this change,
+each repeated 20-turn history request walked the branch and read 80 or 8,000
+source-message contents. After it, both requests walk zero branches and read
+zero source-message contents, returning the same 40 messages. Detail requests
+also skip model/completion discovery. Cursor reads skip backend state, whose
+Pi title lookup can itself scan session entries.
+
+Live indexes compete with small persisted snapshots for the existing four
+cache slots and at most 2 MiB of serialized payload; the total 64 MiB reader
+budget is unchanged. This is a payload budget, not a JS heap limit. Cold,
+changed, evicted and oversized branches still require a linear projection:
+Pi's journal API supplies a complete branch, and marker correlation and
+historical task/tool reconstruction need that branch when building the index.
+A runtime without a cheap branch revision retains the uncached path. Backends
+without a journal still sort their adapter transcript locally. Initial detail,
+bootstrap and lifecycle snapshots still project the full thread before bounding
+their response; this change bounds repeated history reads, not those snapshots.
+
 ### Large diffs render in full
 
 Tau accepts a multi-megabyte patch, parses every line into objects, and mounts every line in the DOM. A large generated file can freeze review mode.

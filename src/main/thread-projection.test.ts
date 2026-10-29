@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { localTranscriptPage } from "./host-transcript.js";
+import { hostCursorAtBridgeValue, hostCursorAtLocalIndex } from "./transcript-cursor.js";
+import { clientMessageFingerprint, CLIENT_MESSAGE_MARKER } from "../shared/client-message-correlation.js";
 import { catalogFromSnapshot } from "../shared/host-protocol.js";
 import { ClientTurnLedger } from "./client-turn-ledger.js";
 import { ThreadProjection } from "./thread-projection.js";
@@ -170,5 +173,106 @@ describe("ThreadProjection transcript", () => {
     expect(entries).not.toHaveBeenCalled();
     projection.hostSnapshot(thread, [], "/repo", 0);
     expect(entries).toHaveBeenCalledOnce();
+  });
+});
+
+
+describe("indexed live transcript pages", () => {
+  const make = (branch: { id: string; type: string; message?: unknown }[], ledger = new ClientTurnLedger(), providers = new Set<() => string[]>()) => {
+    let current = branch;
+    const entries = vi.fn(() => current);
+    const thread = piThread(entries, {});
+    thread.backend.capabilities.tree = { leafEntryId: () => current.at(-1)?.id } as never;
+    const projection = new ThreadProjection(ledger, () => undefined, providers, () => ({}) as never, () => {});
+    return { thread, projection, entries, setBranch: (next: typeof branch) => { current = next; } };
+  };
+  const message = (id: string, role: string, text: string, extra = {}) => ({
+    id, type: "message", message: { role, content: [{ type: "text", text }], timestamp: 1, ...extra },
+  });
+
+  it("matches the snapshot pager through client markers, pinned replies, wakes, tools and task history", async () => {
+    const branch: ReturnType<typeof message>[] = [];
+    for (let turn = 0; turn < 45; turn++) {
+      branch.push(message(`u${turn}`, "user", turn === 10 ? "[Tau] Finished" : `Ask ${turn}`));
+      branch.push(message(`a${turn}`, "assistant", `Answer ${turn}`, {
+        content: [{ type: "text", text: `Answer ${turn}` }, { type: "toolCall", id: `tool${turn}`, name: "todo", arguments: {} }],
+      }));
+      branch.push(message(`t${turn}`, "toolResult", "Done", {
+        toolCallId: `tool${turn}`, toolName: "todo",
+        details: { action: "create", tasks: [{ id: turn, subject: `Task ${turn}`, status: "completed" }] },
+      }));
+      branch.push(message(`empty${turn}`, "assistant", ""));
+    }
+    branch.unshift({ type: "custom", id: "marker", customType: CLIENT_MESSAGE_MARKER,
+      data: { clientMessageId: "client0", fingerprint: clientMessageFingerprint("Ask 0") } } as never);
+    const f = make(branch, undefined, new Set([() => ["empty0", "empty25"]]));
+    const snapshot = f.projection.hostSnapshot(f.thread, [], "/repo", 0);
+    let cursor;
+    do {
+      const expected = localTranscriptPage(f.thread.threadId, snapshot.messages, snapshot.taskHistory, snapshot.turnActivityHistory, true, cursor);
+      const page = await f.projection.transcriptPage(f.thread, cursor);
+      expect(page).toEqual(expected);
+      cursor = page.olderCursor;
+    } while (cursor);
+    const first = await f.projection.transcriptPage(f.thread, hostCursorAtLocalIndex(2));
+    expect(first.messages[0]).toMatchObject({ id: "u0", clientMessageId: "client0" });
+  });
+
+  it("rebuilds for appends and equal-length branch changes, and invalidates reloaded pins", async () => {
+    const provider = () => ["a"];
+    const providers = new Set([provider]);
+    const f = make([message("u", "user", "Ask"), message("a", "assistant", "")], undefined, providers);
+    expect((await f.projection.transcriptPage(f.thread)).messages.map((m) => m.id)).toEqual(["u", "a"]);
+    f.entries.mockClear();
+    await f.projection.transcriptPage(f.thread);
+    expect(f.entries).not.toHaveBeenCalled();
+    providers.delete(provider);
+    providers.add(() => []);
+    expect((await f.projection.transcriptPage(f.thread)).messages.map((m) => m.id)).toEqual(["u"]);
+    f.setBranch([message("u2", "user", "Other branch"), message("a2", "assistant", "Other answer")]);
+    expect((await f.projection.transcriptPage(f.thread)).messages.map((m) => m.text)).toEqual(["Other branch", "Other answer"]);
+    f.setBranch([message("u2", "user", "Other branch"), message("a2", "assistant", "Other answer"), message("u3", "user", "Continue")]);
+    expect((await f.projection.transcriptPage(f.thread)).messages.at(-1)?.text).toBe("Continue");
+    await expect(f.projection.transcriptPage(f.thread, hostCursorAtLocalIndex(9))).rejects.toThrow("Invalid transcript cursor");
+  });
+
+  it("keeps live text and late client-turn correlation current without walking the branch", async () => {
+    const ledger = new ClientTurnLedger();
+    const f = make([message("u", "user", "Ask")], ledger);
+    await f.projection.transcriptPage(f.thread);
+    f.entries.mockClear();
+    ledger.remember(f.thread.threadId, { text: "Ask", timestamp: 1, sourceEntryId: "u" }, { clientMessageId: "late", clientTurnId: "late-turn" });
+    f.thread.liveAssistant = { id: "live", text: "Partial", thinking: "", timestamp: 2 };
+    const first = await f.projection.transcriptPage(f.thread);
+    expect(first.messages[0]).toMatchObject({ clientMessageId: "late", clientTurnId: "late-turn" });
+    expect(first.messages.at(-1)?.text).toBe("Partial");
+    f.thread.liveAssistant.text = "Partial reply";
+    expect((await f.projection.transcriptPage(f.thread)).messages.at(-1)?.text).toBe("Partial reply");
+    expect(f.entries).not.toHaveBeenCalled();
+  });
+
+  it("delegates opaque cursors unchanged to a runtime's paging capability", async () => {
+    const f = make([]);
+    const cursor = hostCursorAtBridgeValue("sdk-cursor");
+    const result = { sessionId: "pi-1", messages: [], hasMore: false };
+    const page = vi.fn(async () => result);
+    f.thread.backend.capabilities.transcriptPaging = { page } as never;
+    expect(await f.projection.transcriptPage(f.thread, cursor)).toBe(result);
+    expect(page).toHaveBeenCalledWith(cursor);
+    expect(f.entries).not.toHaveBeenCalled();
+  });
+
+  it("keeps an external runtime's order, streaming reply and historical tool groups", async () => {
+    const thread = externalThread();
+    thread.adapterMessages = [
+      { id: "u1", role: "user", text: "Ask", timestamp: 1 },
+      { id: "u2", role: "user", text: "Steer", timestamp: 3 },
+    ];
+    thread.liveAssistant = { id: "live", text: "Reply", thinking: "", timestamp: 2 };
+    thread.adapterActivity = [{ id: "tools", anchorMessageId: "u1", tools: [], status: "completed" }];
+    const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => {});
+    const page = await projection.transcriptPage(thread);
+    expect(page.messages.map((m) => m.id)).toEqual(["u1", "live", "u2"]);
+    expect(page.turnActivityHistory).toEqual(thread.adapterActivity);
   });
 });

@@ -1,3 +1,4 @@
+import { IndexedTranscript } from "./indexed-transcript.js";
 import { Worker } from "node:worker_threads";
 import { open, stat } from "node:fs/promises";
 import { readPersistedSessionBranch } from "./persisted-transcript-reader-session.js";
@@ -16,7 +17,7 @@ export interface PersistedTranscriptDiagnostics {
 
 interface SmallTranscriptSnapshot {
   stamp: string;
-  reader: PersistedThreadTranscript;
+  reader: { page(cursor?: HostTranscriptCursor, tail?: readonly UiMessage[]): TranscriptPage; toolOutput?(toolCallId: string): UiToolOutputReadResult | undefined };
   bytes: number;
 }
 
@@ -44,6 +45,8 @@ export class PersistedTranscriptReader {
   private smallLoads = new Map<string, Promise<SmallTranscriptSnapshot | undefined>>();
   private smallLatest = new Map<string, symbol>();
   private smallBytes = 0;
+  private readonly liveIds = new WeakMap<object, number>();
+  private nextLiveId = 0;
   private smallBuilds = 0;
   private smallMapped = 0;
   private workerDiagnostics: PersistedTranscriptDiagnostics = { builds: 0, mappedRecords: 0, pageRecords: 0, cacheBytes: 0, sessions: 0 };
@@ -65,6 +68,29 @@ export class PersistedTranscriptReader {
   ) {
     if (!Number.isSafeInteger(cacheBytesLimit) || cacheBytesLimit < 0) throw new Error("Invalid transcript cache limit.");
     if (!Number.isSafeInteger(smallFileBytesLimit) || smallFileBytesLimit < 0 || smallFileBytesLimit > 256 * 1024) throw new Error("Invalid small transcript read limit.");
+  }
+
+  /** Live branches share the four small snapshot slots and their existing byte
+   * budget with file reads. Oversized branches are served without retention.
+   * The caller supplies a cheap SDK leaf revision, never a branch walk as a key.
+   */
+  livePage(thread: object, revision: string, build: () => IndexedTranscript, cursor?: HostTranscriptCursor, tail: readonly UiMessage[] = []): TranscriptPage {
+    if (this.closed) throw new Error("Persisted transcript reader is closed.");
+    let id = this.liveIds.get(thread);
+    if (id === undefined) { id = ++this.nextLiveId; this.liveIds.set(thread, id); }
+    const key = `live:${id}`;
+    let found = this.small.get(key);
+    if (found?.stamp !== revision) {
+      const index = build();
+      if (this.closed) throw new Error("Persisted transcript reader is closed.");
+      found = { stamp: revision, reader: index, bytes: index.cacheBytes };
+      this.smallBuilds += 1;
+      this.smallMapped += index.messageCount;
+      this.retainSmall(key, found);
+    } else { this.small.delete(key); this.small.set(key, found); }
+    const page = found.reader.page(cursor, tail);
+    this.updateDiagnostics(page.messages.length);
+    return page;
   }
 
   async page(thread: PersistedThreadInfo, options: PersistedTranscriptOptions, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
@@ -140,7 +166,7 @@ export class PersistedTranscriptReader {
       if (!found) return undefined;
     } else { this.small.delete(key); this.small.set(key, found); }
     if (this.closed) throw new Error("Persisted transcript reader is closed.");
-    const value = request.operation === "page" ? found.reader.page(request.cursor) : found.reader.toolOutput(request.toolCallId!);
+    const value = request.operation === "page" ? found.reader.page(request.cursor) : found.reader.toolOutput?.(request.toolCallId!);
     this.updateDiagnostics(request.operation === "page" ? (value as TranscriptPage).messages.length : 0);
     return { value };
   }
@@ -175,15 +201,19 @@ export class PersistedTranscriptReader {
     this.smallMapped += reader.messages().length;
     const found = { reader, stamp, bytes };
     if (this.smallLatest.get(key) !== generation) return found;
+    this.retainSmall(key, found);
+    return found;
+  }
+
+  private retainSmall(key: string, found: SmallTranscriptSnapshot): void {
     const replaced = this.small.get(key);
     if (replaced) { this.small.delete(key); this.smallBytes -= replaced.bytes; }
-    while (this.small.size && (this.small.size >= 4 || this.smallBytes + bytes > this.smallBudget)) {
+    while (this.small.size && (this.small.size >= 4 || this.smallBytes + found.bytes > this.smallBudget)) {
       const oldest = this.small.keys().next().value!;
       this.smallBytes -= this.small.get(oldest)!.bytes;
       this.small.delete(oldest);
     }
-    if (bytes <= this.smallBudget) { this.small.set(key, found); this.smallBytes += bytes; }
-    return found;
+    if (found.bytes <= this.smallBudget) { this.small.set(key, found); this.smallBytes += found.bytes; }
   }
 
   private send(request: object): Promise<unknown> {

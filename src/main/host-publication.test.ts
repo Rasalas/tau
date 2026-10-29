@@ -1,8 +1,11 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { HostPublication } from "./host-publication.js";
 import type { HostSnapshot } from "../shared/contracts.js";
 import type { HostPublicationDeps } from "./host-publication.js";
-import type { ThreadRuntime } from "./thread-runtime.js";
+import { ThreadProjection } from "./thread-projection.js";
+import { ClientTurnLedger } from "./client-turn-ledger.js";
+import { ThreadRuntime } from "./thread-runtime.js";
 
 describe("HostPublication", () => {
   const makePublication = (overrides: Partial<HostPublicationDeps> = {}) => {
@@ -29,6 +32,7 @@ describe("HostPublication", () => {
       projection: {
         hostSnapshot: (thread, models, cwd) => ({ ...makeSnapshot(thread?.threadId, cwd), models }),
         catalog: (_thread, models) => ({ models }) as never,
+        transcriptPage: async () => ({ sessionId: "sess-1", messages: [], hasMore: false }),
       },
       projects: { label: () => undefined, settleClassifications: async () => undefined },
       completions: { models: () => new Promise<never>(() => undefined) },
@@ -73,6 +77,46 @@ describe("HostPublication", () => {
     agentStatus: "idle",
     } as unknown as HostSnapshot;
   }
+
+  it.each([40, 4_000])("bounds warm active history projection for %i Pi turns", async (turns) => {
+    let contentReads = 0;
+    const manager = SessionManager.inMemory("/repo");
+    for (let index = 0; index < turns * 2; index++) {
+      manager.appendMessage({
+        role: index % 2 ? "assistant" : "user", timestamp: index,
+        get content() { contentReads += 1; return [{ type: "text", text: `Message ${index}` }]; },
+      } as never);
+    }
+    const entries = vi.fn(() => manager.getBranch());
+    const models = vi.fn(async () => []);
+    const state = vi.fn(() => ({ streaming: false, idle: true, activeTools: [], title: "History" }));
+    const completions = { models: vi.fn(() => new Promise<never>(() => {})) };
+    const thread = new ThreadRuntime({
+      kind: "pi", threadId: "history", providerSessionId: "history", cwd: "/repo",
+      runtimeAdapter: { id: "pi", capabilities: { skillInvocationDialect: "pi" } },
+      capabilities: { journal: { entries }, tree: { leafEntryId: () => manager.getLeafId() ?? undefined } },
+      composerCommands: () => [], models,
+      state,
+      catalogView: () => ({ thinkingLevel: "off", thinkingLevels: [], allTools: [] }),
+    } as never, { session: { sessionManager: manager } } as never);
+    const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => {});
+    const { pub, view } = makePublication({ projection, completions });
+    // Exercise the endpoint the original public getThreadDetail route forwards to.
+    view.active.mockReturnValue(thread);
+    const initial = await pub.threadDetail();
+    await pub.threadDetail(initial.olderCursor);
+    contentReads = 0;
+    entries.mockClear();
+    state.mockClear();
+    const older = await pub.threadDetail(initial.olderCursor);
+    console.info(JSON.stringify({ turns, branchReads: entries.mock.calls.length, contentReads, pageMessages: older.messages.length }));
+    expect(older.messages).toHaveLength(40);
+    expect(entries).not.toHaveBeenCalled();
+    expect(contentReads).toBe(0);
+    expect(state).not.toHaveBeenCalled();
+    expect(models).not.toHaveBeenCalled();
+    expect(completions.models).not.toHaveBeenCalled();
+  });
 
   it("keeps hidden thread providers out of new-thread runtime pickers", () => {
     const { pub } = makePublication({ backends: () => [

@@ -20,7 +20,7 @@ import {
   type TranscriptPage,
 } from "../shared/host-protocol.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import { localTranscriptCursorPolicy, localTranscriptPage } from "./host-transcript.js";
+import { localTranscriptCursorPolicy } from "./host-transcript.js";
 import { clientTranscript } from "./client-tool-output.js";
 import { ThreadDetailStore } from "../shared/thread-detail-store.js";
 import { runtimeBackendMarks, sortByRuntimeOrder, type HostRuntimeBackendProvider } from "./host-extensions.js";
@@ -47,7 +47,7 @@ export interface HostPublicationDeps {
   metrics: HostLifecycleInstrumentation;
   emitUpdate(update: HostUpdate): void;
   view: HostView;
-  projection: Pick<ThreadProjection, "hostSnapshot" | "catalog">;
+  projection: Pick<ThreadProjection, "hostSnapshot" | "catalog" | "transcriptPage">;
   projects: Pick<ProjectFactsCache, "label" | "settleClassifications">;
   completions: Pick<HostCompletions, "models">;
   /** The key a workspace's Pi model catalog is cached under; it changes with Pi's resources. */
@@ -153,17 +153,10 @@ export class HostPublication {
 
   /** Focused active detail endpoint; it never includes catalogs or project metadata. */
   async threadDetail(cursor?: HostTranscriptCursor): Promise<TranscriptPage | ThreadDetail> {
-    const snapshot = await this.snapshot();
-    const result = cursor !== undefined
-      ? clientTranscript(localTranscriptPage(
-        snapshot.sessionId,
-        snapshot.messages,
-        snapshot.taskHistory,
-        snapshot.turnActivityHistory,
-        snapshot.turnActivityHistoryComplete,
-        cursor,
-      ))
-      : this.detailForSnapshot(snapshot);
+    const thread = this.deps.view.active();
+    const result = cursor !== undefined && thread
+      ? clientTranscript(await this.deps.projection.transcriptPage(thread, cursor))
+      : this.detailForSnapshot(this.snapshotSync([]));
     this.deps.metrics.recordIpc(result);
     return result;
   }
