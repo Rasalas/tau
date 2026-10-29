@@ -5,7 +5,7 @@ import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../
 import type { HostActionResult } from "../shared/host-protocol.js";
 import { hostErrorDiagnostic, type HostErrorDiagnostic } from "./host-extension-errors.js";
 import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
-import type { DirectoryPickerOptions, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostImportedThread, HostStartedThread, HostThreadImportOptions, HostThreadStartOptions, HostTrashedThread } from "./host-extensions.js";
+import type { DirectoryPickerOptions, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostImportedThread, HostStartedThread, HostThreadImportOptions, HostThreadStartOptions, HostTrashedThread } from "./host-extension-contracts.js";
 
 /**
  * A command's answer to bad input, for a worker's host half too: thrown from a

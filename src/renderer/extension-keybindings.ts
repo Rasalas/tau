@@ -1,7 +1,7 @@
 import { chordMatchesEvent, formatKeyChord, isMacPlatform, isModified, normalizeKeyChord, parseKeyChord, platformChordId, type KeyChord } from "./keybindings";
 import { clientClause, DESKTOP_CONTEXT, evaluateWhen, isSpecificWhen, parseWhen, whenOverlaps, type WhenNode } from "./keybinding-when";
 import type { ClientProfile } from "../workbench/client-profile";
-import type { ContributionOwner } from "./extension-system";
+import type { ContributionOwner } from "./extension-contracts";
 
 export interface KeybindingContribution {
   keys: string;

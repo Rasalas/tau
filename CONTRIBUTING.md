@@ -34,8 +34,12 @@ API; [CONTEXT.md](CONTEXT.md) defines the words the code uses.
   today, add a small, generic, documented seam to core first, then the kit.
   The boundary tests (`src/shared/core-boundary.test.ts` and its siblings)
   enforce this.
-- **Kits don't import each other.** They talk through services and host
-  commands ([ADR 0020](docs/adr/0020-host-command-authority.md)).
+- **Kits share source helpers, services and commands deliberately.** Distribution
+  kits may import another kit's leaf helpers, bundled as a separate copy in
+  each consumer. Shared live state goes through registered services; host calls
+  go through commands with host-established caller authority
+  ([ADR 0020](docs/adr/0020-host-command-authority.md)). See
+  [the kit import rule](kits/README.md#the-wall).
 - **Decisions are recorded as ADRs** in [docs/adr/](docs/adr/). A change that
   reverses one needs a new ADR.
 

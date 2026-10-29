@@ -9,7 +9,7 @@ export {
   useObservatory,
   useThreadStore,
 } from "./workbench-context";
-export { HostUnavailableError } from "./extension-system";
+export { HostUnavailableError } from "./extension-host-bridge";
 export { errorMessage } from "../workbench/error-message";
 // The placement seam of ADR 0012: a kit that has the host draw a native view
 // over its panel publishes that rectangle, and core's own floats keep clear of it.
@@ -262,7 +262,7 @@ export type {
   ToolCardContribution,
   ToolCardProps,
   ExtensionOption,
-} from "./extension-system";
+} from "./extension-contracts";
 export type {
   WorkbenchContextValue,
   WorkbenchShellContextValue,

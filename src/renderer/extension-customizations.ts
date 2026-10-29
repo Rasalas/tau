@@ -1,5 +1,5 @@
 import { CustomizationState, mergeCustomizations, partKindOf, partName, PART_FIELDS, type CustomizablePart, type CustomizationLayer, type PartKind } from "./customization";
-import type { ContributionOwner, RegionPlacement, SlotPlacement } from "./extension-system";
+import type { ContributionOwner, RegionPlacement, SlotPlacement } from "./extension-contracts";
 import type { ProfiledContribution } from "../workbench/client-profile";
 
 interface PartContribution extends ContributionOwner {

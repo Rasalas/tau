@@ -137,7 +137,14 @@ context.registerDocumentSource(...);
 
 Every contribution is stamped with the extension that supplied it, which is what lets the palette, panel headers and settings page attribute behaviour back to its source. `registerOptions` is the whole of the settings surface: an extension declares toggles and chip rows, and Tau renders the page from that declaration. An extension with no options shows only its on/off switch.
 
-See `src/renderer/extension-system.tsx` and the kits under `kits/` ([Core and kits](CORE.md) lists what each one owns). The left sidebar and right dock are empty core slots. Workspace Kit contributes the thread and project sidebar, local-folder and Git-clone sources, and Files. Review Kit contributes Changes and the diff review. Other bundled kits contribute Signals, thread title generation, and the runtime commands.
+The desktop contracts live in `src/renderer/extension-contracts.ts`.
+`src/renderer/extension-system.tsx` implements the registry and re-exports the
+contracts for existing imports. The host uses the same split in
+`src/main/host-extension-contracts.ts` and `src/main/host-extensions.ts`, with
+ordered hook collections in `src/main/host-extension-hooks.ts`. The public
+`tau`, `tau/host-extension` and `tau/host` modules keep their exports.
+
+See the kits under `kits/` ([Core and kits](CORE.md) lists what each one owns). The left sidebar and right dock are empty core slots. Workspace Kit contributes the thread and project sidebar, local-folder and Git-clone sources, and Files. Review Kit contributes Changes and the diff review. Other bundled kits contribute Signals, thread title generation, and the runtime commands.
 
 ## Extending Tau while it runs
 

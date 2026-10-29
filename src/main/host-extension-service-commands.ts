@@ -10,7 +10,7 @@ import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
   DirectoryPickerOptions, HostExtensionSettings, HostImportedThread, HostSessionSummary,
   HostSkill, HostStartedThread, HostThreadImportOptions, HostThreadStartOptions, HostTrashedThread,
-} from "./host-extensions.js";
+} from "./host-extension-contracts.js";
 import {
   CLIENT_HOOKS, CONFIG_HOOKS, FACT_HOOKS, LIFECYCLE_HOOKS, TURN_HOOKS,
   type WorkerPairedDevice, type WorkerSessionSnapshot, type WorkerThreadSnapshot,
