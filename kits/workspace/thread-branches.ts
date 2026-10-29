@@ -458,17 +458,18 @@ export async function readThreadConflicts(path: string, runGit: AgentGitRunner =
  */
 export async function removeThreadBranch(path: string, options: { integratedTip?: string; expectedTip?: string; target?: string; runGit?: AgentGitRunner } = {}): Promise<{ branch: string; root: string }> {
   const runGit = options.runGit ?? runAgentGit;
-  const branch = await readThreadBranch(path, runGit, options.target);
-  if (!branch) throw new Error("This folder is no worktree on a branch of its own.");
-  if (options.expectedTip && options.expectedTip !== branch.tip) throw new Error(`${branch.branch} moved since it was read; nothing was removed.`);
-  if (!branch.merged && options.integratedTip !== branch.tip) throw new Error(`${comparedTarget(branch)} does not hold ${branch.branch} yet; nothing was removed.`);
-  if (branch.uncommitted > 0) throw new Error(`${branch.branch} has ${branch.uncommitted} file${branch.uncommitted === 1 ? "" : "s"} not committed; nothing was removed.`);
-  const top = (await runGit(path, ["rev-parse", "--show-toplevel"])).trim();
-  await withRepositoryWorktreeMutation(branch.root, runGit, async () => {
+  return withRepositoryWorktreeMutation(path, runGit, async () => {
+    // The branch may have gained work while another mutation held the queue.
+    const branch = await readThreadBranch(path, runGit, options.target);
+    if (!branch) throw new Error("This folder is no worktree on a branch of its own.");
+    if (options.expectedTip && options.expectedTip !== branch.tip) throw new Error(`${branch.branch} moved since it was read; nothing was removed.`);
+    if (!branch.merged && options.integratedTip !== branch.tip) throw new Error(`${comparedTarget(branch)} does not hold ${branch.branch} yet; nothing was removed.`);
+    if (branch.uncommitted > 0) throw new Error(`${branch.branch} has ${branch.uncommitted} file${branch.uncommitted === 1 ? "" : "s"} not committed; nothing was removed.`);
+    const top = (await runGit(path, ["rev-parse", "--show-toplevel"])).trim();
     await runGit(branch.root, ["worktree", "remove", top]);
     await runGit(branch.root, ["branch", "-D", branch.branch]);
+    return { branch: branch.branch, root: branch.root };
   });
-  return { branch: branch.branch, root: branch.root };
 }
 
 /** What `updateTargetBranch` did: the branch moved `commits` commits from `from` to `to`. */

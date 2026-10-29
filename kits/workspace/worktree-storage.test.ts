@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createWorktree } from "./workspace-worktrees.js";
 import { WorktreeStorage, storageGit, type WorktreeStorageOptions, type WorktreeStorageThread } from "./worktree-storage.js";
 import { DAY_MS } from "./worktree-cleanup.js";
-import { resolveWorktreeParent } from "./agent-worktrees.js";
+import { resolveWorktreeParent, withRepositoryWorktreeMutation } from "./agent-worktrees.js";
 
 const made: string[] = [];
 afterEach(async () => { await Promise.all(made.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -55,6 +55,42 @@ async function fixture(request?: WorktreeStorageOptions["request"], overrides: P
 const listed = (repo: string) => git(repo, "worktree", "list", "--porcelain");
 
 describe("worktree storage", () => {
+  it.each(["sweep", "manual"])("rechecks live threads after %s waits for another worktree mutation", async (action) => {
+    let queued!: () => void;
+    const waiting = new Promise<void>((resolve) => { queued = resolve; });
+    let observeAdmission = false;
+    const { repo, storage, threads, open, tauWorktree } = await fixture(undefined, {
+      runGit: async (cwd, args, maxBuffer) => {
+        const result = await storageGit(cwd, args, maxBuffer);
+        if (observeAdmission && args.length === 3 && args[2] === "--git-common-dir") queued();
+        return result;
+      },
+    });
+    const path = await tauWorktree("queued-removal");
+    threads.push({ sessionId: "resumed", cwd: path, path: join(path, "session") });
+    await storage.setPolicy({ rules: { unchanged: true } });
+    let entered!: () => void;
+    const holding = new Promise<void>((resolve) => { entered = resolve; });
+    const previous = withRepositoryWorktreeMutation(repo, storageGit, async () => {
+      entered();
+      await waiting;
+      open.add("resumed");
+    });
+    await holding;
+    observeAdmission = true;
+    try {
+      if (action === "sweep") {
+        expect(await storage.sweep([path])).toMatchObject({ removed: [], kept: [{ path, blockers: ["thread-open"] }] });
+      } else {
+        await expect(storage.removeByHand(path, true)).rejects.toThrow(/thread is still open/u);
+      }
+      expect(existsSync(path)).toBe(true);
+    } finally {
+      queued();
+      await previous;
+    }
+  });
+
   it("keeps recorded custom worktrees manageable after the setting changes and a restart", async () => {
     const { repo, storage, tauWorktree, reopen } = await fixture();
     const clean = await tauWorktree("old-custom");

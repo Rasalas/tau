@@ -574,34 +574,35 @@ export class WorktreeStorage {
         if (wanted) result.kept.push({ path: entry.path, blockers: first.verdict.blockers });
         continue;
       }
-      // The index may have moved while Git ran: a new thread keeps the worktree.
-      const latest = await this.judge(entry, await this.options.sessions());
-      if (!latest.verdict.remove) {
-        result.kept.push({ path: entry.path, blockers: latest.verdict.blockers });
-        continue;
-      }
-      // Settling can be undone while Git is reading. Read the rail again after
-      // those reads, and check live runtimes and the current workspace once more.
-      const current = await this.threadsIn(entry.path, await this.options.sessions());
-      const hostWorkspace = await realOrSelf(this.options.hostCwd()) === await realOrSelf(entry.path);
-      const lastActivityAt = Math.max(latest.facts.lastActivityAt, ...current.map((thread) => thread.modifiedAt ?? 0));
-      const verdict = evaluateWorktree({ ...latest.facts, ...this.threadFacts(current), hostWorkspace, lastActivityAt }, rulesFor(this.policy, entry.repository), this.now());
-      if (!verdict.remove) {
-        result.kept.push({ path: entry.path, blockers: verdict.blockers });
-        continue;
-      }
       try {
-        // No --force: Git refuses a worktree with changes on its own, once more.
-        await withRepositoryWorktreeMutation(entry.repository, this.options.runGit, () => this.options.runGit(entry.repository, ["worktree", "remove", entry.path]));
+        await withRepositoryWorktreeMutation(entry.repository, this.options.runGit, async () => {
+          // Recheck after admission: a thread may resume while this sweep waits.
+          const latest = await this.judge(entry, await this.options.sessions());
+          if (!latest.verdict.remove) {
+            result.kept.push({ path: entry.path, blockers: latest.verdict.blockers });
+            return;
+          }
+          // Settling can also be undone while Git is reading. Check the rail,
+          // live runtimes and the current workspace again after those reads.
+          const current = await this.threadsIn(entry.path, await this.options.sessions());
+          const hostWorkspace = await realOrSelf(this.options.hostCwd()) === await realOrSelf(entry.path);
+          const lastActivityAt = Math.max(latest.facts.lastActivityAt, ...current.map((thread) => thread.modifiedAt ?? 0));
+          const verdict = evaluateWorktree({ ...latest.facts, ...this.threadFacts(current), hostWorkspace, lastActivityAt }, rulesFor(this.policy, entry.repository), this.now());
+          if (!verdict.remove) {
+            result.kept.push({ path: entry.path, blockers: verdict.blockers });
+            return;
+          }
+          // No --force: Git refuses a worktree with changes on its own, once more.
+          await this.options.runGit(entry.repository, ["worktree", "remove", entry.path]);
+          entry.removedAt = this.now();
+          result.removed.push(entry.path);
+          this.options.removed(entry.repository);
+          this.options.log("git.worktree.cleanup", `${entry.path} (${verdict.reasons.join(", ")})`);
+        });
       } catch (error) {
         this.options.log("git.worktree.cleanup-refused", `${entry.path}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
         result.kept.push({ path: entry.path, blockers: ["inspection-failed"] });
-        continue;
       }
-      entry.removedAt = this.now();
-      result.removed.push(entry.path);
-      this.options.removed(entry.repository);
-      this.options.log("git.worktree.cleanup", `${entry.path} (${verdict.reasons.join(", ")})`);
     }
     if (result.removed.length > 0) {
       this.lastSweep = { at: this.now(), removed: result.removed };
@@ -622,22 +623,24 @@ export class WorktreeStorage {
     // A listed untracked worktree has no record to update after it goes.
     const entry = known ?? (await this.untracked(await this.options.sessions())).find((candidate) => candidate.path === target);
     if (!entry) throw new HostCommandError("Tau did not make this worktree, so it is not removed from here.");
-    const facts = await this.inspect(entry, await this.options.sessions());
-    const verdict = evaluateWorktree(facts, rulesFor(this.policy, entry.repository), this.now());
-    const refusal = manualRemovalRefusal(verdict);
-    if (refusal) throw new HostCommandError(REFUSALS[refusal]);
-    const confirmable = verdict.blockers;
-    if (confirmable.length > 0 && !confirm) {
-      return { removed: false, confirm: confirmable, dirtyFiles: facts.dirtyFiles, unpushedCommits: facts.unpushedCommits };
-    }
-    await withRepositoryWorktreeMutation(entry.repository, this.options.runGit, () => this.options.runGit(entry.repository, ["worktree", "remove", ...(confirmable.length > 0 ? ["--force"] : []), entry.path]));
-    if (known) {
-      known.removedAt = this.now();
-      await this.save();
-    }
-    this.options.removed(entry.repository);
-    this.options.log("git.worktree.removed-by-hand", entry.path);
-    return { removed: true };
+    return withRepositoryWorktreeMutation(entry.repository, this.options.runGit, async () => {
+      const facts = await this.inspect(entry, await this.options.sessions());
+      const verdict = evaluateWorktree(facts, rulesFor(this.policy, entry.repository), this.now());
+      const refusal = manualRemovalRefusal(verdict);
+      if (refusal) throw new HostCommandError(REFUSALS[refusal]);
+      const confirmable = verdict.blockers;
+      if (confirmable.length > 0 && !confirm) {
+        return { removed: false, confirm: confirmable, dirtyFiles: facts.dirtyFiles, unpushedCommits: facts.unpushedCommits };
+      }
+      await this.options.runGit(entry.repository, ["worktree", "remove", ...(confirmable.length > 0 ? ["--force"] : []), entry.path]);
+      if (known) {
+        known.removedAt = this.now();
+        await this.save();
+      }
+      this.options.removed(entry.repository);
+      this.options.log("git.worktree.removed-by-hand", entry.path);
+      return { removed: true };
+    });
   }
 }
 
