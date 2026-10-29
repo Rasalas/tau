@@ -62,19 +62,19 @@ export function TranscriptSearch({ messages, find, onJump, onActive, onClose, fo
 
   useEffect(() => {
     if (!find || !needle) { setRemote(undefined); return; }
-    let current = true;
+    let active = true;
     setRemote(undefined);
     const timer = setTimeout(() => {
       find(needle).then(
         (answer) => {
-          if (!current) return;
+          if (!active) return;
           const result = "messageIds" in answer ? answer : { messageIds: answer, truncated: false };
           setRemote({ query: needle, ids: result.messageIds, truncated: result.truncated });
         },
-        () => { if (current) setRemote({ query: needle, failed: true }); },
+        () => { if (active) setRemote({ query: needle, failed: true }); },
       );
     }, FIND_DEBOUNCE_MS);
-    return () => { current = false; clearTimeout(timer); };
+    return () => { active = false; clearTimeout(timer); };
   }, [find, needle, attempt]);
 
   const goTo = (id: string | undefined) => {

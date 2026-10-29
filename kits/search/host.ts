@@ -263,7 +263,8 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
           let fileAt = 0;
           let runtimeAt = 0;
           let bytesRead = 0;
-          while (!cancelled && matches.length < limit && (fileAt < newest.length || runtimeAt < runtime.length)) {
+          while (matches.length < limit && (fileAt < newest.length || runtimeAt < runtime.length)) {
+            if (cancelled) break;
             const session = newest[fileAt];
             const thread = runtime[runtimeAt];
             if (session && (!thread || session.mtimeMs >= thread.updatedAt)) {

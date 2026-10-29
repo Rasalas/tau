@@ -10,8 +10,8 @@ import createSearchHostExtension from "./host.js";
 import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadFindResult, type ThreadMatch, type ThreadRequestMatch } from "./protocol.js";
 
 vi.mock("node:fs/promises", async (original) => {
-  const fs = await original<typeof import("node:fs/promises")>();
-  return { ...fs, stat: vi.fn(fs.stat) };
+  const originalFs = await original<typeof import("node:fs/promises")>();
+  return { ...originalFs, stat: vi.fn(originalFs.stat) };
 });
 const roots: string[] = [];
 vi.mock("node:os", async (original) => {
