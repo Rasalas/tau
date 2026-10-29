@@ -7,6 +7,7 @@ import {
   previewBranchMerge,
   readBranchBase,
   runAgentGit,
+  withRepositoryWorktreeMutation,
   type AgentGitRunner,
   type BranchMergeOutcome,
   type BranchMergePreview,
@@ -463,8 +464,10 @@ export async function removeThreadBranch(path: string, options: { integratedTip?
   if (!branch.merged && options.integratedTip !== branch.tip) throw new Error(`${comparedTarget(branch)} does not hold ${branch.branch} yet; nothing was removed.`);
   if (branch.uncommitted > 0) throw new Error(`${branch.branch} has ${branch.uncommitted} file${branch.uncommitted === 1 ? "" : "s"} not committed; nothing was removed.`);
   const top = (await runGit(path, ["rev-parse", "--show-toplevel"])).trim();
-  await runGit(branch.root, ["worktree", "remove", top]);
-  await runGit(branch.root, ["branch", "-D", branch.branch]);
+  await withRepositoryWorktreeMutation(branch.root, runGit, async () => {
+    await runGit(branch.root, ["worktree", "remove", top]);
+    await runGit(branch.root, ["branch", "-D", branch.branch]);
+  });
   return { branch: branch.branch, root: branch.root };
 }
 

@@ -4,7 +4,7 @@ import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { HostCommandError, gitExecutable, readPersistedJson, writePersistedJson } from "tau/host-extension";
-import { readBranchBase, resolveWorktreeParent, worktreeParentOf } from "./agent-worktrees.js";
+import { readBranchBase, resolveWorktreeParent, worktreeParentOf, withRepositoryWorktreeMutation } from "./agent-worktrees.js";
 import { ensureWorktree } from "./workspace-worktrees.js";
 import { resolveDefaultBaseRef } from "./git-refs.js";
 import { type GitRunner } from "./git-command.js";
@@ -592,7 +592,7 @@ export class WorktreeStorage {
       }
       try {
         // No --force: Git refuses a worktree with changes on its own, once more.
-        await this.options.runGit(entry.repository, ["worktree", "remove", entry.path]);
+        await withRepositoryWorktreeMutation(entry.repository, this.options.runGit, () => this.options.runGit(entry.repository, ["worktree", "remove", entry.path]));
       } catch (error) {
         this.options.log("git.worktree.cleanup-refused", `${entry.path}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
         result.kept.push({ path: entry.path, blockers: ["inspection-failed"] });
@@ -630,7 +630,7 @@ export class WorktreeStorage {
     if (confirmable.length > 0 && !confirm) {
       return { removed: false, confirm: confirmable, dirtyFiles: facts.dirtyFiles, unpushedCommits: facts.unpushedCommits };
     }
-    await this.options.runGit(entry.repository, ["worktree", "remove", ...(confirmable.length > 0 ? ["--force"] : []), entry.path]);
+    await withRepositoryWorktreeMutation(entry.repository, this.options.runGit, () => this.options.runGit(entry.repository, ["worktree", "remove", ...(confirmable.length > 0 ? ["--force"] : []), entry.path]));
     if (known) {
       known.removedAt = this.now();
       await this.save();

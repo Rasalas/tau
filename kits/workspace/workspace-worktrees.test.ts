@@ -288,7 +288,11 @@ describe("worktree removal", () => {
       calls.push(args);
       return "";
     });
-    expect(calls).toEqual([["worktree", "remove", "--force", "/trees/feat"], ["branch", "-D", "--", "feat"]]);
+    expect(calls).toEqual([
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      ["worktree", "remove", "--force", "/trees/feat"],
+      ["branch", "-D", "--", "feat"],
+    ]);
   });
 
   it("removes the worktree and its branch, and prunes when the folder is already gone", async () => {
@@ -298,6 +302,7 @@ describe("worktree removal", () => {
       return "";
     });
     expect(calls).toEqual([
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
       ["worktree", "remove", "/repo-worktrees/feat"],
       ["branch", "-d", "--", "feat"],
     ]);

@@ -13,6 +13,7 @@ import {
   prepareWorktreeParent,
   resolveWorktreeParent,
   worktreeParentOf,
+  withRepositoryWorktreeMutation,
 } from "./agent-worktrees.js";
 import { readRepositoryIdentity } from "./repository-identity.js";
 
@@ -58,7 +59,7 @@ export async function readWorktreeStatuses(
   // The picker is the one place worth pruning: a worktree whose folder went
   // away is a row the user is about to act on.
   const main = worktrees.find((tree) => tree.isMain) ?? worktrees[0];
-  if (main) await runGit(main.path, ["worktree", "prune"]).catch(() => "");
+  if (main) await withRepositoryWorktreeMutation(main.path, runGit, () => runGit(main.path, ["worktree", "prune"])).catch(() => "");
   return Promise.all(worktrees.map(async (tree) => {
     const ref = refs.find((candidate) => candidate.name === tree.branch);
     const base = {
@@ -313,7 +314,7 @@ export async function createWorktree(
   await prepareWorktreeParent(info.worktreeParent, { defaultParent: resolveWorktreeParent(mainRoot) });
   if (existing) {
     options.onStep?.("checkout");
-    await runGit(cwd, ["worktree", "add", destination, name]);
+    await withRepositoryWorktreeMutation(cwd, runGit, () => runGit(cwd, ["worktree", "add", destination, name]));
     return destination;
   }
   options.onStep?.("fetch");
@@ -323,17 +324,19 @@ export async function createWorktree(
   }, runGit);
   // The commit, not the ref: a worktree started at `origin/main` would follow
   // that ref's next move, and the base recorded below would stop describing it.
-  options.onStep?.("checkout");
-  if (options.uniqueBranch) {
-    ({ name, destination } = await addUniqueWorktree(cwd, name, info.worktreeParent, base.commit || base.ref, runGit));
-  } else {
-    await runGit(cwd, ["worktree", "add", "-b", name, destination, base.commit || base.ref]);
-  }
-  await runGit(cwd, ["config", branchBaseConfigKey(name), base.ref]).catch(() => "");
-  // A remote-tracking ref names the same destination branch on its remote.
-  const target = await branchTargetOfRef(cwd, base.ref, runGit);
-  if (target) await runGit(cwd, ["config", branchReviewTargetConfigKey(name), target]);
-  return destination;
+  return withRepositoryWorktreeMutation(cwd, runGit, async () => {
+    options.onStep?.("checkout");
+    if (options.uniqueBranch) {
+      ({ name, destination } = await addUniqueWorktree(cwd, name, info.worktreeParent, base.commit || base.ref, runGit));
+    } else {
+      await runGit(cwd, ["worktree", "add", "-b", name, destination, base.commit || base.ref]);
+    }
+    await runGit(cwd, ["config", branchBaseConfigKey(name), base.ref]).catch(() => "");
+    // A remote-tracking ref names the same destination branch on its remote.
+    const target = await branchTargetOfRef(cwd, base.ref, runGit);
+    if (target) await runGit(cwd, ["config", branchReviewTargetConfigKey(name), target]);
+    return destination;
+  });
 }
 
 /** Removes a linked worktree; destructive flags require the caller's confirmation. */
@@ -343,14 +346,16 @@ export async function removeWorktree(
   options: { branch?: string; force?: boolean; forceBranch?: boolean } = {},
   runGit: GitRunner = git,
 ): Promise<void> {
-  await runGit(cwd, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]).catch(async (error: unknown) => {
-    // A worktree whose directory is already gone is removed by pruning it.
-    await runGit(cwd, ["worktree", "prune"]);
-    const still = await runGit(cwd, ["worktree", "list", "--porcelain"]);
-    if (still.includes(`worktree ${worktreePath}\n`)) throw error;
+  return withRepositoryWorktreeMutation(cwd, runGit, async () => {
+    await runGit(cwd, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]).catch(async (error: unknown) => {
+      // A worktree whose directory is already gone is removed by pruning it.
+      await runGit(cwd, ["worktree", "prune"]);
+      const still = await runGit(cwd, ["worktree", "list", "--porcelain"]);
+      if (still.includes(`worktree ${worktreePath}\n`)) throw error;
+    });
+    // Git keeps an unmerged branch when deletion was not explicitly forced.
+    if (options.branch) await runGit(cwd, ["branch", options.forceBranch ? "-D" : "-d", "--", options.branch]).catch(() => "");
   });
-  // Git keeps an unmerged branch when deletion was not explicitly forced.
-  if (options.branch) await runGit(cwd, ["branch", options.forceBranch ? "-D" : "-d", "--", options.branch]).catch(() => "");
 }
 
 /**
@@ -366,12 +371,15 @@ export async function ensureWorktree(
 ): Promise<boolean> {
   if (await stat(worktreePath).then((entry) => entry.isDirectory()).catch(() => false)) return false;
   if (!branch) throw new Error(`${worktreePath} is gone and no branch names what it held.`);
-  await runGit(cwd, ["worktree", "prune"]);
-  const defaultParent = process.platform === "linux"
-    ? await worktreeParentOf(cwd, (path, args) => runGit(path, args), "") : undefined;
-  await prepareWorktreeParent(dirname(worktreePath), { approvedParent, defaultParent });
-  await runGit(cwd, ["worktree", "add", worktreePath, branch]);
-  return true;
+  return withRepositoryWorktreeMutation(cwd, runGit, async () => {
+    if (await stat(worktreePath).then((entry) => entry.isDirectory()).catch(() => false)) return false;
+    await runGit(cwd, ["worktree", "prune"]);
+    const defaultParent = process.platform === "linux"
+      ? await worktreeParentOf(cwd, (path, args) => runGit(path, args), "") : undefined;
+    await prepareWorktreeParent(dirname(worktreePath), { approvedParent, defaultParent });
+    await runGit(cwd, ["worktree", "add", worktreePath, branch]);
+    return true;
+  });
 }
 
 /**
