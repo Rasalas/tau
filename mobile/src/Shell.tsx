@@ -376,7 +376,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
         } } : {})}
         now={now().getTime()}
         onOpen={(host) => void openHost(host)}
-        onRemove={(host) => void Promise.resolve(context.activities?.clear(host.id)).then(() => book.remove(host.id)).then(() => { clearHostStorage(storage, host.id); void pushRegistrar()?.forget(host.id).catch(() => undefined); return refresh(); })}
+        onRemove={(host) => Promise.resolve(context.activities?.clear(host.id)).then(() => book.remove(host.id)).then(() => { clearHostStorage(storage, host.id); void pushRegistrar()?.forget(host.id).catch(() => undefined); return refresh(); })}
         onAdd={() => setView({ name: "add" })}
         onDemo={() => {
           const demo = createDemoHost();

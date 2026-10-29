@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Monitor, Plus, QrCode, Trash2, Wifi, X } from "lucide-react";
 import { Switch } from "../../../src/renderer/settings/controls";
 import { useFocusReturn, useFocusTrap } from "../../../src/renderer/components/ui/focus";
+import { useEscapeLayer } from "../../../src/renderer/components/ui/escape-layers";
 import type { DiscoveredHost } from "../discovery";
 import { sortHosts, type SavedHost } from "../hosts";
 
@@ -73,6 +74,7 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteAc
   now?: number;
 }) {
   const [removing, setRemoving] = useState<SavedHost>();
+  const add = useRef<HTMLButtonElement>(null);
   const sorted = sortHosts(rows.map((row) => row.host)).map((host) => rows.find((row) => row.host.id === host.id)!);
   const saved = new Set(rows.map((row) => row.host.id));
   const unknownNearby = nearby.state === "searching" ? nearby.hosts.filter((host) => !saved.has(host.hostId)) : [];
@@ -112,8 +114,8 @@ export function HostsScreen({ rows, nearby, notice, onOpen, onRemove, onRemoteAc
         <p className="shell-hint">Explore sample threads with scripted replies. No machine or AI account needed. Demo messages disappear when you exit.</p>
       </section> : null}
     </div>
-    <button type="button" className="shell-fab" aria-label="Add machine" onClick={onAdd}><Plus size={28} /></button>
-    {removing ? <RemoveDialog host={removing} onKeep={() => setRemoving(undefined)} onRemove={() => { onRemove(removing); setRemoving(undefined); }} /> : null}
+    <button ref={add} type="button" className="shell-fab" aria-label="Add machine" onClick={onAdd}><Plus size={28} /></button>
+    {removing ? <RemoveDialog host={removing} onKeep={() => setRemoving(undefined)} onRemove={() => onRemove(removing)} onFocusFallback={() => add.current?.focus({ preventScroll: true })} /> : null}
   </main>;
 }
 
@@ -139,25 +141,44 @@ function NearbyList({ state, hosts, onAsk, onRetry }: { state: NearbyState; host
 }
 
 /** Names what goes and what stays: the machine keeps listing the phone until the owner unpairs it there. */
-function RemoveDialog({ host, onKeep, onRemove }: { host: SavedHost; onKeep(): void; onRemove(): void }) {
+function RemoveDialog({ host, onKeep, onRemove, onFocusFallback }: { host: SavedHost; onKeep(): void; onRemove(): void; onFocusFallback(): void }) {
   const surface = useRef<HTMLDivElement>(null);
-  useFocusReturn(true, surface);
+  useFocusReturn(true, surface, onFocusFallback);
   useFocusTrap(surface, true);
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onKeep(); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onKeep]);
-  return <div className="shell-scrim" onClick={(event) => { if (event.target === event.currentTarget) onKeep(); }}>
-    <div ref={surface} className="shell-dialog" role="alertdialog" aria-modal="true" aria-labelledby="remove-title" aria-describedby="remove-text" tabIndex={-1}>
+  const keep = useRef<HTMLButtonElement>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string>();
+  const inFlight = useRef(false);
+  const close = () => { if (!inFlight.current) onKeep(); };
+  useEscapeLayer(close);
+  useLayoutEffect(() => { keep.current?.focus({ preventScroll: true }); }, []);
+  const remove = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setPending(true);
+    setError(undefined);
+    keep.current?.focus({ preventScroll: true });
+    try {
+      await onRemove();
+      onKeep();
+    } catch {
+      setError("This machine could not be removed. Try again.");
+    } finally {
+      inFlight.current = false;
+      setPending(false);
+    }
+  };
+  return <div className="shell-scrim" onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
+    <div ref={surface} className="shell-dialog" role="alertdialog" aria-modal="true" aria-labelledby="remove-title" aria-describedby="remove-text" aria-busy={pending} tabIndex={-1}>
       <header>
         <h2 id="remove-title">Remove {host.name}?</h2>
-        <button type="button" className="shell-icon-button" aria-label="Close" onClick={onKeep}><X size={20} /></button>
+        <button type="button" className="shell-icon-button" aria-label="Close" aria-disabled={pending} onClick={close}><X size={20} /></button>
       </header>
       <p id="remove-text">This phone forgets {host.name} and its access. {host.name} still lists this phone until you unpair it there, in Settings → Connections.</p>
+      {error ? <p className="shell-notice" role="alert">{error}</p> : null}
       <div className="shell-actions">
-        <button type="button" className="shell-danger" onClick={onRemove}>Remove</button>
-        <button type="button" className="shell-secondary" onClick={onKeep}>Keep</button>
+        <button type="button" className="shell-danger" disabled={pending} onClick={() => void remove()}>{pending ? "Removing…" : "Remove"}</button>
+        <button ref={keep} type="button" className="shell-secondary" aria-disabled={pending} onClick={close}>Keep</button>
       </div>
     </div>
   </div>;

@@ -30,8 +30,20 @@ export interface ConfigLayersSnapshot {
   layers: ConfigLayers;
   loaded: boolean;
   error?: string;
+  /** At least one change to these levels is still being saved. */
+  pending?: boolean;
   /** A setting on screen that a project may override: only then is a project worth offering. */
   projectSettings: boolean;
+}
+
+interface PendingWrite {
+  editing: "host" | "project";
+  project?: SettingsProject;
+  machine?: SettingsMachine;
+  scopeVersion: number;
+  key: string;
+  change(level: TauConfig): TauConfig;
+  call(): Promise<unknown>;
 }
 
 type ConfigLayersClient = Pick<HostClient, "getConfigLayers" | "updateConfig" | "clearConfig" | "getEnvironmentConfig" | "updateEnvironmentConfig" | "clearEnvironmentConfig">;
@@ -47,6 +59,11 @@ export class ConfigLayersStore {
   private readonly listeners = new Set<() => void>();
   private generation = 0;
   private projectRows = 0;
+  private confirmed: ConfigLayers = { host: {} };
+  private readonly writes: PendingWrite[] = [];
+  private queue: Promise<void> = Promise.resolve();
+  private scopeVersion = 0;
+  private readonly failures = new Map<string, { write: PendingWrite; error: string }>();
 
   constructor(
     private readonly client: ConfigLayersClient | undefined,
@@ -78,17 +95,14 @@ export class ConfigLayersStore {
   /** The project the levels are read for; the host level stays the one edited. */
   setProject(project: SettingsProject | undefined): void {
     if (this.snapshot.project?.workspaceId === project?.workspaceId) return;
-    this.set({ project, editing: project ? this.snapshot.editing : "host" });
-    void this.refresh();
+    this.move({ project, editing: project ? this.snapshot.editing : "host" });
   }
 
   /** Edits the host level, or a project's; choosing a project also reads its level. */
   edit(editing: "host" | "project", project: SettingsProject | undefined = this.snapshot.project): void {
     const target = editing === "project" ? project : this.snapshot.project ?? project;
     if (editing === "project" && !target) return;
-    const moved = target?.workspaceId !== this.snapshot.project?.workspaceId || this.snapshot.machine !== undefined;
-    this.set({ editing, project: target, machine: undefined });
-    if (moved) void this.refresh();
+    this.move({ editing, project: target, machine: undefined });
   }
 
   /** Edits another machine's own settings; a project belongs to this machine, so none is read. */
@@ -98,11 +112,31 @@ export class ConfigLayersStore {
       if (current.name !== machine.name || current.blocked !== machine.blocked) this.set({ machine });
       return;
     }
-    this.set({ editing: "host", machine, loaded: false, layers: { host: {} } });
-    void this.refresh();
+    this.move({ editing: "host", machine });
+  }
+
+  /** A scope change drops its error; outstanding writes keep their original destination. */
+  private move(patch: Partial<ConfigLayersSnapshot>): void {
+    const before = this.snapshot;
+    const next = { ...before, ...patch };
+    const moved = before.machine?.id !== next.machine?.id || before.project?.workspaceId !== next.project?.workspaceId;
+    const changedScope = moved || before.editing !== next.editing;
+    if (changedScope) {
+      this.scopeVersion += 1;
+      this.generation += 1;
+      this.failures.clear();
+    }
+    if (moved) this.confirmed = { host: {} };
+    this.snapshot = next;
+    this.publish({ ...(changedScope ? { error: undefined } : {}), ...(moved ? { loaded: false } : {}) });
+    if (changedScope) void this.refresh();
   }
 
   async refresh(): Promise<void> {
+    await this.read();
+  }
+
+  private async read(): Promise<void> {
     if (!this.client) {
       this.set({ loaded: true, error: "Settings need a connection to the machine." });
       return;
@@ -110,24 +144,40 @@ export class ConfigLayersStore {
     const generation = ++this.generation;
     try {
       const layers = await this.target().getConfigLayers(this.snapshot.project?.workspaceId);
-      if (generation === this.generation) this.set({ layers, loaded: true, error: undefined });
+      if (generation === this.generation) {
+        this.confirmed = layers;
+        this.publish({ loaded: true, ...(this.failures.size ? {} : { error: undefined }) });
+      }
     } catch (error) {
-      if (generation === this.generation) this.set({ loaded: true, error: errorMessage(error) });
+      if (generation === this.generation) this.set({ loaded: true, ...(this.failures.size ? {} : { error: errorMessage(error) }) });
     }
   }
 
-  async write(key: string, value: unknown): Promise<void> {
-    const { editing, project } = this.snapshot;
-    this.applyLocally(editing, (level) => withSetting(level, key, value));
-    await this.send(() => this.target().updateConfig(withSetting({}, key, value) as Partial<TauConfig>, editing === "project" ? "project" : "global", project?.workspaceId));
+  write(key: string, value: unknown): Promise<void> {
+    const { editing, project, machine } = this.snapshot;
+    const target = this.target();
+    return this.enqueue({ editing, project, machine, key, scopeVersion: this.scopeVersion,
+      change: (level) => withSetting(level, key, value),
+      call: () => target.updateConfig(withSetting({}, key, value) as Partial<TauConfig>, editing === "project" ? "project" : "global", project?.workspaceId),
+    });
   }
 
   /** Removes the key from the level being edited, so the one below shows through. */
-  async clear(key: string): Promise<void> {
-    const { editing, project } = this.snapshot;
-    this.applyLocally(editing, (level) => withoutSetting(level, key));
-    await this.send(() => this.target().clearConfig([key], editing === "project" ? "project" : "global", project?.workspaceId));
+  clear(key: string): Promise<void> {
+    const { editing, project, machine } = this.snapshot;
+    const target = this.target();
+    return this.enqueue({ editing, project, machine, key, scopeVersion: this.scopeVersion,
+      change: (level) => withoutSetting(level, key),
+      call: () => target.clearConfig([key], editing === "project" ? "project" : "global", project?.workspaceId),
+    });
   }
+
+  /** Retries the refused change, or reads the levels again after a failed read. */
+  retry = async (): Promise<void> => {
+    const failures = [...this.failures.values()];
+    if (failures.length) await Promise.all(failures.map(({ write }) => this.enqueue({ ...write, scopeVersion: this.scopeVersion })));
+    else await this.refresh();
+  };
 
   /** The host being edited: this one, or another machine's own levels through it. */
   private target(): Pick<ConfigLayersClient, "getConfigLayers" | "updateConfig" | "clearConfig"> {
@@ -141,29 +191,54 @@ export class ConfigLayersStore {
     };
   }
 
-  private async send(call: () => Promise<unknown>): Promise<void> {
-    if (!this.client) return;
+  private enqueue(write: PendingWrite): Promise<void> {
+    if (!this.client) return Promise.resolve();
+    this.failures.delete(write.key);
+    this.generation += 1;
+    this.writes.push(write);
+    this.publish({ error: [...this.failures.values()].at(-1)?.error });
+    // Keep acknowledgements in the same order as the person's edits, including resets.
+    const result = this.queue.then(() => this.send(write));
+    this.queue = result;
+    return result;
+  }
+
+  private matches(write: PendingWrite): boolean {
+    return write.machine?.id === this.snapshot.machine?.id
+      && (write.editing === "host" || write.project?.workspaceId === this.snapshot.project?.workspaceId);
+  }
+
+  private apply(layers: ConfigLayers, write: PendingWrite): ConfigLayers {
+    return write.editing === "project"
+      ? { ...layers, project: write.change(layers.project ?? {}) }
+      : { ...layers, host: write.change(layers.host) };
+  }
+
+  private async send(write: PendingWrite): Promise<void> {
     let failure: string | undefined;
     try {
-      await call();
+      await write.call();
+      if (this.matches(write)) this.confirmed = this.apply(this.confirmed, write);
       this.onWritten();
     } catch (error) {
       failure = errorMessage(error);
     }
-    // The read puts back what the host really holds, a refused change included.
-    await this.refresh();
-    if (failure) this.set({ error: failure });
+    const current = write.scopeVersion === this.scopeVersion;
+    if (this.matches(write) && (!failure || current)) this.generation += 1;
+    this.writes.splice(this.writes.indexOf(write), 1);
+    if (failure && current
+      && !this.writes.some((next) => next.scopeVersion === write.scopeVersion && next.key === write.key)) {
+      this.failures.set(write.key, { write, error: failure });
+    }
+    // Roll back and report the refusal before a read that may fail or take time.
+    this.publish(this.failures.size ? { error: [...this.failures.values()].at(-1)?.error } : {});
+    if (!this.matches(write) || (!current && failure)) return;
+    await this.read();
   }
 
-  private applyLocally(editing: "host" | "project", change: (level: TauConfig) => TauConfig): void {
-    // A read already on its way predates this change.
-    this.generation += 1;
-    const layers = this.snapshot.layers;
-    this.set({
-      layers: editing === "project"
-        ? { ...layers, project: change(layers.project ?? {}) }
-        : { ...layers, host: change(layers.host) },
-    });
+  private publish(patch: Partial<ConfigLayersSnapshot> = {}): void {
+    const pending = this.writes.filter((write) => this.matches(write));
+    this.set({ layers: pending.reduce((layers, write) => this.apply(layers, write), this.confirmed), pending: pending.length > 0, ...patch });
   }
 
   private set(patch: Partial<ConfigLayersSnapshot>): void {
