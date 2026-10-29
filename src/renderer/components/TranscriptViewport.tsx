@@ -3,8 +3,7 @@ import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptActivity } from "./transcript-activity";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
 import type { TranscriptTurn } from "../extension-system";
-import { TranscriptTurnNavigation } from "./TranscriptTurnNavigation";
-import { TranscriptSearch } from "../deferred-surfaces";
+import { TranscriptSearch, TranscriptTurnNavigation } from "../deferred-surfaces";
 import {
   clientIdentityKey,
   resolveTurnMessage,

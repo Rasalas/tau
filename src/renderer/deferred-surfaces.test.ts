@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -57,6 +59,44 @@ describe("deferred surfaces", () => {
     const controls = join(SRC, "renderer/host-version-update-controls.tsx");
     expect(existsSync(controls)).toBe(true);
     expect(startupGraph().has(controls)).toBe(false);
+  });
+
+  it("keeps optional transcript controls out of the first paint", () => {
+    const graph = startupGraph();
+    for (const name of ["Message", "UserMessage", "TranscriptViewport", "VirtualTranscript"]) {
+      expect(graph.has(join(SRC, `renderer/components/${name}.tsx`))).toBe(true);
+    }
+    for (const name of ["MessageActions", "TranscriptTurnNavigation"]) {
+      const module = join(SRC, `renderer/components/${name}.tsx`);
+      expect(existsSync(module)).toBe(true);
+      expect(graph.get(module)?.map((path) => relative(SRC, path))).toBeUndefined();
+    }
+    expect(graph.has(join(SRC, "renderer/components/transcript-turn-navigation-layout.ts"))).toBe(false);
+  });
+
+  it("tree shakes unrequested Markdown exports through Vite's preload wrapper", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tau-deferred-exports-"));
+    try {
+      const source = readFileSync(join(SRC, "renderer/components/LazyMarkdown.tsx"), "utf8");
+      const loader = source.match(/const loadMarkdown = deferredModule\((.+)\);/u)?.[1];
+      expect(loader).toBeTruthy();
+      await writeFile(join(root, "Markdown.js"), 'export const Markdown = "Markdown"; export const unused = "unused-markdown-export";');
+      await writeFile(join(root, "main.js"), `globalThis.loadMarkdown = ${loader};`);
+      const { build } = await import("vite");
+      const built = await build({
+        configFile: false,
+        root,
+        logLevel: "silent",
+        build: { write: false, minify: false, rollupOptions: { input: join(root, "main.js") } },
+      });
+      const outputs = Array.isArray(built) ? built : [built];
+      const code = outputs.flatMap((output) => "output" in output ? output.output : [])
+        .filter((chunk) => chunk.type === "chunk").map((chunk) => chunk.code).join("\n");
+      expect(code).toContain("Markdown");
+      expect(code).not.toContain("unused-markdown-export");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("leave the kit API to the kits", () => {

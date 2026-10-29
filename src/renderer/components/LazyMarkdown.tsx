@@ -2,7 +2,8 @@ import { Suspense, useRef, type ComponentProps, type ReactNode } from "react";
 import { deferredModule } from "./deferred";
 import { LazyFeatureBoundary, LazyFeatureFallback, retryableLazy } from "./LazyFeature";
 
-const loadMarkdown = deferredModule(() => import("./Markdown").then((module) => module.Markdown));
+// Let Vite tree-shake the cache inspection exports through its preload wrapper.
+const loadMarkdown = deferredModule(() => import("./Markdown").then(({ Markdown }) => Markdown));
 export function isMarkdownReady(): boolean { return loadMarkdown.current !== undefined; }
 /** The initial transcript loads its parser alongside extensions, before mounting rows. */
 export const preloadMarkdown = loadMarkdown;

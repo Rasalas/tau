@@ -6,7 +6,7 @@ import { OpenFileContext, RetryMessageContext, WorkbenchShellContext } from "../
 import { LazyFeatureBoundary } from "./LazyFeature";
 import { drawsBlocksFor, splitMessageBlocks } from "./message-blocks";
 import { Markdown } from "./LazyMarkdown";
-import { MessageActions } from "./MessageActions";
+import { MessageActions } from "../deferred-surfaces";
 import { MessageImages, PersistedMessageImages } from "./MessageImages";
 import { copyableMessage, embeddedFileContexts, localImagePaths, visibleUserMessageText } from "./MessageText";
 import { isLongMessage } from "./message-grapheme";

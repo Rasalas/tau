@@ -5,17 +5,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiMessage } from "../../shared/contracts";
 import {
   buildTranscriptTurnNavigation,
-  MAX_TRANSCRIPT_TURN_NAVIGATION_MARKERS,
   MIN_TRANSCRIPT_TURN_NAVIGATION_TURNS,
   normalizePromptPreview,
   shouldShowTranscriptTurnNavigation,
+  truncatePromptPreview,
+} from "./transcript-turn-navigation";
+import { visibleTranscriptTurnId } from "./TranscriptViewport";
+import {
+  MAX_TRANSCRIPT_TURN_NAVIGATION_MARKERS,
   transcriptTurnNavigationHeight,
   transcriptTurnNavigationIndexFromPointer,
   transcriptTurnNavigationMarkerIndexes,
   transcriptTurnNavigationTopPercent,
-  truncatePromptPreview,
-} from "./transcript-turn-navigation";
-import { visibleTranscriptTurnId } from "./TranscriptViewport";
+} from "./transcript-turn-navigation-layout";
 import { TranscriptTurnNavigation } from "./TranscriptTurnNavigation";
 
 vi.mock("./VirtualTranscript", () => ({

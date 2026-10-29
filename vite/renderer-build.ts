@@ -32,6 +32,8 @@ export const COMMON_MODULES = [
   "renderer/cost-sections.ts",
   "renderer/components/FileSource.tsx",
   "renderer/components/TranscriptSearch.tsx",
+  "renderer/components/MessageActions.tsx",
+  "renderer/components/TranscriptTurnNavigation.tsx",
   "renderer/pairing/PairingRequestWatcher.tsx",
   "renderer/components/ExtensionPrompt.tsx",
   "renderer/settings/palette-menus.tsx",
@@ -117,7 +119,7 @@ export const rendererBuild = {
       }
       if (lazySurfaces.get(meta.getModuleInfo)!.has(id)) return "common";
       // Parser packages serve only the deferred Markdown surfaces.
-      if (/\/node_modules\/(?:micromark(?:-[^/]+)?|mdast-util-[^/]+|unist-util-[^/]+)\//u.test(id)) return "common";
+      if (/\/node_modules\/(?:micromark(?:-[^/]+)?|mdast-util-[^/]+|unist-util-[^/]+|decode-named-character-reference|ccount|devlop)\//u.test(id)) return "common";
       // Controls and row layout already import each other. Keep the shared
       // Settings primitives together, without pulling in any Settings page.
       // The nearby-host list has no stylesheet and already imports these primitives.

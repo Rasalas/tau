@@ -10,6 +10,9 @@ import { deferred, deferredModule, preloadDeferredWhenIdle } from "./components/
 
 export const Menu = deferred(() => import("./components/Menu").then((module) => module.Menu));
 export const TranscriptSearch = deferred(() => import("./components/TranscriptSearch").then((module) => module.TranscriptSearch));
+// Optional transcript controls load beside the rows, without suspending their content or history.
+export const MessageActions = deferred(() => import("./components/MessageActions").then((module) => module.MessageActions));
+export const TranscriptTurnNavigation = deferred(() => import("./components/TranscriptTurnNavigation").then((module) => module.TranscriptTurnNavigation));
 export const QueueShelf = deferred(
   () => import("./components/QueueShelf").then((module) => module.QueueShelf),
   ({ queue }) => queue.length > 0,
