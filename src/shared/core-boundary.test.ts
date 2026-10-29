@@ -58,6 +58,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./event-loop-stalls.js", // Bounded host scheduling diagnostics, independent of runtime kits.
   "./host-preparation-queue.js", // Shared host admission for optional background preparation.
   "./persisted-transcript-reader-session.js", // SDK parsing isolated from live runtime initialization.
+  "./branch-records.js", // Journal message and compaction records shared by live and persisted transcripts.
+  "./indexed-transcript.js", // Shared turn/history index for bounded transcript page projection.
   "./linux-startup.js", // Chromium workarounds applied before asynchronous desktop startup.
   "./desktop-links.js",
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
