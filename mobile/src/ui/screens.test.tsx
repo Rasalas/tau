@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { useState } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryStorage } from "../../../src/workbench/client-storage";
 import { webClientEnvironment } from "../../../src/web/WebWorkbench";
 import type { NativeService } from "../discovery";
@@ -65,7 +66,7 @@ describe("HostsScreen", () => {
     expect(hostMeta({ host: host(), signedOut: true, nearby: false }, NOW)).toMatch(/Access ended/u);
   });
 
-  it("removes a host only after saying what stays on the host", () => {
+  it("removes a host only after saying what stays on the host", async () => {
     const removed: string[] = [];
     render(<HostsScreen rows={[{ host: host(), signedOut: false, nearby: false }]} nearby={{ state: "denied" }} onOpen={() => {}} onRemove={(entry) => removed.push(entry.id)} onAdd={() => {}} onScan={() => {}} onAsk={() => {}} now={NOW} />);
     expect(screen.getByText(/may not look for machines/u)).toBeTruthy();
@@ -77,6 +78,59 @@ describe("HostsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove Studio Mac" }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
     expect(removed).toEqual(["h-1"]);
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
+  it("focuses Keep, traps Tab, and returns focus after Escape", () => {
+    render(<HostsScreen rows={[{ host: host(), signedOut: false, nearby: false }]} nearby={{ state: "denied" }} onOpen={() => {}} onRemove={() => {}} onAdd={() => {}} onScan={() => {}} onAsk={() => {}} />);
+    const trigger = screen.getByRole("button", { name: "Remove Studio Mac" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("alertdialog");
+    const keep = within(dialog).getByRole("button", { name: "Keep" });
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    expect(document.activeElement).toBe(keep);
+    fireEvent.keyDown(keep, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(keep);
+    fireEvent.keyDown(keep, { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps a failed removal open for retry and prevents duplicate removal", async () => {
+    let fail!: (error: Error) => void;
+    const remove = vi.fn().mockImplementationOnce(() => new Promise<void>((_, reject) => { fail = reject; })).mockResolvedValue(undefined);
+    render(<HostsScreen rows={[{ host: host(), signedOut: false, nearby: false }]} nearby={{ state: "denied" }} onOpen={() => {}} onRemove={remove} onAdd={() => {}} onScan={() => {}} onAsk={() => {}} />);
+    const trigger = screen.getByRole("button", { name: "Remove Studio Mac" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Removing…" }));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alertdialog").getAttribute("aria-busy")).toBe("true");
+    await act(async () => fail(new Error("secure storage unavailable")));
+    expect(screen.getByRole("alert").textContent).toContain("could not be removed");
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("focuses Add machine after removal takes away the triggering row", async () => {
+    function Harness() {
+      const [rows, setRows] = useState([{ host: host(), signedOut: false, nearby: false }]);
+      return <HostsScreen rows={rows} nearby={{ state: "denied" }} onOpen={() => {}} onRemove={() => setRows([])} onAdd={() => {}} onScan={() => {}} onAsk={() => {}} />;
+    }
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Remove Studio Mac" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add machine" }));
   });
 
   it("offers remote starts only as an unchecked phone control, and can disable after system denial", () => {
@@ -167,6 +221,22 @@ function context(extra: Partial<AppContext> = {}): AppContext {
 }
 
 describe("Shell", () => {
+  it("shows a failed secure-store removal in the dialog and retries it", async () => {
+    const ctx = context();
+    await ctx.book.save(host(), "test-key");
+    const remove = vi.spyOn(ctx.book, "remove").mockRejectedValueOnce(new Error("secure store unavailable"));
+    render(<Shell context={ctx} initial={{ view: "hosts", explicit: true }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Studio Mac" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("could not be removed");
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(await ctx.book.list()).toEqual([]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add machine" }));
+  });
+
   it("keeps a pasted link and says why when the host does not answer", async () => {
     render(<Shell context={context()} initial={{ view: "add" }} />);
     const link = `https://192.168.1.2:7788/#pair=abc&fp=${FP}&host=h-1&name=Studio`;

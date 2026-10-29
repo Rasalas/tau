@@ -48,10 +48,10 @@ describe("Settings → Runtimes → Models", () => {
     const list = await screen.findByRole("list", { name: "Codex models" });
     await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(3));
     fireEvent.click(screen.getByRole("switch", { name: "Show o4-mini in the model picker" }));
-    expect(updateConfig).toHaveBeenLastCalledWith({ modelPreferences: { codex: { hidden: ["openai/o4-mini"] } } }, "global", undefined);
+    await waitFor(() => expect(updateConfig).toHaveBeenLastCalledWith({ modelPreferences: { codex: { hidden: ["openai/o4-mini"] } } }, "global", undefined));
     await waitFor(() => expect(screen.getByText("Hidden from the picker")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Move GPT-5.6 Sol up" }));
-    expect(updateConfig).toHaveBeenLastCalledWith({ modelPreferences: { codex: { hidden: ["openai/o4-mini"], order: ["openai/gpt-5.6-sol", "openai/gpt-5.6-luna", "openai/o4-mini"] } } }, "global", undefined);
+    await waitFor(() => expect(updateConfig).toHaveBeenLastCalledWith({ modelPreferences: { codex: { hidden: ["openai/o4-mini"], order: ["openai/gpt-5.6-sol", "openai/gpt-5.6-luna", "openai/o4-mini"] } } }, "global", undefined));
     fireEvent.click(screen.getByRole("button", { name: "Favourite GPT-5.6 Luna" }));
     expect(preferences.getSnapshot().favouriteModels).toEqual(["codex:openai/gpt-5.6-luna"]);
   });
@@ -71,7 +71,7 @@ describe("Settings → Runtimes → Models", () => {
     fireEvent.change(field, { target: { value: "  Quick  " } });
     fireEvent.keyDown(field, { key: "Enter" });
     await waitFor(() => expect((field as HTMLInputElement).value).toBe("Quick"));
-    expect(host.modelPreferences?.codex?.names).toEqual({ "openai/gpt-5.6-luna": "Quick" });
+    await waitFor(() => expect(host.modelPreferences?.codex?.names).toEqual({ "openai/gpt-5.6-luna": "Quick" }));
     fireEvent.click(screen.getByRole("switch", { name: "Show o4-mini in the model picker" }));
     await waitFor(() => expect(host.modelPreferences?.codex?.hidden).toEqual(["openai/o4-mini"]));
     expect(host.modelPreferences?.codex?.names).toEqual({ "openai/gpt-5.6-luna": "Quick" });

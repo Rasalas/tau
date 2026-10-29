@@ -75,6 +75,50 @@ function renderScreen(options: { page?: string; client?: ReturnType<typeof hostW
 }
 
 describe("the Settings screen", () => {
+  it.each(["host", "project"])("shows a failed %s write and lets the user retry", async (scope) => {
+    const { client, files } = hostWithFiles();
+    client.updateConfig = vi.fn(client.updateConfig).mockRejectedValueOnce(new Error("disk full"));
+    renderScreen({ client });
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Project rule" }).getAttribute("aria-checked")).toBe("false"));
+    if (scope === "project") {
+      fireEvent.click(screen.getByRole("button", { name: /Settings apply to this machine/u }));
+      fireEvent.click(screen.getByRole("menuitemradio", { name: /app/u }));
+    }
+    fireEvent.click(screen.getByRole("switch", { name: "Project rule" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("disk full");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(files[scope === "project" ? "project" : "host"]).toEqual({ options: { "fixture.rule": true } }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByRole("switch", { name: "Project rule" }).getAttribute("aria-checked")).toBe("true");
+    expect(client.updateConfig).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a remote write failure with retry and clears it on choosing this machine", async () => {
+    const { client } = hostWithFiles();
+    const update = vi.fn().mockRejectedValue(new Error("rex disk full"));
+    const reaching = createFakeHostClient({
+      ...Object.fromEntries(Object.entries(client).filter(([, value]) => typeof value === "function")),
+      listEnvironments: async () => ({ shown: "mac", secureStorage: true, environments: [
+        { id: "rex", name: "rex", local: false, status: "connected", threads: [], threadCount: 0, projects: [] },
+      ] }),
+      getEnvironmentConfig: async () => ({ host: { extensions: { watch: false } } }),
+      updateEnvironmentConfig: update,
+    });
+    renderScreen({ client: reaching as ReturnType<typeof hostWithFiles>["client"] });
+    fireEvent.click(screen.getByRole("button", { name: /Settings apply to this machine/u }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "rex" }));
+    const watch = screen.getByRole("switch", { name: "Reload files when they change" });
+    await waitFor(() => expect(watch.getAttribute("aria-checked")).toBe("false"));
+    fireEvent.click(watch);
+    expect((await screen.findByRole("alert")).textContent).toContain("rex disk full");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: /Settings apply to rex/u }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /This machine/u }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("takes the whole window: a section column, the page under its head, and a way back to the thread", () => {
     const { page, onClose } = renderScreen();
     expect(page.getAttribute("aria-modal")).toBe("true");
