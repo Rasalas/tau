@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, RotateCw, Search, X } from "lucide-react";
+import type { TranscriptFindResult } from "../extension-system";
 import type { UiMessage } from "../../shared/contracts";
 
 export interface TranscriptSearchProps {
   /** The turns a client has loaded; the find starts here and stays here without `find`. */
   messages: readonly UiMessage[];
   /** The same query over the whole thread: its message ids, oldest first. */
-  find?: (query: string) => Promise<readonly string[]>;
+  find?: (query: string) => Promise<TranscriptFindResult>;
   /** Brings a message into view, loading older turns for it first; false when it is not there. */
   onJump(messageId: string): Promise<boolean> | void;
   /** The query and the message the find stands on, for marking the words in the text. */
@@ -19,7 +20,7 @@ export interface TranscriptSearchProps {
 /** Typing pauses this long before the whole thread is asked. */
 export const FIND_DEBOUNCE_MS = 200;
 
-type Remote = { query: string; ids: readonly string[] } | "failed";
+type Remote = { query: string; ids?: readonly string[]; truncated?: boolean; failed?: boolean };
 
 /** A streamed delta replaces one message; every other one keeps its lowercased text. */
 const loweredText = new WeakMap<UiMessage, string>();
@@ -36,6 +37,7 @@ function lowered(message: UiMessage): string {
 export function TranscriptSearch({ messages, find, onJump, onActive, onClose, focusToken }: TranscriptSearchProps) {
   const [query, setQuery] = useState("");
   const [remote, setRemote] = useState<Remote>();
+  const [attempt, setAttempt] = useState(0);
   const [activeId, setActiveId] = useState<string>();
   const [jumping, setJumping] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,23 +51,31 @@ export function TranscriptSearch({ messages, find, onJump, onActive, onClose, fo
   }, [messages, needle]);
 
   // Newest first: the reader is at the end and walks back through the thread.
-  const whole = remote && remote !== "failed" && remote.query === needle ? remote.ids : undefined;
+  const current = remote?.query === needle ? remote : undefined;
+  const whole = current?.ids;
+  const failed = current?.failed === true;
+  const partial = failed || current?.truncated === true;
   const matches = useMemo(() => [...(whole ?? loaded)].reverse(), [loaded, whole]);
-  const searching = Boolean(find && needle && !whole && remote !== "failed");
+  const searching = Boolean(find && needle && !whole && !failed);
   const matchesRef = useRef(matches);
   matchesRef.current = matches;
 
   useEffect(() => {
     if (!find || !needle) { setRemote(undefined); return; }
-    let current = true;
+    let active = true;
+    setRemote(undefined);
     const timer = setTimeout(() => {
       find(needle).then(
-        (ids) => { if (current) setRemote({ query: needle, ids }); },
-        () => { if (current) setRemote("failed"); },
+        (answer) => {
+          if (!active) return;
+          const result = "messageIds" in answer ? answer : { messageIds: answer, truncated: false };
+          setRemote({ query: needle, ids: result.messageIds, truncated: result.truncated });
+        },
+        () => { if (active) setRemote({ query: needle, failed: true }); },
       );
     }, FIND_DEBOUNCE_MS);
-    return () => { current = false; clearTimeout(timer); };
-  }, [find, needle]);
+    return () => { active = false; clearTimeout(timer); };
+  }, [find, needle, attempt]);
 
   const goTo = (id: string | undefined) => {
     setActiveId(id);
@@ -102,8 +112,10 @@ export function TranscriptSearch({ messages, find, onJump, onActive, onClose, fo
 
   let count = "";
   if (needle) {
-    if (matches.length > 0) count = jumping ? "Loading…" : `${Math.max(position, 0) + 1} of ${matches.length}${searching ? "+" : ""}`;
-    else count = searching ? "Searching…" : "0 matches";
+    if (matches.length > 0) count = jumping ? "Loading…" : `${Math.max(position, 0) + 1} of ${matches.length}${searching || partial ? "+" : ""}`;
+    else count = searching ? "Searching…" : partial ? "" : "0 matches";
+    if (failed) count += `${count ? " · " : ""}Search failed; loaded messages only`;
+    else if (partial) count += `${count ? " · " : ""}Partial search`;
   }
 
   return (
@@ -126,6 +138,7 @@ export function TranscriptSearch({ messages, find, onJump, onActive, onClose, fo
         }}
       />
       <span className="search-count" aria-live="polite">{count}</span>
+      {failed ? <button type="button" aria-label="Retry search" title="Retry search" onClick={() => { setRemote(undefined); setAttempt((value) => value + 1); }}><RotateCw size={14} /></button> : null}
       <button
         type="button"
         title="Older match (Enter)"

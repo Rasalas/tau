@@ -1460,6 +1460,9 @@ export interface MessageBlockContribution extends ProfileScoped {
   Component: ComponentType<MessageBlockProps>;
 }
 
+/** Older finders may still return only ids; structured results preserve a bounded search's completeness. */
+export type TranscriptFindResult = readonly string[] | { messageIds: readonly string[]; truncated: boolean };
+
 /**
  * Answers the transcript's find (⌘F) for the whole thread, not just the turns
  * a client has loaded. The last one registered wins; without one the find
@@ -1468,7 +1471,7 @@ export interface MessageBlockContribution extends ProfileScoped {
 export interface TranscriptFinderContribution extends ProfileScoped {
   id: string;
   /** The ids of the thread's messages that hold `query`, oldest first, over its whole history. */
-  find(request: { sessionId: string; query: string }): Promise<readonly string[]>;
+  find(request: { sessionId: string; query: string }): Promise<TranscriptFindResult>;
 }
 
 /**

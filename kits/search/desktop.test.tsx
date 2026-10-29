@@ -129,7 +129,7 @@ describe("Search Kit: palette sources", () => {
     const invoke = vi.fn(async () => ({ messageIds: ["u1", "a7"], truncated: false }));
     const { registry } = createKitHarness(invoke);
     registry.activate(createSearchExtension());
-    expect(await registry.getTranscriptFinder()!.find({ sessionId: "t1", query: "quartz" })).toEqual(["u1", "a7"]);
+    expect(await registry.getTranscriptFinder()!.find({ sessionId: "t1", query: "quartz" })).toEqual({ messageIds: ["u1", "a7"], truncated: false });
     expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "find-in-thread", { sessionId: "t1", query: "quartz" });
   });
 
@@ -165,7 +165,7 @@ describe("Search Kit: palette sources", () => {
     expect(await source.search("mo", searchContext())).toEqual([]);
     const found = await source.search("moon", searchContext());
     expect(found.map((item) => item.label)).toEqual(["Luna test"]);
-    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "threads", { query: "moon", limit: 12, activeSessionId: "b" });
+    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "threads", { query: "moon", limit: 12, includeStatus: true, channel: expect.any(String), activeSessionId: "b" });
     const aborted = new AbortController();
     aborted.abort();
     expect(await source.search("moon", { ...searchContext(), signal: aborted.signal })).toEqual([]);
@@ -301,4 +301,28 @@ describe("Search Kit: dialogs", () => {
     expect(service?.pickFile).toBeTypeOf("function");
     expect(registry.getRegions("title-bar").find((region) => region.id === "search.dialogs")?.profiles).toContain("compact");
   });
+});
+
+it("preserves transcript truncation and displays partial palette results even without a match", async () => {
+  const invoke = vi.fn(async (_id: string, command: string) => command === "find-in-thread" ? { messageIds: ["a"], truncated: true } : { matches: [], truncated: true });
+  const { registry } = createKitHarness(invoke);
+  registry.activate(createSearchExtension({ threadContentDelayMs: 0 }));
+  expect(await registry.getTranscriptFinder()!.find({ sessionId: "t", query: "x" })).toEqual({ messageIds: ["a"], truncated: true });
+  const source = registry.getPaletteSources().find((entry) => entry.id === "search.thread-content")!;
+  expect(await source.search("missing", searchContext())).toEqual([expect.objectContaining({ label: "Partial thread search" })]);
+});
+
+it("cancels an in-flight palette query when its signal aborts", async () => {
+  let finish!: (value: unknown) => void;
+  const invoke = vi.fn((_id: string, _command: string, input: unknown) => (input as { query: string }).query ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve([]));
+  const { registry } = createKitHarness(invoke);
+  registry.activate(createSearchExtension({ threadContentDelayMs: 0 }));
+  const source = registry.getPaletteSources().find((entry) => entry.id === "search.thread-content")!;
+  const controller = new AbortController();
+  const pending = source.search("needle", { ...searchContext(), signal: controller.signal });
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
+  controller.abort();
+  expect(invoke).toHaveBeenLastCalledWith(SEARCH_KIT_ID, "threads", { query: "", channel: expect.any(String) });
+  finish({ matches: [], truncated: false });
+  expect(await pending).toEqual([]);
 });

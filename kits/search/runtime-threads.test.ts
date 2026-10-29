@@ -43,9 +43,11 @@ describe("the index of other runtimes' threads", () => {
     const { index, advance } = setup({ "tau.codex": store }, { limit: 2, rounds: 2 });
     await index.sync();
     expect(ids(index)).toEqual(["t6", "t5", "t4", "t3"]);
+    expect(index.truncated).toBe(true);
     advance(5_000);
     await index.sync();
     expect(ids(index)).toHaveLength(7);
+    expect(index.truncated).toBe(false);
   });
 
   it("skips a kit that is off or cannot answer, and keeps the others", async () => {
@@ -60,6 +62,7 @@ describe("the index of other runtimes' threads", () => {
     await index.sync();
     expect(ids(index)).toEqual(["new", "mid"]);
     expect(index.size).toBe(120);
+    expect(index.truncated).toBe(true);
     advance(5_000);
     await index.sync();
     expect(ask).toHaveBeenLastCalledWith("tau.codex", { known: { old: 1, mid: 2, new: 3 }, limit: 25 });
