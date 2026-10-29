@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { testPersistedTranscriptWorker } from "./test-support/persisted-transcript-worker.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hostCursorAtLocalIndex } from "./transcript-cursor.js";
+import { IndexedTranscript } from "./indexed-transcript.js";
 import { PersistedTranscriptReader } from "./persisted-transcript-reader.js";
 import { PERSISTED_TRANSCRIPT_CHANGED, PersistedThreadTranscript, type PersistedTranscriptOptions } from "./persisted-transcript.js";
 import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
@@ -34,6 +35,42 @@ function session(turns: number): string {
 }
 
 describe("persisted transcript worker", () => {
+  it("shares the existing cache slots and byte limit between live and persisted transcripts", async () => {
+    const reader = new PersistedTranscriptReader(workerFixture.url, 16 * 1024);
+    const live = {};
+    let builds = 0;
+    const build = () => {
+      builds++;
+      return new IndexedTranscript("live", [{ id: "u", role: "user", text: "Ask", timestamp: 1 }]);
+    };
+    const path = join(directory, "live-budget.jsonl");
+    await writeFile(path, session(1));
+    try {
+      reader.livePage(live, "leaf", build);
+      await reader.page({ sessionId: "thread", cwd: "/repo", path }, options);
+      reader.livePage(live, "leaf", build);
+      expect(builds).toBe(1);
+      expect(reader.diagnostics.sessions).toBe(2);
+      expect(reader.diagnostics.cacheBytes).toBeLessThanOrEqual(16 * 1024);
+      // Both kinds compete for the same four slots, rather than another store.
+      for (let i = 0; i < 4; i++) reader.livePage({}, "leaf", build);
+      expect(reader.diagnostics.sessions).toBe(4);
+      expect(reader.diagnostics.cacheBytes).toBeLessThanOrEqual(16 * 1024);
+      reader.livePage(live, "leaf", build);
+      expect(builds).toBe(6);
+      const oversized = {};
+      const large = () => {
+        builds++;
+        return new IndexedTranscript("large", [{ id: "u", role: "user", text: "x".repeat(32 * 1024), timestamp: 1 }]);
+      };
+      reader.livePage(oversized, "leaf", large);
+      reader.livePage(oversized, "leaf", large);
+      expect(builds).toBe(8);
+      expect(reader.diagnostics.cacheBytes).toBeLessThanOrEqual(16 * 1024);
+      expect(reader.workerStarts).toBe(0);
+    } finally { await reader.dispose(); }
+  });
+
   it("ships a worker that does not initialize the runtime SDK barrel", async () => {
     const source = await readFile(workerFixture.url, "utf8");
     expect(/from\s+["']@earendil-works\/pi-coding-agent["']/u.test(source)).toBe(false);
