@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import * as fs from "node:fs/promises";
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,6 +9,10 @@ import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js
 import createSearchHostExtension from "./host.js";
 import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadFindResult, type ThreadMatch, type ThreadRequestMatch } from "./protocol.js";
 
+vi.mock("node:fs/promises", async (original) => {
+  const originalFs = await original<typeof import("node:fs/promises")>();
+  return { ...originalFs, stat: vi.fn(originalFs.stat) };
+});
 const roots: string[] = [];
 vi.mock("node:os", async (original) => {
   const os = await original<typeof import("node:os")>();
@@ -176,11 +181,11 @@ describe("Search host: find in a thread", () => {
     expect(asked).toEqual(["t1", "t1"]);
   });
 
-  it("finds nothing in a thread its runtime has not open", async () => {
+  it("propagates transcript failures instead of claiming zero matches", async () => {
     const { invoke } = await harness(await folder({}), undefined, {
       transcript: async () => { throw new Error("no such thread"); },
     } as Partial<HostExtensionServices>);
-    expect(await invoke<ThreadFindResult>("find-in-thread", { sessionId: "gone", query: "quartz" })).toEqual({ messageIds: [], truncated: false });
+    await expect(invoke<ThreadFindResult>("find-in-thread", { sessionId: "gone", query: "quartz" })).rejects.toThrow("no such thread");
   });
 });
 
@@ -261,4 +266,65 @@ describe("Search host: threads", () => {
     expect(await registry.invoke(SEARCH_KIT_ID, "thread-requests", { query: "  " })).toEqual([]);
     expect(asked).toHaveLength(1);
   });
+});
+
+it("shares bounded session metadata work across concurrent queries and invalidates it", async () => {
+  const root = await folder({ "one.jsonl": JSON.stringify({ type: "message", message: { role: "user", content: "needle" } }) });
+  const list = vi.fn(async () => Array.from({ length: 40 }, (_, i) => ({ sessionId: String(i), cwd: root, path: join(root, `${i}.jsonl`) })));
+  const realStat = (await vi.importActual<typeof fs>("node:fs/promises")).stat;
+  let active = 0;
+  let peak = 0;
+  const stats = vi.spyOn(fs, "stat").mockImplementation(async () => {
+    active += 1; peak = Math.max(peak, active);
+    try { await new Promise((resolve) => setTimeout(resolve, 1)); return await realStat(join(root, "one.jsonl")); }
+    finally { active -= 1; }
+  });
+  stats.mockClear();
+  try {
+    const { invoke } = await harness(root, undefined, { sessions: { list } as never });
+    await Promise.all([invoke("threads", { query: "needle" }), invoke("threads", { query: "other" })]);
+    expect(peak).toBeLessThanOrEqual(8);
+    expect(stats).toHaveBeenCalledTimes(40);
+    await invoke("threads", { query: "third" });
+    expect(stats).toHaveBeenCalledTimes(40);
+    await invoke("invalidate", {});
+    await invoke("threads", { query: "fourth" });
+    expect(stats).toHaveBeenCalledTimes(80);
+  } finally { stats.mockRestore(); }
+});
+
+it("reports a bounded session search as partial, while keeping the old array response", async () => {
+  const root = await folder({ "big.jsonl": JSON.stringify({ type: "message", message: { role: "user", content: "x".repeat(1_000_000) + " tailneedle" } }) });
+  const { invoke } = await harness(root, undefined, { sessions: { list: async () => [{ sessionId: "big", path: join(root, "big.jsonl"), cwd: root }] } as never });
+  expect(await invoke("threads", { query: "tailneedle", includeStatus: true })).toMatchObject({ matches: [], truncated: true });
+  expect(await invoke("threads", { query: "tailneedle" })).toEqual([]);
+});
+
+it("cancels only the window's old thread search while metadata work is shared", async () => {
+  const root = await folder({ "one.jsonl": JSON.stringify({ type: "message", message: { role: "user", content: "needle" } }) });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const list = vi.fn(async () => { await gate; return [{ sessionId: "one", path: join(root, "one.jsonl"), cwd: root }]; });
+  const { invoke } = await harness(root, undefined, { sessions: { list } as never });
+  const first = invoke("threads", { query: "needle", channel: "w1", includeStatus: true });
+  const other = invoke("threads", { query: "needle", channel: "w2", includeStatus: true });
+  await vi.waitFor(() => expect(list).toHaveBeenCalled());
+  await invoke("threads", { query: "", channel: "w1" });
+  release();
+  expect(await first).toMatchObject({ matches: [], cancelled: true });
+  expect(await other).toMatchObject({ matches: [{ sessionId: "one" }], truncated: false });
+  expect(list).toHaveBeenCalledOnce();
+});
+
+it("refreshes session text when a completed turn invalidates the index", async () => {
+  const root = await folder({ "one.jsonl": JSON.stringify({ type: "message", message: { role: "user", content: "before" } }) });
+  let ended!: () => void;
+  const { invoke } = await harness(root, undefined, {
+    sessions: { list: async () => [{ sessionId: "one", path: join(root, "one.jsonl"), cwd: root }] } as never,
+    registerTurnObserver: (observer) => { ended = () => { void observer.ended?.("one", "turn", "completed"); }; return () => undefined; },
+  });
+  expect(await invoke("threads", { query: "after" })).toEqual([]);
+  await writeFile(join(root, "one.jsonl"), JSON.stringify({ type: "message", message: { role: "user", content: "after the turn" } }));
+  ended();
+  expect(await invoke("threads", { query: "after" })).toMatchObject([{ sessionId: "one" }]);
 });

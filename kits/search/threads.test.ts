@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { THREAD_FIND_LIMIT } from "./protocol.js";
-import { findMessages } from "./threads.js";
+import { findMessages, sessionText, THREAD_TEXT_LIMIT } from "./threads.js";
 
 describe("findMessages", () => {
   it("names the user and assistant messages holding the query in their words or reasoning", () => {
@@ -20,4 +20,9 @@ describe("findMessages", () => {
     expect(found).toMatchObject({ truncated: true });
     expect(found.messageIds[0]).toBe("5");
   });
+});
+
+it("caps even one oversized message at the text budget", () => {
+  const texts = sessionText(JSON.stringify({ type: "message", message: { role: "assistant", content: "x".repeat(1_000_000) } }));
+  expect(texts.reduce((sum, entry) => sum + entry.text.length, 0)).toBe(THREAD_TEXT_LIMIT);
 });

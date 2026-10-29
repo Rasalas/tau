@@ -1461,10 +1461,13 @@ export interface MessageBlockContribution extends ProfileScoped {
  * a client has loaded. The last one registered wins; without one the find
  * looks through the loaded turns.
  */
+/** Older finders may still return only ids; structured results preserve a bounded search's completeness. */
+export type TranscriptFindResult = readonly string[] | { messageIds: readonly string[]; truncated: boolean };
+
 export interface TranscriptFinderContribution extends ProfileScoped {
   id: string;
   /** The ids of the thread's messages that hold `query`, oldest first, over its whole history. */
-  find(request: { sessionId: string; query: string }): Promise<readonly string[]>;
+  find(request: { sessionId: string; query: string }): Promise<TranscriptFindResult>;
 }
 
 /**
