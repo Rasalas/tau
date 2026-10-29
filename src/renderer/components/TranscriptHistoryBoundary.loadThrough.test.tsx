@@ -71,3 +71,35 @@ describe("TranscriptHistoryBoundary: loadThrough", () => {
     expect(loadPage).toHaveBeenCalledTimes(1);
   });
 });
+
+it("loads an old search result in a bounded window, then re-reads an evicted newer result", async () => {
+  const controller = start([message("tail")]);
+  const loadPage = vi.fn(async (_session: string, at: HostTranscriptCursor): Promise<TranscriptPage> => {
+    const n = at === "p2" ? 30 : Number(String(at).slice(1));
+    return { sessionId: "t", messages: [message(`m${n}`)], hasMore: n > 0,
+      ...(n > 0 ? { olderCursor: cursor(`n${n - 1}`) } : {}), historyCompleteness: n > 0 ? "has-more" : "complete" };
+  });
+  const through = mount(controller, loadPage, [message("tail")]);
+  expect(await through("m1")).toBe(true);
+  expect(controller.getDetail("t")!.messages.length).toBeLessThan(15);
+  expect(controller.getSnapshot().gapBeforeMessageId).toBe("tail");
+  expect(await through("m29")).toBe(true);
+  expect(loadPage.mock.calls.filter((entry) => entry[1] === "p2")).toHaveLength(2);
+  expect(await through("tail")).toBe(true);
+});
+
+it("stops an old search load when a thread switch wins", async () => {
+  const controller = start([message("tail")]);
+  let resolve!: (page: TranscriptPage) => void;
+  const loadPage = vi.fn(() => new Promise<TranscriptPage>((done) => { resolve = done; }));
+  const through = mount(controller, loadPage, [message("tail")]);
+  let result!: Promise<boolean>;
+  act(() => { result = through("old"); });
+  await act(async () => {
+    controller.beginThreadSwitch("other");
+    controller.applyDetail({ sessionId: "other", messages: [message("other-tail")], isStreaming: false, activeTools: [] });
+    resolve({ sessionId: "t", messages: [message("old")], hasMore: false });
+    expect(await result).toBe(false);
+  });
+  expect(loadPage).toHaveBeenCalledTimes(1);
+});

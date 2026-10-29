@@ -24,6 +24,7 @@ import { usePlatform } from "../platform-context";
 
 export interface VirtualTranscriptProps {
   messages: UiMessage[];
+  historyGap?: { beforeMessageId?: string; content: ReactNode };
   scrollRef: RefObject<HTMLDivElement | null>;
   isStreaming: boolean;
   sessionKey?: string;
@@ -124,6 +125,7 @@ export interface TranscriptVisibleRange {
 /** Variable-height transcript window. Activities live inside stable message rows so indexes never shift mid-run. */
 export const VirtualTranscript = memo(function VirtualTranscript({
   messages: transcriptMessages,
+  historyGap,
   scrollRef,
   isStreaming,
   sessionKey = "default",
@@ -588,6 +590,7 @@ export const VirtualTranscript = memo(function VirtualTranscript({
           transform: `translateY(${row.start}px)`,
         }}
       >
+        {historyGap?.beforeMessageId === message.id ? historyGap.content : null}
         <Message
           message={message}
           streaming={Boolean(isStreaming && message === messages.at(-1) && message.role === "assistant")}

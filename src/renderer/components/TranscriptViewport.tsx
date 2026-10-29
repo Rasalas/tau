@@ -22,7 +22,7 @@ import { VirtualTranscript, type TranscriptVisibleRange } from "./VirtualTranscr
 import type { JumpToLatestStore } from "./JumpToLatest";
 import { composerReserve } from "./ComposerReserve";
 import { useTranscriptFind, useTranscriptReveal } from "./use-transcript-reveal";
-import { answerFind } from "./transcript-reveal";
+import { answerFind, answerLatest } from "./transcript-reveal";
 
 export type { TranscriptNavigationScope, TranscriptTurnStart } from "../../workbench/transcript-navigation";
 export { useTranscriptNavigation } from "./transcript-navigation-dom";
@@ -170,8 +170,9 @@ export interface TranscriptViewportProps {
   onFocusComposer?: () => void;
   /** The reader heads for the start and is near it, or the rows do not fill the viewport; the caller loads older turns. */
   onReachStart?: () => void;
-  /** Sits above the first loaded row and must take no height: the older turns' loading or error line. */
+  /** Loading/errors take no height; the history reset control sits above the first row. */
   history?: ReactNode;
+  historyGap?: { beforeMessageId?: string; content: ReactNode };
   /** Loads older turns until the message is among them; false when the thread does not reach back to it. The find and `revealMessage` use it. */
   loadThrough?: (messageId: string) => Promise<boolean>;
   /** Where the viewport offers Jump to latest while the reader is away from the tail; the button lives outside it. */
@@ -198,6 +199,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   onFocusComposer,
   onReachStart,
   history,
+  historyGap,
   loadThrough,
   jumpToLatest,
 }: TranscriptViewportProps) {
@@ -365,6 +367,11 @@ export const TranscriptViewport = memo(function TranscriptViewport({
   }, [jumpToLatest, navigation.canJumpToLatest, navigation.jumpToLatest]);
   useEffect(() => () => jumpToLatest?.set(undefined), [jumpToLatest]);
 
+  useEffect(() => {
+    const node = scrollRef.current;
+    return node ? answerLatest(node, navigation.jumpToLatest) : undefined;
+  }, [navigation.jumpToLatest, scrollRef]);
+
   const [searchOpen, setSearchOpen] = useState(false);
   const [findToken, setFindToken] = useState(0);
   // `thread.find` and the `findInThread` action arrive as an event on the node, from outside the viewport.
@@ -514,6 +521,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       <div className="transcript-inner">
         {history}
         <VirtualTranscript
+          historyGap={historyGap}
           messages={messages}
           scrollRef={scrollRef}
           isStreaming={isStreaming}
@@ -529,6 +537,7 @@ export const TranscriptViewport = memo(function TranscriptViewport({
           onRetryMessage={onRetryMessage}
           onFocusComposer={onFocusComposer}
         />
+        {historyGap && !historyGap.beforeMessageId ? historyGap.content : null}
         {liveStatus}
       </div>
     </div>

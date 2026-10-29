@@ -37,12 +37,12 @@ export class TranscriptHistoryCache {
   }
 
   /** An index arrives with every thread's change; its write joins the coalesced one. */
-  setThreadIndex(index: ThreadIndexSnapshot): void {
+  setThreadIndex(index: ThreadIndexSnapshot, snapshot = this.snapshot): void {
     this.index = index;
-    scheduleBootstrapCache(this.snapshot, this.index, getClientStorage());
+    scheduleBootstrapCache(snapshot, this.index, getClientStorage());
   }
 
-  persist(): void {
-    writeBootstrapCache(this.snapshot, this.index);
+  persist(snapshot = this.snapshot): void {
+    writeBootstrapCache(snapshot, this.index);
   }
 }

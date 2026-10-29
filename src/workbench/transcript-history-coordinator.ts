@@ -23,6 +23,8 @@ export class TranscriptHistoryCoordinator {
     this.activeSessionId = initialSessionId;
   }
 
+  get navigationVersion(): number { return this.bootstrapGeneration; }
+
   beginBootstrap(): TranscriptBootstrapRequest {
     // It cancels a page request, but a navigation in flight outranks it.
     if (!this.switching) {
