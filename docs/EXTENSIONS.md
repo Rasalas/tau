@@ -102,7 +102,7 @@ A package has up to two halves, sharing one `id`:
   default export is a `DesktopExtension`: `{ id, name, activate(context) }`,
   where `context` is the same `DesktopExtensionContext` every bundled kit
   gets — panels, sidebars, commands, status items, and so on (see
-  `src/renderer/extension-system.tsx`). `context.host.invoke(command, input)`
+  `src/renderer/extension-contracts.ts`). `context.host.invoke(command, input)`
   is the only way the desktop half reaches its own host half; there is no
   direct call between them, and a package with no host entry gets a
   `context.host` that always rejects.
@@ -820,8 +820,11 @@ answers `names` besides `name`.
 Composer Context (`kits/composer-context/`) is the one inline contribution Tau
 ships, and it lends its chips to every other package: a terminal hands over an
 excerpt, a review comment or a pull request view hands over its PR, without
-knowing the composer. Copy the types from `kits/composer-context/protocol.ts`
-(a kit never imports another kit) and use the service:
+knowing the composer. Use the service with the types from
+`kits/composer-context/protocol.ts`. Distribution kits may import that source
+contract; an independent package can declare the shape it consumes. The live
+chips belong to the registered service, following the
+[kit import rule](../kits/README.md#the-wall):
 
 ```ts
 context.useService<ComposerContextChips>("tau.composer-context/chips", (chips) => {
@@ -852,8 +855,9 @@ Review's request strip and ended-request lines also offer the `pull-request`
 payload as JSON under `application/x-tau-pull-request+json`, alongside
 `text/uri-list` and `text/plain` URL fallbacks. Composer Context validates that
 drop through the generic `drop` hook and adds the same chip to the active draft.
-It uses the existing persistence and send path. Kits copy this MIME contract
-along with the payload type; they do not import each other.
+It uses the existing persistence and send path. Kits share this MIME contract
+and payload shape as source definitions; the actual drop reaches the
+registered chip service.
 
 A thread row dragged out of Workspace Kit's rail (Active, Working and the other
 sections alike) is offered to whatever is under the pointer as a native drop would

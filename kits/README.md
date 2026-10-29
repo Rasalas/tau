@@ -15,7 +15,7 @@ two artifacts from one repository: core, which runs alone
 ```
 kits/<name>/
   tau-extension.json   id, name, version, engines.api, permissions, isolation, entries
-  protocol.ts          ids and command shapes both halves share; no imports
+  protocol.ts          ids and command shapes both halves share; no activation code
   host.ts              default-exports a HostExtension (or a factory)
   desktop.tsx          default-exports a DesktopExtension
   styles.css           optional: the kit's own rules, linked while it is active
@@ -27,13 +27,24 @@ kits/<name>/
 
 ## The wall
 
-A kit may import `tau`, `tau/host-extension`, `tau/host`, its own relative
-files, another kit of this set (Agents Kit and Remote Work Kit take
-`kits/workspace/agent-worktrees.ts`, the leaf that holds the Git sequences for
-a spawned thread's worktree and for merging a branch back — a kit that owns a
-subject owns it for the others too), and whatever it brings itself. It may not import `src/**`; `src/**` may
-not import it. `src/shared/kits-boundary.test.ts` enforces both. A kit's *tests*
-may additionally reach `src/main/test-support/` and `src/renderer/test-support/`.
+A kit reaches core only through `tau`, `tau/host-extension` and `tau/host`.
+It may also import its own files, dependencies it brings, and another kit's
+leaf helpers within this distribution. Each consumer bundles its own copy of a
+source helper; importing it does not activate the kit that owns it. Agents Kit
+and Remote Work Kit reuse `kits/workspace/agent-worktrees.ts` this way for Git
+worktree sequences.
+
+Shared live state goes through `provideService` / `useService`, so activation
+order and provider withdrawal are handled by the registry (ADR 0014). A host
+extension calls another through registered commands with host-established
+caller authority and declared `callers` grants. Authenticated workbench calls
+keep the workbench's authority (ADR 0020).
+Importing a helper confers no authority to call another extension or use its
+services. Keep activation entries and live registry state out of source helpers.
+
+A kit may not import `src/**`; `src/**` may not import a kit.
+`src/shared/kits-boundary.test.ts` enforces both. A kit's *tests* may additionally
+reach `src/main/test-support/` and `src/renderer/test-support/`.
 
 Relative imports inside a kit use the `.js` spelling (`./protocol.js`). esbuild
 and TypeScript both map it to the `.ts` file.
