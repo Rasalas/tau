@@ -685,7 +685,7 @@ tau-part { display: contents; }
 /* The find bar (top 12px, about 32px high) floats over the transcript; its room is the scroller's top padding, so a reveal lands below it too. */
 .transcript-viewport.with-find .transcript { padding-top: max(calc(26px * var(--density)), 56px); }
 .transcript-search-bar {
-  position: absolute; top: 12px; right: 24px; z-index: 10;
+  position: absolute; top: 12px; right: 24px; z-index: 10; max-width: calc(100% - 36px);
   display: flex; align-items: center; gap: 6px; padding: 4px 8px;
   background: var(--float); border: 1px solid var(--line-strong);
   border-radius: 8px; box-shadow: var(--elevation-1);
@@ -693,13 +693,13 @@ tau-part { display: contents; }
 }
 .transcript-search-bar input {
   border: none; outline: none; background: transparent; color: var(--ink);
-  font: var(--text-sm) var(--sans); width: 180px; padding: 2px 4px;
+  font: var(--text-sm) var(--sans); width: 180px; min-width: 40px; padding: 2px 4px;
 }
 .transcript-search-bar .search-count {
-  font: var(--text-xs) var(--mono); color: var(--muted); min-width: 48px; text-align: center;
+  font: var(--text-xs) var(--mono); color: var(--muted); min-width: 48px; max-width: 190px; text-align: center;
 }
 .transcript-search-bar button {
-  display: grid; place-items: center; width: 22px; height: 22px;
+  display: grid; place-items: center; flex: none; width: 22px; height: 22px;
   border: none; border-radius: 4px; background: transparent;
   color: var(--muted); cursor: pointer;
 }

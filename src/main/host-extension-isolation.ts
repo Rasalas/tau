@@ -20,7 +20,7 @@ import type {
   HostThread,
   HostThreadLifecycle,
   HostTurnObserver,
-} from "./host-extensions.js";
+} from "./host-extension-contracts.js";
 import {
   serializeError,
   reviveError,

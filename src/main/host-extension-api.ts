@@ -7,6 +7,8 @@
  * the registry, Pi or Electron into its bundle. Grow this list deliberately and
  * bump `EXTENSION_API_VERSION` when you do.
  */
+export type * from "./host-extension-contracts.js";
+// Preserve legacy registry/helper types exposed by the original type-only barrel.
 export type * from "./host-extensions.js";
 export type { WindowExtension, WindowExtensionContext, WindowExtensionFactory } from "./window-extensions.js";
 // What `WindowExtensionContext.showContextMenu` takes and answers (next API version).

@@ -11,7 +11,7 @@ export interface SearchFilesService {
   pickFile(onPick?: (path: string) => void): void;
 }
 
-/** Workspace Kit's store, copied down to what this kit reads; a kit never imports another kit. */
+/** Workspace Kit's live store, read through its registered service so provider withdrawal ends the binding. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export interface WorkspaceStoreView {
   getSnapshot(): { cwd?: string; changes?: { branch?: string; files?: ReadonlyArray<{ path: string; status: string }> } };
@@ -83,9 +83,20 @@ export interface FileSearchResult {
 
 export interface ThreadSearchInput {
   query: string;
+  /** Opt into completeness metadata; old callers still receive an array. */
+  includeStatus?: boolean;
+  /** A newer query cancels the previous query from this window. */
+  channel?: string;
   limit?: number;
   /** The thread on screen, read from its runtime when it has no session file. */
   activeSessionId?: string;
+}
+
+export interface ThreadSearchResult {
+  matches: ThreadMatch[];
+  truncated: boolean;
+  cancelled?: boolean;
+  error?: string;
 }
 
 export interface ThreadMatch {
@@ -132,7 +143,7 @@ export interface SearchHostCommands {
   "files": { input: FileSearchInput; output: FileSearchResult };
   /** Forgets a project's file list; the next `files` reads it again. */
   "invalidate": { input: { cwd?: string }; output: void };
-  "threads": { input: ThreadSearchInput; output: ThreadMatch[] };
+  "threads": { input: ThreadSearchInput; output: ThreadMatch[] | ThreadSearchResult };
   /** Which messages of one thread say the query, over its whole history; the desktop half hands it to core's transcript find. */
   "find-in-thread": { input: ThreadFindInput; output: ThreadFindResult };
   /** Threads found through their linked requests; empty when Review Kit is not there. */

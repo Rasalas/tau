@@ -23,17 +23,22 @@ export async function createConnectRelay(server, { adminToken, store, maxRoutes 
   const controls = new Map();
   const pending = new Map();
   const active = new Map();
-  const authenticating = new Set();
+  const authenticating = new Map();
   let writing = Promise.resolve();
-  const persist = () => {
-    const bytes = JSON.stringify(routes);
-    writing = writing.then(async () => {
-      if (!store) return;
+  // Serialize the whole mutation, so checks and snapshots see only committed routes.
+  // Keep the caller's rejection while allowing the next request to retry storage.
+  const mutate = (operation) => {
+    const result = writing.then(operation);
+    writing = result.catch(() => {});
+    return result;
+  };
+  const persist = async (next) => {
+    if (store) {
       await mkdir(dirname(store), { recursive: true, mode: 0o700 });
-      await writeFile(`${store}.tmp`, bytes, { mode: 0o600 });
+      await writeFile(`${store}.tmp`, JSON.stringify(next), { mode: 0o600 });
       await rename(`${store}.tmp`, store);
-    });
-    return writing;
+    }
+    routes = next;
   };
   const ws = new WebSocketServer({ noServer: true, maxPayload: 65_536, perMessageDeflate: false });
   const send = (response, code, body) => { response.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-store" }); response.end(JSON.stringify(body)); };
@@ -44,22 +49,27 @@ export async function createConnectRelay(server, { adminToken, store, maxRoutes 
     if (!admin && !(request.method === "DELETE" && ownedRoute && routes[ownedRoute] && matches(bearer(request), routes[ownedRoute].host))) return send(response, 401, { error: "unauthorized" });
     try {
       if (request.url === "/v1/routes" && request.method === "POST") {
-        if (!admin) return send(response, 401, { error: "unauthorized" });
-        if (Object.keys(routes).length >= maxRoutes) return send(response, 429, { error: "route limit" });
-        const id = randomUUID(); const hostToken = secret(); const clientToken = secret();
-        routes[id] = { host: digest(hostToken), client: digest(clientToken) };
-        try { await persist(); } catch (error) { delete routes[id]; throw error; }
-        return send(response, 201, { id, hostToken, clientToken });
+        return await mutate(async () => {
+          if (Object.keys(routes).length >= maxRoutes) return send(response, 429, { error: "route limit" });
+          const id = randomUUID(); const hostToken = secret(); const clientToken = secret();
+          await persist({ ...routes, [id]: { host: digest(hostToken), client: digest(clientToken) } });
+          return send(response, 201, { id, hostToken, clientToken });
+        });
       }
       const id = /^\/v1\/routes\/([a-f0-9-]{36})$/u.exec(request.url ?? "")?.[1];
       if (id && request.method === "DELETE") {
-        if (!routes[id]) return send(response, 404, { error: "unknown route" });
-        delete routes[id];
-        controls.get(id)?.terminate();
-        for (const entry of pending.values()) if (entry.route === id) entry.client.terminate();
-        for (const entry of active.values()) if (entry.route === id) { entry.client.terminate(); entry.host.terminate(); }
-        await persist();
-        return send(response, 200, { removed: true });
+        return await mutate(async () => {
+          // An earlier queued deletion may have revoked this request's credential.
+          if (!admin && !matches(bearer(request), routes[id]?.host)) return send(response, 401, { error: "unauthorized" });
+          if (!routes[id]) return send(response, 404, { error: "unknown route" });
+          const next = { ...routes }; delete next[id];
+          await persist(next);
+          controls.get(id)?.terminate();
+          for (const [peer, route] of authenticating) if (route === id) peer.terminate();
+          for (const entry of pending.values()) if (entry.route === id) entry.client.terminate();
+          for (const entry of active.values()) if (entry.route === id) { entry.client.terminate(); entry.host.terminate(); }
+          return send(response, 200, { removed: true });
+        });
       }
       return send(response, 404, { error: "unknown endpoint" });
     } catch { return send(response, 500, { error: "route persistence failed" }); }
@@ -77,7 +87,7 @@ export async function createConnectRelay(server, { adminToken, store, maxRoutes 
     if (role !== "data" && id) { socket.destroy(); return; }
     ws.handleUpgrade(request, socket, head, (peer) => {
       if (!browser) { attach(peer, role, route, id); return; }
-      authenticating.add(peer);
+      authenticating.set(peer, route);
       const finish = () => { clearTimeout(timer); authenticating.delete(peer); };
       const timer = setTimeout(() => { finish(); peer.close(4401, "Relay authentication timed out"); }, authMs);
       peer.on("error", () => peer.terminate());

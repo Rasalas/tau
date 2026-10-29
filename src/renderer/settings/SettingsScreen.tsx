@@ -134,10 +134,7 @@ export function SettingsScreen({
   const [levels] = useState(() => new ConfigLayersStore(client, () => void preferences.syncFromHost()));
   const project = currentProject(snapshot, projects);
   useEffect(() => { levels.setProject(project); }, [levels, project?.workspaceId, project?.label]);
-  // Another machine's refusal or silence is said once: its values would otherwise just snap back.
-  const levelsError = useSyncExternalStore(levels.subscribe, () => (levels.getSnapshot().machine ? levels.getSnapshot().error : undefined));
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (levelsError) onNotify(levelsError, "error"); }, [levelsError]);
+  const levelsState = useSyncExternalStore(levels.subscribe, levels.getSnapshot);
   // A push that changed a file, or the palette's theme, moves the levels too.
   useEffect(() => {
     void levels.refresh();
@@ -489,6 +486,11 @@ export function SettingsScreen({
                   scope={{ projects: scopeProjects(projects, threads, project), current: project, machines }}
                   actionSlot={setActionSlot}
                 />
+                {levelsState.error ? <div className="settings-note" data-level="error" role="alert">
+                  <p>{levelsState.error}</p>
+                  <button type="button" onClick={() => void levels.retry()}>Try again</button>
+                </div> : null}
+                {levelsState.pending ? <p role="status">Saving settings…</p> : null}
                 {readOnly ? <p className="settings-read-only" role="note">This device is paired Read only: the machine keeps its settings as they are. Theme and layout stay on this device.</p> : null}
                 <SettingsPageActionSlot.Provider value={actionSlot}>
                   {page === "general" ? (

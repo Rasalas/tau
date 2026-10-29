@@ -1,7 +1,11 @@
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { ThreadRuntime } from "./thread-runtime.js";
+import { PI_AGENT_RUNTIME_ADAPTER } from "./runtime-adapters.js";
+import { hostCursorAtLocalIndex } from "./transcript-cursor.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { UiSession } from "../shared/contracts.js";
 import { testPersistedTranscriptWorker } from "./test-support/persisted-transcript-worker.js";
 import { PersistedTranscriptReader } from "./persisted-transcript-reader.js";
@@ -113,4 +117,29 @@ describe("the transcript of a thread the host holds no runtime for", () => {
 
     await expect(host.loadTranscript(SESSION_ID)).rejects.toThrow("That thread is not open any more.");
   });
+});
+
+
+it("shares the live index between the original active detail route and the public transcript-page route", async () => {
+  const manager = SessionManager.inMemory("/repo");
+  for (let i = 0; i < 100; i++) manager.appendMessage({
+    role: i % 2 ? "assistant" : "user", content: [{ type: "text", text: `Message ${i}` }], timestamp: i,
+  } as never);
+  const entries = vi.fn(() => manager.getBranch());
+  const thread = new ThreadRuntime({
+    kind: "pi", threadId: "live", providerSessionId: "live", cwd: "/repo",
+    runtimeAdapter: PI_AGENT_RUNTIME_ADAPTER,
+    capabilities: { journal: { entries }, tree: { leafEntryId: () => manager.getLeafId() ?? undefined } },
+    composerCommands: () => [],
+  } as never, { session: { sessionManager: manager } } as never);
+  const host = hostWithIndex([]);
+  Object.defineProperty(host, "active", { get: () => thread });
+  (host as unknown as { threadFor(): ThreadRuntime }).threadFor = () => thread;
+  const cursor = hostCursorAtLocalIndex(80);
+  const active = await host.getThreadDetail(cursor);
+  entries.mockClear();
+  expect(await host.loadTranscript("live", cursor)).toEqual(active);
+  expect(await host.getThreadDetail(cursor)).toEqual(active);
+  expect(active.messages.map((message) => message.text)).toEqual(Array.from({ length: 40 }, (_, i) => `Message ${i + 40}`));
+  expect(entries).not.toHaveBeenCalled();
 });

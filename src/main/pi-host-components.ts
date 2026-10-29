@@ -62,6 +62,7 @@ import { ownPackagesFilePath, recordOwnPackage } from "./own-packages.js";
 import { watchingEnabled } from "./config-watcher.js";
 import { WorkspaceWatch } from "./workspace-watch.js";
 import { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
+import type { PersistedTranscriptReader } from "./persisted-transcript-reader.js";
 import { ThreadProjection } from "./thread-projection.js";
 import { ThreadIndex } from "./thread-index.js";
 import { ProjectFactsCache } from "./project-facts-cache.js";
@@ -121,6 +122,7 @@ type Emit = (event: HostEvent) => void;
  * late-bound closures plus the raw constructor inputs the wiring reads.
  */
 export interface PiHostDeps {
+  readonly persistedTranscripts: PersistedTranscriptReader;
   getCwd(): string;
   setCwd(cwd: string): void;
   readonly safeMode: boolean;
@@ -683,6 +685,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     seam.entryPins,
     (thread) => deps.hostThreadFor(thread),
     (error) => deps.log("host-extension.pins.failed", deps.errorMessage(error)),
+    deps.persistedTranscripts,
   );
   const clientMessages = new ClientMessageTracker(
     clientTurns,

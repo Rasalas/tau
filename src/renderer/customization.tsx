@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from "react";
-import type { RegionPlacement, SlotPlacement } from "./extension-system";
+import type { RegionPlacement, SlotPlacement } from "./extension-contracts";
 
 declare module "react" {
   namespace JSX {

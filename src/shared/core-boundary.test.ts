@@ -58,6 +58,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./event-loop-stalls.js", // Bounded host scheduling diagnostics, independent of runtime kits.
   "./host-preparation-queue.js", // Shared host admission for optional background preparation.
   "./persisted-transcript-reader-session.js", // SDK parsing isolated from live runtime initialization.
+  "./branch-records.js", // Journal message and compaction records shared by live and persisted transcripts.
+  "./indexed-transcript.js", // Shared turn/history index for bounded transcript page projection.
   "./linux-startup.js", // Chromium workarounds applied before asynchronous desktop startup.
   "./desktop-links.js",
   "./app-menu.js",   "./app-shell.js",   "./app-updates.js",
@@ -102,6 +104,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./own-packages.js", // The host's record of the packages `newPackage` wrote, next to the grants (ADR 0036, 2026-10-19).
   "./host-method-access.js",   "./host-pairing-terminal.js",   "./host-rate-limit.js",
   "./host-extension-errors.js",   "./host-extension-isolation.js",   "./host-extension-worker-protocol.js",
+  "./host-extension-contracts.js", // Type-only extension services, backends and context.
+  "./host-extension-hooks.js", // Ordered lifecycle, turn and project-fact collections.
   "./host-extensions.js",   "./host-idle-compaction.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
   // Connection-scoped browser resource transport and the host's OS TLS trust store.
   "./host-browser-resources.js", "./host-read-paths.js", "./host-system-certificates.js",

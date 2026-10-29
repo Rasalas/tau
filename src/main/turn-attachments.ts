@@ -3,7 +3,7 @@ import type {
   TurnAttachment,
   TurnAttachmentData,
   TurnAttachmentProvider,
-} from "./host-extensions.js";
+} from "./host-extension-contracts.js";
 
 /**
  * Who provides media for a thread's turns. Core keeps no bytes and knows no

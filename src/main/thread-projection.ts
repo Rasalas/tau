@@ -1,12 +1,15 @@
+import { branchRecords } from "./branch-records.js";
+import { IndexedTranscript } from "./indexed-transcript.js";
+import { PersistedTranscriptReader } from "./persisted-transcript-reader.js";
+import { localTranscriptPage } from "./host-transcript.js";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import type { PiBridgeSnapshot } from "../shared/pi-bridge-protocol.js";
 import type { HostSnapshot, UiComposerCommand, UiMessage, UiModel, UiTurnActivity } from "../shared/contracts.js";
-import { catalogFromSnapshot, type HostCatalog } from "../shared/host-protocol.js";
-import { branchMessagesWithClientMessageIds } from "../shared/client-message-correlation.js";
+import { catalogFromSnapshot, type HostCatalog, type TranscriptPage } from "../shared/host-protocol.js";
 import { resolveClientTurnIdentity } from "../shared/transcript-turn.js";
 import { knownSkillNames } from "../shared/skill-envelope.js";
 import { taskProgressFromMessages, taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import type { ClientTurnLedger } from "./client-turn-ledger.js";
-import { compactionRecord } from "./compaction-record.js";
 import { bridgeHostSnapshot, bridgeMessageMapping } from "./bridge-snapshot.js";
 import {
   EMPTY_PINS,
@@ -25,6 +28,8 @@ import type { LiveTurnState } from "./live-turn-state.js";
 import { inStartOrder } from "./kit-message-order.js";
 import { isPiBackend, isThreadRuntime, type ThreadRuntime } from "./thread-runtime.js";
 
+export { branchRecords, type BranchRecord } from "./branch-records.js";
+
 /** The thread's interaction mode and the modes it offers, and whether it keeps goals; nothing when it offers none. */
 function threadModes(thread: ThreadRuntime): { mode?: string; modes?: string[]; goals?: boolean } {
   const capability = thread.backend.capabilities.mode;
@@ -33,31 +38,6 @@ function threadModes(thread: ThreadRuntime): { mode?: string; modes?: string[]; 
     ...(modes.length > 0 ? { mode: capability!.current(), modes: [...modes] } : {}),
     ...(thread.backend.capabilities.goals ? { goals: true } : {}),
   };
-}
-
-/** One message entry of a branch, in the shape the transcript maps. */
-export interface BranchRecord {
-  record: Record<string, unknown>;
-  /** The runtime's own message object; the key the client-turn ledger correlates on. */
-  raw?: object;
-}
-
-/**
- * Projects the message entries of a branch, resolving each user turn's client
- * message id from the markers beside it. A live thread reads its runtime's
- * journal and a released one its session file, and both arrive here.
- */
-export function branchRecords(entries: readonly unknown[], skillNames: Iterable<string>): BranchRecord[] {
-  const messages = branchMessagesWithClientMessageIds(entries, skillNames);
-  let messageIndex = 0;
-  return entries.flatMap((entry, index) => {
-    const typed = entry as { type?: unknown; id?: unknown; message?: unknown };
-    if (typed.type === "compaction") return [{ record: compactionRecord(entries, index) }];
-    if (typed.type !== "message") return [];
-    const projected = messages[messageIndex++] as Record<string, unknown>;
-    const raw = typed.message && typeof typed.message === "object" ? typed.message as object : undefined;
-    return [{ record: { ...projected, tauEntryId: typed.id }, ...(raw ? { raw } : {}) }];
-  });
 }
 
 export class ThreadProjection {
@@ -71,6 +51,7 @@ export class ThreadProjection {
     private readonly entryPinProviders: ReadonlySet<(thread: HostThread) => Iterable<string>>,
     private readonly hostThread: (thread: ThreadRuntime) => HostThread,
     private readonly reportPinFailure: (error: unknown) => void,
+    private readonly transcripts = new PersistedTranscriptReader(),
   ) {}
 
   composerCommands(thread: ThreadRuntime): UiComposerCommand[] {
@@ -124,17 +105,61 @@ export class ThreadProjection {
         .map((message, index) => mapMessage(message, index, mapping))
         .filter((message): message is UiMessage => isVisibleMessage(message, mapping.pinned)));
     }
+    messages.push(...this.adapterMessages(thread));
+    return messages;
+  }
+
+  /** One history page without building a host snapshot or discovering models.
+   * Pi exposes a cheap leaf id but only a whole-branch journal read. Build the
+   * persisted reader's index once per branch revision and reuse its cache.
+   */
+  async transcriptPage(thread: ThreadRuntime, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
+    const paging = thread.backend.capabilities.transcriptPaging;
+    if (paging) return paging.page(cursor);
+    if (!isPiBackend(thread)) return localTranscriptPage(
+      thread.threadId, this.messages(thread), [], thread.adapterActivity, true, cursor,
+    );
+    const tree = thread.backend.capabilities.tree;
+    // A backend without a branch revision cannot safely retain a live index.
+    if (!tree) {
+      const records = this.branchMessages(thread);
+      return localTranscriptPage(thread.threadId, this.messages(thread, records),
+        taskProgressHistoryFromMessages(records), turnActivityHistoryFromMessages(records), true, cursor);
+    }
+    const build = () => {
+      const commands = this.composerCommands(thread);
+      const records = branchRecords(thread.entries, knownSkillNames(commands)).map(({ record }) => record);
+      const mapping = this.mapping(thread);
+      const messages = records.map((record, index) => mapMessage(record, index, mapping))
+        .filter((message): message is UiMessage => isVisibleMessage(message, mapping.pinned));
+      return new IndexedTranscript(thread.threadId, messages,
+        taskProgressHistoryFromMessages(records), turnActivityHistoryFromMessages(records));
+    };
+    const tail = this.adapterMessages(thread);
+    const page = this.transcripts.livePage(thread, JSON.stringify([
+      thread.threadId, thread.backend.providerSessionId, tree.leafEntryId(), this.composerCommands(thread), this.pinsRevision,
+    ]), build, cursor, tail);
+    // Correlation can arrive after an index was built. Consult the bounded
+    // live ledger for this page only, preserving authoritative journal ids.
+    return { ...page, messages: page.messages.map((message) => {
+      if (message.role !== "user") return message;
+      const entry = message.sourceEntryId ? thread.runtime?.session?.sessionManager?.getEntry(message.sourceEntryId) : undefined;
+      const raw = entry?.type === "message" ? entry.message : undefined;
+      const identity = resolveClientTurnIdentity(message,
+        (raw ? this.clientTurns.identityForRaw(raw) : undefined) ?? this.clientTurns.identityForMessage(thread.threadId, message));
+      if (identity && raw) this.clientTurns.remember(thread.threadId, message, identity, raw);
+      return identity ? { ...message, ...identity } : message;
+    }) };
+  }
+
+  private adapterMessages(thread: ThreadRuntime): UiMessage[] {
     const adapter = [...thread.adapterMessages];
     const live = thread.liveAssistant;
     if (live?.text) adapter.push({
-      id: live.id,
-      role: "assistant",
-      text: live.text,
-      thinking: live.thinking || undefined,
-      timestamp: live.timestamp,
+      id: live.id, role: "assistant", text: live.text,
+      thinking: live.thinking || undefined, timestamp: live.timestamp,
     });
-    messages.push(...inStartOrder(adapter));
-    return messages;
+    return inStartOrder(adapter);
   }
 
   turnActivity(thread: ThreadRuntime, branchMessages: unknown[]): UiTurnActivity | undefined {

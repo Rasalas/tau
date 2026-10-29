@@ -51,7 +51,6 @@ import {
   type ThreadDetail,
   type TranscriptPage,
 } from "../shared/host-protocol.js";
-import { taskProgressHistoryFromMessages } from "../shared/task-progress.js";
 import type { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import type { HostReport } from "./host-report.js";
 import type { HostLifecycleCoordinator } from "./host-lifecycle-coordinator.js";
@@ -97,7 +96,7 @@ import { findPiBridge } from "./pi-bridge-client.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { ThreadRuntime, isLocalPiRuntime, isPiBackend, threadBackendKind } from "./thread-runtime.js";
 import { requireCapability } from "./runtime-types.js";
-import { exportThreadMarkdown, localTranscriptPage, readLocalToolOutput } from "./host-transcript.js";
+import { exportThreadMarkdown, readLocalToolOutput } from "./host-transcript.js";
 import { clientTranscript } from "./client-tool-output.js";
 import { shellTranscriptPage, type PersistedThreadInfo, type PersistedTranscriptOptions } from "./persisted-transcript.js";
 import { PersistedTranscriptReader } from "./persisted-transcript-reader.js";
@@ -121,7 +120,6 @@ import { piWorkspaceCommands } from "./workspace-skills.js";
 import type { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import {
-  turnActivityHistoryFromMessages,
   firstSentence,
   visibleTitleText,
   boundedToolOutput,
@@ -246,6 +244,7 @@ export class PiHost {
     const components = buildPiHostComponents(options, {
       getCwd: () => this.cwd,
       setCwd: (value) => { this.cwd = value; },
+      persistedTranscripts: this.persistedTranscripts,
       safeMode: this.safeMode,
       automaticPrewarm: this.automaticPrewarm,
       projectHistory: this.projectHistory,
@@ -839,22 +838,7 @@ export class PiHost {
       this.lifecycleMetrics.recordIpc(result);
       return result;
     }
-    const paging = thread.backend.capabilities.transcriptPaging;
-    let result: TranscriptPage;
-    if (paging) {
-      result = await paging.page(cursor);
-    } else {
-      const rawMessages = this.projection.branchMessages(thread);
-      result = localTranscriptPage(
-        sessionId,
-        this.projection.messages(thread, rawMessages),
-        taskProgressHistoryFromMessages(rawMessages),
-        turnActivityHistoryFromMessages(rawMessages),
-        true,
-        cursor,
-      );
-    }
-    result = clientTranscript(result);
+    const result = clientTranscript(await this.projection.transcriptPage(thread, cursor));
     this.lifecycleMetrics.recordIpc(result);
     return result;
   }

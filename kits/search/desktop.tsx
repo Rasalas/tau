@@ -1,7 +1,7 @@
 import type { DesktopExtension, RegionProps } from "tau";
 import { SearchDialogs, SearchDialogsLayer, type SearchHost } from "./dialogs.js";
 import { fileItems, projectItems, settle, threadContentItems, threadRequestItems, threadTitleItems } from "./palette-sources.js";
-import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type SearchFilesService, type ThreadFindResult, type WorkspaceStoreView } from "./protocol.js";
+import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type SearchFilesService, type WorkspaceStoreView } from "./protocol.js";
 
 /** Content search waits this long after a keystroke before it asks the host to read the threads. */
 export const THREAD_CONTENT_DELAY_MS = 150;
@@ -38,7 +38,7 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
       context.registerTranscriptFinder({
         id: "search.transcript",
         profiles: ["desktop", "web", "compact"],
-        find: async ({ sessionId, query }) => ((await host("find-in-thread", { sessionId, query })) as ThreadFindResult).messageIds,
+        find: ({ sessionId, query }) => host("find-in-thread", { sessionId, query }),
       });
 
       context.registerPaletteSource({ id: "search.threads", label: "Threads", order: 10, scope: "threads", search: threadTitleItems });
@@ -51,9 +51,17 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
           if (query.trim().length < 3) return [];
           await settle(delay, search.signal);
           if (search.signal.aborted) return [];
-          const matches = await host("threads", { query, limit: 12, ...(search.index.activeThreadId ? { activeSessionId: search.index.activeThreadId } : {}) });
-          const titled = new Set(threadTitleItems(query, search).map((item) => item.id));
-          return threadContentItems(matches, search, titled);
+          const cancel = () => { void host("threads", { query: "", channel }).catch(() => undefined); };
+          search.signal.addEventListener("abort", cancel, { once: true });
+          try {
+            const answer = await host("threads", { query, limit: 12, includeStatus: true, channel, ...(search.index.activeThreadId ? { activeSessionId: search.index.activeThreadId } : {}) });
+            if (search.signal.aborted || (!Array.isArray(answer) && answer.cancelled)) return [];
+            const result = Array.isArray(answer) ? { matches: answer, truncated: false } : answer;
+            const titled = new Set(threadTitleItems(query, search).map((item) => item.id));
+            const items = threadContentItems(result.matches, search, titled);
+            if (result.truncated || result.error) items.push({ id: "search.partial", label: "Partial thread search", detail: result.error ?? "Some thread content was not searched because search limits were reached.", access: "read" });
+            return items;
+          } finally { search.signal.removeEventListener("abort", cancel); }
         },
       });
       // `#95`, `acme/tau#95`, a request URL or a branch finds the threads that link that request.
