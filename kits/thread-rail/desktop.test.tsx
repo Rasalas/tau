@@ -668,6 +668,54 @@ describe("Thread Rail on the desktop", () => {
     expect(organizer().bulkMenu!([thread("a"), thread("d")])[0]!.items.map((item) => item.id)).not.toContain("snooze");
   });
 
+  it("regenerates a selection's titles two at a time without opening them, and says which failed", async () => {
+    const { organizer, actions, registry } = setup();
+    const pending: Array<{ id: string; settle(error?: Error): void }> = [];
+    const regenerateThread = vi.fn((id: string) => new Promise<void>((resolve, reject) => { pending.push({ id, settle: (error) => { if (error) reject(error); else resolve(); } }); }));
+    registry.activate({ id: "tau.thread-titles", name: "Titles", activate: (context) => context.provideService("tau.thread-titles/titles", { regenerate: async () => undefined, regenerateThread }) });
+    registry.dispatchWorkbenchEvent({ type: "agent-status", sessionId: "d", running: true });
+    await flush();
+    const selected = [thread("a"), thread("b"), thread("c"), thread("d")];
+    organizer().sections(selected);
+    const item = organizer().bulkMenu!(selected)[0]!.items.find((entry) => entry.id === "regenerate-titles");
+    expect(item).toMatchObject({ label: "Regenerate titles (3)", description: "Running threads stay." });
+    const update = vi.fn();
+    const toast = vi.fn(() => ({ id: "t", update, dismiss: vi.fn() }));
+    organizer().runBulkMenu!(selected, "regenerate-titles", { ...actions, toast } as unknown as WorkbenchActions);
+    await flush();
+    // Two model calls at once; the running thread waits for its run.
+    expect(pending.map((entry) => entry.id)).toEqual(["a", "b"]);
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ type: "loading", title: "Regenerating 3 titles", description: "0 of 3" }));
+    pending[0]!.settle();
+    await flush();
+    expect(pending.map((entry) => entry.id)).toEqual(["a", "b", "c"]);
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ description: "1 of 3" }));
+    pending[1]!.settle(new Error("The thread has no conversation to title yet."));
+    pending[2]!.settle();
+    await flush();
+    await flush();
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "warning", title: "Regenerated 2 of 3 titles", description: "b: The thread has no conversation to title yet.", copyText: "b: The thread has no conversation to title yet.",
+    }));
+    // Nothing was opened, and as with one title there is nothing to undo.
+    expect(actions.switchSession).not.toHaveBeenCalled();
+    expect(regenerateThread).toHaveBeenCalledTimes(3);
+  });
+
+  it("offers no title regeneration for a selection without Thread Titles, and reports success with a notice where there are no toasts", async () => {
+    const { organizer, actions, registry } = setup();
+    await flush();
+    const selected = [thread("a"), thread("b")];
+    organizer().sections(selected);
+    expect(organizer().bulkMenu!(selected).flatMap((section) => section.items.map((entry) => entry.id))).not.toContain("regenerate-titles");
+    const regenerateThread = vi.fn(async (_sessionId: string) => undefined);
+    registry.activate({ id: "tau.thread-titles", name: "Titles", activate: (context) => context.provideService("tau.thread-titles/titles", { regenerate: async () => undefined, regenerateThread }) });
+    await flush();
+    organizer().runBulkMenu!(selected, "regenerate-titles", actions);
+    await waitFor(() => expect(actions.notify).toHaveBeenCalledWith("Regenerated 2 titles."));
+    expect(regenerateThread.mock.calls.map((call) => call[0])).toEqual(["a", "b"]);
+  });
+
   it("never moves the reader to a thread deleted in the same batch", async () => {
     const { organizer, actions } = setup();
     await flush();

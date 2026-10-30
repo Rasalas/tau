@@ -305,7 +305,8 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   };
   const searcher = useSyncExternalStore(search?.subscribe ?? noSlot, () => search?.get());
   const { localFiles } = useHostCapabilities();
-  const editor = localFiles ? workspaceStore.activeEditor() : undefined;
+  // Another machine's project opens in this device's editor when the window placed it so.
+  const editor = localFiles || workspaceStore.editorsHere() ? workspaceStore.activeEditor() : undefined;
 
   const tree = <FileTree
     nodes={fileTree}

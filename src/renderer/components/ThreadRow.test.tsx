@@ -389,3 +389,13 @@ describe("ThreadRow error states (2c)", () => {
     expect(badge?.querySelector(`svg.${icon}`)).not.toBeNull();
   });
 });
+
+describe("ThreadRow MCP client mark", () => {
+  it.each([false, true])("names the client that started the thread and its ceiling (compact %s), and nothing for the owner's", (compact) => {
+    render(<ThreadRow activity="idle" active={false} age="now" compact={compact} session={{ ...session, mcpClient: { name: "Claude Code", ceiling: "ask" } }} onSelect={() => {}} />);
+    expect(screen.getByRole("img", { name: "Started by Claude Code · Ask before edits" })).toBeTruthy();
+    cleanup();
+    render(<ThreadRow activity="idle" active={false} age="now" compact={compact} session={session} onSelect={() => {}} />);
+    expect(screen.queryByRole("img", { name: /Started by/u })).toBeNull();
+  });
+});

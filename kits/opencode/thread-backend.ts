@@ -351,7 +351,7 @@ export class OpenCodeThreadRuntimeBackend implements ThreadRuntimeBackend {
     await this.store.appendMessages(this.threadId, this.cwd, [user]);
     this.deliver(user);
     input.onAdmitted?.(true);
-    const parts = promptParts(prepared.runtimeText, input.attachments);
+    const parts = promptParts(input.continuationContext ? `Previous conversation from another runtime:\n${input.continuationContext}\n\nCurrent message:\n${prepared.runtimeText}` : prepared.runtimeText, input.attachments);
     const running = this.turns[0];
     // OpenCode queues a prompt that arrives while it works and answers it in the same run.
     if (input.delivery === "steer" && running?.posted && !running.status && this.live && !this.live.server.closed && this.sessionId) {

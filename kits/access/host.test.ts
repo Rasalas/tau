@@ -206,3 +206,65 @@ it("lets Scheduling read the configured default for new threads through the exis
   expect(await caller!.invokeHostExtension("tau.access", "level")).toBe("full");
   await registry.deactivate("tau.access");
 });
+
+it("keeps each kit's narrowing of a thread apart, so Scheduling lifting its ceiling leaves an agent's in place", async () => {
+  let policy: ((threadId?: string) => AccessLevel) | undefined;
+  const registry = await activateHostKit(createAccessHostExtension(), { setPermissionLevel: (provider) => { policy = provider; } });
+  let agents: HostExtensionContext | undefined;
+  let scheduling: HostExtensionContext | undefined;
+  await registry.activate({ id: "tau.agents", name: "Agents", activate(context) { agents = context; } });
+  await registry.activate({ id: "tau.scheduling", name: "Scheduling", activate(context) { scheduling = context; } });
+  await agents!.invokeHostExtension("tau.access", "thread-level", { threadId: "t", level: "auto" });
+  await expect(scheduling!.invokeHostExtension("tau.access", "thread-level", { threadId: "t", level: "ask" })).resolves.toBe("ask");
+  await expect(scheduling!.invokeHostExtension("tau.access", "thread-level-of", { threadId: "t" })).resolves.toBe("ask");
+  await expect(scheduling!.invokeHostExtension("tau.access", "thread-level", { threadId: "t", level: null })).resolves.toBe("auto");
+  expect(policy?.("t")).toBe("auto");
+  await agents!.invokeHostExtension("tau.access", "thread-level", { threadId: "t", level: null });
+  expect(policy?.("t")).toBe("full");
+  await registry.deactivate("tau.access");
+});
+
+it("keeps core's narrowing of a thread when a kit lifts its own, as an external MCP client's ceiling needs", async () => {
+  let policy: ((threadId?: string) => AccessLevel) | undefined;
+  const registry = await activateHostKit(createAccessHostExtension(), { setPermissionLevel: (provider) => { policy = provider; } });
+  let scheduling: HostExtensionContext | undefined;
+  await registry.activate({ id: "tau.scheduling", name: "Scheduling", activate(context) { scheduling = context; } });
+  // The host itself calls without a kit identity (ADR 0046).
+  await expect(registry.invoke("tau.access", "thread-level", { threadId: "t", level: "read-only" })).resolves.toBe("read-only");
+  await scheduling!.invokeHostExtension("tau.access", "thread-level", { threadId: "t", level: "ask" });
+  await scheduling!.invokeHostExtension("tau.access", "thread-level", { threadId: "t", level: null });
+  expect(policy?.("t")).toBe("read-only");
+  await registry.deactivate("tau.access");
+});
+
+it("refuses a paired device that tries to lift a thread's narrowing", async () => {
+  let policy: ((threadId?: string) => AccessLevel) | undefined;
+  const registry = await activateHostKit(createAccessHostExtension(), { setPermissionLevel: (provider) => { policy = provider; } });
+  await registry.invoke("tau.access", "thread-level", { threadId: "t", level: "ask" });
+  const device = { kind: "workbench-client", connection: "phone", pairedClient: "device" } as const;
+  await expect(registry.invoke("tau.access", "thread-level", { threadId: "t", level: null }, device)).rejects.toThrow("Only a connection");
+  expect(policy?.("t")).toBe("ask");
+  await registry.deactivate("tau.access");
+});
+
+it("tells clients how far a thread is narrowed, without the workbench's level, and when that changes", async () => {
+  const events: PublishedKitEvent[] = [];
+  const registry = await activateHostKit(createAccessHostExtension(), { setPermissionLevel: () => undefined }, (event) => events.push(event));
+  await registry.invoke("tau.access", "set-level", { level: "read-only" });
+  events.length = 0;
+  await expect(registry.invoke("tau.access", "thread-narrowing", { threadId: "t" })).resolves.toBeNull();
+  await registry.invoke("tau.access", "thread-level", { threadId: "t", level: "ask" });
+  // The composer shows the stricter of this and the level its person picked.
+  await expect(registry.invoke("tau.access", "thread-narrowing", { threadId: "t" })).resolves.toBe("ask");
+  expect(events).toEqual([{ type: "extension-event", extensionId: "tau.access", name: "thread-narrowing", payload: { threadId: "t" } }]);
+  // The same narrowing again changes nothing a client draws.
+  await registry.invoke("tau.access", "thread-level", { threadId: "t", level: "ask" });
+  expect(events).toHaveLength(1);
+  // A device that may only look still reads it.
+  const looker = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+  await expect(registry.invoke("tau.access", "thread-narrowing", { threadId: "t" }, looker)).resolves.toBe("ask");
+  await registry.invoke("tau.access", "thread-level", { threadId: "t", level: null });
+  expect(events).toHaveLength(2);
+  await expect(registry.invoke("tau.access", "thread-narrowing", { threadId: "t" })).resolves.toBeNull();
+  await registry.deactivate("tau.access");
+});

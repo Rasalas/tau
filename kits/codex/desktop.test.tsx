@@ -335,6 +335,24 @@ it("gives the thinking chip Codex's fast tier, and none to a draft", async () =>
   await waitFor(() => expect(speed.read(draft)).toEqual({ fast: false, available: false, reason: "Codex sets Fast once the thread runs" }));
 });
 
+it("shows Fast on for a model that defaults to it, and turns it off with the standard tier", async () => {
+  const { createCodexSpeed } = await import("./desktop.js");
+  let selected: string | null = null;
+  const settings = () => ({ account: "default", accounts: [], serviceTier: { selected, defaultTier: "fast", choices: [{ id: "default", name: "Standard" }, { id: "fast", name: "Fast" }] } });
+  const invoke = vi.fn(async (command: string, input?: unknown) => {
+    if (command === "set-thread-tier") selected = (input as { tier?: string | null } | undefined)?.tier ?? null;
+    return settings();
+  });
+  const speed = createCodexSpeed(host(invoke));
+  speed.subscribe(vi.fn());
+  const snapshot = { sessionId: "thread", backendKind: "codex", model: { id: "gpt-6-sol" } } as HostSnapshot;
+  speed.read(snapshot);
+  await waitFor(() => expect(speed.read(snapshot)).toMatchObject({ fast: true, available: true }));
+  await speed.set(false, snapshot);
+  expect(invoke).toHaveBeenCalledWith("set-thread-tier", { threadId: "thread", tier: "default" });
+  expect(speed.read(snapshot)).toMatchObject({ fast: false });
+});
+
 it("keeps a managed thread's account banner and limit notices with its executing account after a switch", async () => {
   const listeners = new Map<string, (value: unknown) => void>();
   let account = "default";

@@ -348,6 +348,70 @@ describe("host durable recovery through public operations", () => {
     await second.host.queue.flush();
   });
 
+  it("sends a message written while limited exactly once at its reset, after a restart that slept through it", async () => {
+    const f = await fixture();
+    const first = await f.start();
+    await first.host.prompt("limited job", [], "saved");
+    first.settle("Usage limit reached", Date.now() + 60_000);
+    const scheduled = first.host.limits.resumeAtReset("saved");
+    // Written after the limit: this is what the thread continues with, not the continuation prompt.
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await first.host.queue.submit("saved", { text: "write the summary now", attachments: [] });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(first.texts()).toEqual(["limited job"]);
+    expect(first.host.queue.view("saved")?.messages.map((message) => message.text)).toEqual(["write the summary now"]);
+    await Promise.all([first.host.queue.flush(), first.host.limits.flush()]);
+    await first.dispose();
+
+    // The app was closed across the reset: the next start comes after it, on a clock that runs on.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    try {
+      vi.setSystemTime(scheduled.resumeAt! + 5 * 60_000);
+      const second = await f.start();
+      await expect.poll(() => second.delivered).toEqual([{ text: "write the summary now", hidden: false }]);
+      expect(second.host.limits.get("saved")).toBeUndefined();
+      expect(second.host.queue.view("saved")).toBeUndefined();
+      second.settle();
+      await Promise.all([second.host.queue.flush(), second.host.limits.flush()]);
+      await second.dispose();
+
+      // Neither file keeps it: a further restart sends nothing again.
+      const third = await f.start();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(third.texts()).toEqual([]);
+      expect(third.host.limits.get("saved")).toBeUndefined();
+      expect(third.host.queue.view("saved")).toBeUndefined();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("keeps a message written while limited through a restart before the reset, then sends it once", async () => {
+    const f = await fixture();
+    const first = await f.start();
+    await first.host.prompt("limited job", [], "saved");
+    first.settle("Usage limit reached", Date.now() + 60_000);
+    first.host.limits.resumeAtReset("saved");
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await first.host.queue.submit("saved", { text: "then fix the tests", attachments: [] });
+    await Promise.all([first.host.queue.flush(), first.host.limits.flush()]);
+    await first.dispose();
+    const second = await f.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(second.texts()).toEqual([]);
+    expect(second.host.queue.view("saved")?.messages.map((message) => message.text)).toEqual(["then fix the tests"]);
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    try {
+      // Re-arm through the public operation so the restored reset uses this clock.
+      second.host.limits.resumeAtReset("saved");
+      await vi.advanceTimersByTimeAsync(60_000 + RESUME_MARGIN_MS);
+      expect(second.delivered).toEqual([{ text: "then fix the tests", hidden: false }]);
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(second.delivered).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+    second.settle();
+    await second.host.queue.flush();
+    expect(second.texts()).toEqual(["then fix the tests"]);
+  });
+
   it("continues interrupted work before its retained follow-ups", async () => {
     const f = await fixture();
     await mkdir(join(f.cwd, ".tau"));

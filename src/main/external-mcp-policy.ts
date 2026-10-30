@@ -2,7 +2,17 @@ import { createHash } from "node:crypto";
 
 export const EXTERNAL_MCP_SCOPES = ["tau:read", "tau:threads"] as const;
 export type ExternalMcpScope = typeof EXTERNAL_MCP_SCOPES[number];
-export type ExternalMcpExecution = "read-only" | "ask" | "auto" | "full";
+export const EXTERNAL_MCP_EXECUTIONS = ["read-only", "ask", "auto", "full"] as const;
+export type ExternalMcpExecution = typeof EXTERNAL_MCP_EXECUTIONS[number];
+
+export function isExternalMcpExecution(value: unknown): value is ExternalMcpExecution {
+  return EXTERNAL_MCP_EXECUTIONS.includes(value as ExternalMcpExecution);
+}
+
+/** Strictest first: an execution ceiling may narrow the owner's level, never widen it. */
+export function strictestExecution(left: ExternalMcpExecution, right: ExternalMcpExecution | undefined): ExternalMcpExecution {
+  return right !== undefined && EXTERNAL_MCP_EXECUTIONS.indexOf(right) < EXTERNAL_MCP_EXECUTIONS.indexOf(left) ? right : left;
+}
 
 export class McpOAuthError extends Error {
   constructor(readonly code: "invalid_request" | "invalid_client" | "invalid_grant" | "invalid_scope" | "access_denied" | "temporarily_unavailable") {

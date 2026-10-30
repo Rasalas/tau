@@ -17,3 +17,6 @@
 }
 
 .prompt-stash-drop:hover { background: var(--raised-hover); color: var(--danger); }
+
+/* Other projects' entries fold under one row with their count. */
+.prompt-stash-count { color: var(--faint); font-variant-numeric: tabular-nums; }

@@ -61,17 +61,30 @@ export interface StashEntry {
   text: string;
   chips: StashedChip[];
   images: StashedImage[];
+  /**
+   * The project it was stashed in, as the thread's `cwd`. An entry from before
+   * it was recorded has it when a thread of this machine still names the project.
+   */
+  project?: string;
 }
+
+/** Entries of other projects the composer menu lists at most, newest first. */
+export const MAX_OTHER_STASH_ENTRIES = 30;
 
 export interface PromptToolsHostCommands {
   "stash-list": { input: { project: string }; output: StashEntry[] };
   "stash-add": { input: { project: string; text: string; chips: StashedChip[]; images: StashedImage[] }; output: { entry: StashEntry; evicted?: StashEntry } };
-  /** Restores an entry: answers it with its images and removes it; `undefined` when it is gone. */
-  "stash-take": { input: { project: string; id: string }; output: StashEntry | undefined };
-  "stash-drop": { input: { project: string; id: string }; output: void };
+  /** The entries of every other project's stash on this machine, newest first, at most `MAX_OTHER_STASH_ENTRIES`. */
+  "stash-list-others": { input: { project?: string }; output: StashEntry[] };
+  /**
+   * Restores an entry: answers it with its images and removes it; `undefined` when it is gone.
+   * `anyProject` finds it by id in whichever project's stash holds it.
+   */
+  "stash-take": { input: { project: string; id: string } | { id: string; anyProject: true }; output: StashEntry | undefined };
+  "stash-drop": { input: { project: string; id: string } | { id: string; anyProject: true }; output: void };
   /** The prompts of the project's other threads, newest first. */
   "project-prompts": { input: { cwd: string; excludeSessionId?: string }; output: string[] };
 }
 
-/** Emitted with `{ project }` whenever a project's stash changed, so every client recounts. */
+/** Emitted with `{ project }` whenever a project's stash changed, so every client recounts; `project` is empty when unknown. */
 export const STASH_CHANGED_EVENT = "stash-changed";

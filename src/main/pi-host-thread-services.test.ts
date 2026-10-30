@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -35,7 +35,7 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean; runtim
     await mkdir(join(local!, ".tau"));
     await writeFile(join(local!, ".tau", "config.json"), JSON.stringify({ runtimeEnabled: { fixture: options.runtimeEnabled } }));
   }
-  const calls = { opens: 0, model: [] as string[], titles: [] as string[], prompts: [] as Array<{ text: string; attachments: number; identity?: ClientTurnIdentity }> };
+  const calls = { opens: 0, model: [] as string[], titles: [] as string[], prompts: [] as Array<{ text: string; attachments: number; identity?: ClientTurnIdentity }>, attachments: [] as Array<readonly UiPromptAttachment[]> };
   const open = (threadId: string, cwd: string): ThreadRuntimeBackend => {
     calls.opens += 1;
     let title = "Saved";
@@ -45,7 +45,7 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean; runtim
       start: async () => undefined, dispose: async () => undefined, waitForIdle: async () => undefined,
       state: () => ({ streaming: false, idle: true, hasMessages: true, title, activeTools: [], supportsImageInput: options.images !== false, extensionCount: 0 }),
       preparePrompt: async (text) => ({ tauThreadId: threadId, providerSessionId: threadId, sessionId: threadId, backendKind: "fixture", runtimeCapabilities: adapter.capabilities, visibleText: text, runtimeText: text, sourceFingerprint: clientMessageFingerprint(text, []) }),
-      prompt: async (input) => { calls.prompts.push({ text: input.text, attachments: input.attachments?.length ?? 0, ...(input.identity ? { identity: input.identity } : {}) }); input.onAdmitted?.(true); return {}; },
+      prompt: async (input) => { calls.prompts.push({ text: input.text, attachments: input.attachments?.length ?? 0, ...(input.identity ? { identity: input.identity } : {}) }); calls.attachments.push(input.attachments ?? []); input.onAdmitted?.(true); return {}; },
       abort: async () => undefined, transcript: async () => [], persist: async () => undefined,
       setTitle: async (next) => { title = next; calls.titles.push(next); },
       catalogView: () => ({ thinkingLevel: "off", thinkingLevels: ["off"], allTools: [] }), models: async () => [], composerCommands: () => [],
@@ -66,13 +66,13 @@ async function bench(options: { catalogWrite?: boolean; images?: boolean; runtim
   const history = new ProjectHistory(join(root, "projects.json"));
   await history.load();
   const host = new PiHost(local!, () => undefined, history, false, false, {
-    hostExtensions: [kit], kitStateDir: join(root, "kit-state"),
+    hostExtensions: [kit], kitStateDir: join(root, "kit-state"), dataFolder: join(root, "data"),
     createModelRuntime: async () => ({ getAvailable: async () => [], getModels: () => [], getModel: () => undefined, isUsingSubscription: () => false }) as never,
   });
   cleanups.push(() => host.dispose());
   await host.start();
   await expect.poll(() => host.threadPath("saved")).toBe(externalThreadPath("fixture", "saved"));
-  return { calls, services: () => services, host, cwd: local! };
+  return { calls, services: () => services, host, cwd: local!, root };
 }
 
 describe("services that name a thread by id", () => {
@@ -143,7 +143,7 @@ describe("services that name a thread by id", () => {
   it("hands images to the thread and refuses them where its model cannot read images", async () => {
     const b = await bench();
     await b.services().sessions.send!("saved", "look", { attachments: [image] });
-    expect(b.calls.prompts).toEqual([{ text: "look", attachments: 1 }]);
+    expect(b.calls.prompts).toEqual([{ text: "look", attachments: 2 }]);
     const blind = await bench({ images: false });
     await expect(blind.services().sessions.send!("saved", "look", { attachments: [image] })).rejects.toThrow("does not support image input");
     await expect(blind.services().sessions.send!("saved", "look", { delivery: "queue", attachments: [image] })).rejects.toThrow("does not support image input");
@@ -154,7 +154,8 @@ describe("services that name a thread by id", () => {
     const b = await bench();
     const identity = { clientTurnId: "turn-1", clientMessageId: "message-1" };
     await b.services().sessions.send!("saved", "look", { attachments: [image], identity });
-    expect(b.calls.prompts).toEqual([{ text: "look", attachments: 1, identity }]);
+    // The image and the host's copy of it.
+    expect(b.calls.prompts).toEqual([{ text: "look", attachments: 2, identity }]);
   });
 
   it("keeps the sender's identity when a queued message reaches the runtime", async () => {
@@ -168,6 +169,16 @@ describe("services that name a thread by id", () => {
     const b = await bench();
     const file: UiPromptAttachment = { kind: "file", name: "spec.txt", mimeType: "text/plain", path: join(tmpdir(), "received-spec.txt"), size: 1 };
     await b.services().sessions.send!("saved", "look", { attachments: [file, image] });
-    expect(b.calls.prompts).toEqual([{ text: `look\n\nAttached files:\n- ${file.path}`, attachments: 1 }]);
+    expect(b.calls.prompts).toEqual([{ text: `look\n\nAttached files:\n- ${file.path}`, attachments: 2 }]);
+  });
+
+  it("keeps an image a thread here receives, from this machine's composer or another machine, as a file on this machine", async () => {
+    const b = await bench();
+    await b.services().sessions.send!("saved", "look", { attachments: [image] });
+    const [sent, copy] = b.calls.attachments[0]!;
+    expect(sent).toEqual(image);
+    expect(copy).toMatchObject({ kind: "file", mimeType: "image/png", size: 1 });
+    expect(copy?.kind === "file" && copy.path.startsWith(join(b.root, "data", "prompt-images", "saved"))).toBe(true);
+    expect(copy?.kind === "file" && await readFile(copy.path)).toEqual(Buffer.from(image.kind === "image" ? image.data : "", "base64"));
   });
 });

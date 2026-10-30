@@ -482,6 +482,8 @@ export interface UiThreadLimit {
   resetsAt?: number;
   /** When the host continues the thread by itself; absent until the user asks for it. */
   resumeAt?: number;
+  /** When the limit stopped the thread (epoch ms): messages queued after it are what the resume sends. */
+  limitedAt?: number;
 }
 
 export interface UiSession {
@@ -536,6 +538,8 @@ export interface UiSession {
   parentThreadId?: string;
   /** The machine and thread an imported session came from, as its file records it. */
   origin?: UiThreadOrigin;
+  /** The local MCP client that started this thread and may steer it, with the most its turns may do (ADR 0046). */
+  mcpClient?: { name: string; ceiling: "read-only" | "ask" | "auto" | "full" };
 }
 
 /** Runtime marks to display for a thread, including its home machine's runtime. New in API 1.43.0. */

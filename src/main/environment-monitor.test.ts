@@ -11,6 +11,7 @@ import type { PairingEndpoint } from "../shared/connections.js";
 import type { HostHelloReply } from "../shared/host-transport.js";
 import type { ReachedCertificate } from "./environment-monitor.js";
 import type { HostWake } from "../shared/host-link.js";
+import { HostCertificateRefusedError } from "./host-tls-trust.js";
 
 let transport: SocketHostTransport | undefined;
 const monitors: EnvironmentMonitor[] = [];
@@ -381,5 +382,134 @@ describe("a machine that goes away", () => {
     monitor.retryNow();
     expect(world.sockets).toHaveLength(4);
     expect(last().status).toBe("connecting");
+  });
+});
+
+describe("a machine with several routes", () => {
+  const LAN = "wss://192.168.1.4:7788/";
+  const TAILNET = "wss://100.64.0.9:7788/";
+  const RELAY = "wss://127.0.0.1:41000/";
+  const routes = (world: ReturnType<typeof fakeWorld>, extra: Partial<ConstructorParameters<typeof EnvironmentMonitor>[0]> = {}) =>
+    watch({ urls: () => [LAN, TAILNET, RELAY], fallback: (url) => url === RELAY, token: "t", onChange: () => undefined, ...world, ...extra });
+  const greet = (socket: FakeSocket, peer?: { id: string; name: string }) => {
+    socket.fire("open");
+    // No heartbeat: these sockets answer no ping.
+    socket.reply(peer ? { ...helloReply([]), reply: { ...helloReply([]).reply, host: peer } } : helloReply([]));
+  };
+
+  it("tries its own addresses first and Tau Connect only when none answers", () => {
+    const world = fakeWorld();
+    const { last } = routes(world);
+    expect(world.sockets[0]!.url).toBe(LAN);
+    world.sockets[0]!.fire("close", 1006);
+    world.advance(1_000);
+    expect(world.sockets[1]!.url).toBe(TAILNET);
+    world.sockets[1]!.fire("close", 1006);
+    world.advance(2_000);
+    expect(world.sockets[2]!.url).toBe(RELAY);
+    greet(world.sockets[2]!);
+    expect(last()).toMatchObject({ status: "connected", address: RELAY });
+  });
+
+  it("goes back to its own address once that opens again, saying nothing on the probe", () => {
+    const world = fakeWorld();
+    const { last } = routes(world, { urls: () => [LAN, RELAY] });
+    world.sockets[0]!.fire("close", 1006);
+    world.advance(1_000);
+    const relay = world.sockets[1]!;
+    greet(relay);
+    expect(last().address).toBe(RELAY);
+
+    // The first look finds the LAN still away; the relay stays.
+    world.advance(15_000);
+    const away = world.sockets[2]!;
+    expect(away.url).toBe(LAN);
+    away.fire("close", 1006);
+    expect(away.closed).toBe(true);
+    expect(last()).toMatchObject({ status: "connected", address: RELAY });
+
+    // The next look is later, and the LAN answers with the machine's key.
+    world.advance(29_999);
+    expect(world.sockets).toHaveLength(3);
+    world.advance(1);
+    const probe = world.sockets[3]!;
+    expect(probe.url).toBe(LAN);
+    probe.fire("open");
+    expect(probe.sent).toEqual([]);
+    expect(probe.closed).toBe(true);
+    expect(relay.closed).toBe(true);
+    const back = world.sockets[4]!;
+    expect(back.url).toBe(LAN);
+    expect(last().status).toBe("connecting");
+    greet(back);
+    expect(last()).toMatchObject({ status: "connected", address: LAN });
+    // On its own address, nothing looks for a better one.
+    world.advance(600_000);
+    expect(world.sockets).toHaveLength(5);
+  });
+
+  it("looks for its own address less often each time it did not hold, so it does not flap", () => {
+    const world = fakeWorld();
+    routes(world, { urls: () => [LAN, RELAY] });
+    world.sockets[0]!.fire("close", 1006);
+    world.advance(1_000);
+    greet(world.sockets[1]!);
+    const lookedAt: number[] = [];
+    let start = world.now();
+    for (let look = 0; look < 6; look += 1) {
+      const before = world.sockets.length;
+      while (world.sockets.length === before) world.advance(1_000);
+      lookedAt.push(world.now() - start);
+      start = world.now();
+      // The probe opens, but the address drops again right after its hello.
+      world.sockets.at(-1)!.fire("open");
+      const back = world.sockets.at(-1)!;
+      greet(back);
+      back.fire("close", 1006);
+      world.advance(1_000);
+      greet(world.sockets.at(-1)!);
+    }
+    expect(lookedAt).toEqual([15_000, 30_000, 60_000, 120_000, 300_000, 300_000].map((ms, position) => ms + (position === 0 ? 0 : 1_000)));
+  });
+
+  it("never takes a route that shows another key or names another machine, and goes on to the next", () => {
+    const world = fakeWorld();
+    const { last } = routes(world, { hostId: "host-studio" });
+    world.sockets[0]!.fire("error", new HostCertificateRefusedError("CD", "AB", "key"));
+    expect(world.sockets[0]!.sent).toEqual([]);
+    expect(last()).toMatchObject({ status: "offline", detail: expect.stringMatching(/presented a key/u) });
+    world.advance(1_000);
+    greet(world.sockets[1]!, { id: "host-other", name: "attic" });
+    expect(last()).toMatchObject({ status: "offline", detail: expect.stringMatching(/answered as another machine, attic/u) });
+    expect(world.sockets[1]!.closed).toBe(true);
+    world.advance(2_000);
+    greet(world.sockets[2]!, { id: "host-studio", name: "studio" });
+    expect(last()).toMatchObject({ status: "connected", address: RELAY });
+  });
+
+  it("is refused once no route let it in and one of them was another machine", () => {
+    const world = fakeWorld();
+    const { last } = routes(world);
+    world.sockets[0]!.fire("close", 1006);
+    world.advance(1_000);
+    world.sockets[1]!.fire("error", new HostCertificateRefusedError("CD", "AB", "key"));
+    world.advance(2_000);
+    expect(last().status).toBe("offline");
+    world.sockets[2]!.fire("close", 1006);
+    expect(last()).toMatchObject({ status: "refused", detail: expect.stringMatching(/presented a key/u) });
+    world.advance(60_000);
+    expect(world.sockets).toHaveLength(3);
+  });
+
+  it("does not take a better route whose probe shows another key", () => {
+    const world = fakeWorld();
+    const { last } = routes(world, { urls: () => [LAN, RELAY] });
+    world.sockets[0]!.fire("close", 1006);
+    world.advance(1_000);
+    greet(world.sockets[1]!);
+    world.advance(15_000);
+    world.sockets[2]!.fire("error", new HostCertificateRefusedError("CD", "AB", "key"));
+    expect(last()).toMatchObject({ status: "connected", address: RELAY });
+    expect(world.sockets).toHaveLength(3);
   });
 });

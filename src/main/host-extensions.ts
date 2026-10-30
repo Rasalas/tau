@@ -258,6 +258,14 @@ export class HostExtensionRegistry {
   private readonly machineRouting = new Map<string, HostMachineRoutingContribution>();
   private readonly machineRoutingObservers = new Set<() => void>();
 
+  private readonly activationObservers = new Set<(id: string) => void>();
+
+  /** Hears every extension that became active, once its commands answer; a reload is a new activation. */
+  observeActivation(listener: (id: string) => void): () => void {
+    this.activationObservers.add(listener);
+    return () => { this.activationObservers.delete(listener); };
+  }
+
   observeMachineRouting(listener: () => void): () => void {
     this.machineRoutingObservers.add(listener);
     return () => { this.machineRoutingObservers.delete(listener); };
@@ -410,6 +418,9 @@ export class HostExtensionRegistry {
       record.startedAt = this.now();
       this.active.set(extension.id, record);
       this.services.log("host-extension.activated", `${extension.name} · ${[...record.commands.keys()].join(", ") || "no commands"}`);
+      for (const observer of [...this.activationObservers]) {
+        try { observer(extension.id); } catch (error) { this.services.log("host-extension.activation-observer-failed", error instanceof Error ? error.message : String(error)); }
+      }
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

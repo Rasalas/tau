@@ -47,6 +47,53 @@ describe("resolveProjectIcon", () => {
     expect(await resolveProjectIcon(project)).toBe("data:image/webp;base64,AQID");
   });
 
+  it("follows an apple-touch-icon link", async () => {
+    const project = await temporaryProject();
+    await mkdir(join(project, "public"));
+    await writeFile(join(project, "index.html"), '<link rel="apple-touch-icon" href="/touch.png">');
+    await writeFile(join(project, "public", "touch.png"), Buffer.from([1, 2, 3]));
+
+    expect(await resolveProjectIcon(project)).toBe("data:image/png;base64,AQID");
+  });
+
+  it("takes the largest icon a web app manifest lists", async () => {
+    const project = await temporaryProject();
+    await mkdir(join(project, "public", "icons"), { recursive: true });
+    await writeFile(join(project, "public", "site.webmanifest"), JSON.stringify({ icons: [
+      { src: "/icons/small.png", sizes: "48x48" },
+      { src: "icons/large.png", sizes: "192x192 512x512" },
+      { src: "https://cdn.example/remote.png", sizes: "1024x1024" },
+    ] }));
+    await writeFile(join(project, "public", "icons", "small.png"), Buffer.from([1]));
+    await writeFile(join(project, "public", "icons", "large.png"), Buffer.from([2]));
+
+    expect(await resolveProjectIcon(project)).toBe(`data:image/png;base64,${Buffer.from([2]).toString("base64")}`);
+  });
+
+  it("finds a sized favicon or a root .ico under any of the usual names", async () => {
+    const sized = await temporaryProject();
+    await mkdir(join(sized, "static"));
+    await writeFile(join(sized, "static", "favicon-16x16.png"), Buffer.from([1]));
+    await writeFile(join(sized, "static", "favicon-32x32.png"), Buffer.from([2]));
+    await writeFile(join(sized, "static", "logo.png"), Buffer.from([3]));
+    expect(await resolveProjectIcon(sized)).toBe(`data:image/png;base64,${Buffer.from([2]).toString("base64")}`);
+
+    const ico = await temporaryProject();
+    await writeFile(join(ico, "brand.ico"), Buffer.from([4]));
+    expect(await resolveProjectIcon(ico)).toBe(`data:image/x-icon;base64,${Buffer.from([4]).toString("base64")}`);
+
+    const nextApp = await temporaryProject();
+    await mkdir(join(nextApp, "app"));
+    await writeFile(join(nextApp, "app", "apple-icon.jpg"), Buffer.from([5]));
+    expect(await resolveProjectIcon(nextApp)).toBe(`data:image/jpeg;base64,${Buffer.from([5]).toString("base64")}`);
+  });
+
+  it("finds nothing in a project without an icon", async () => {
+    const project = await temporaryProject();
+    await writeFile(join(project, "README.md"), "# Plain");
+    expect(await resolveProjectIcon(project)).toBeUndefined();
+  });
+
   it("falls back to automatic detection when iconPath escapes the project", async () => {
     const parent = await temporaryProject();
     const project = join(parent, "project");

@@ -1,6 +1,7 @@
 import { createExternalPrompt } from "./external-prompt.js";
 import { publishedHead } from "./published-head.js";
-import { createNamedProject, createScratchWorkspace, isScratchWorkspace } from "./project-starts.js";
+import { createNamedProject, createScratchWorkspace, isScratchWorkspace, publishNewProject } from "./project-starts.js";
+import { readNewProjectGithub, type NewProjectGithub } from "./project-github.js";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -34,6 +35,8 @@ import { readVisualizationFragment } from "./visualization-content.js";
 import { GitCoordinator } from "./git-coordinator.js";
 import { readBoundedFileContent, statFile, writeTextFile } from "./file-content.js";
 import { defaultEditorProbe, editorCommand, FILE_MANAGER_ID, findInstalledEditors, launchEditor } from "./editors.js";
+import { EditorMachineSettings } from "./editor-machines.js";
+import { decodeRemoteLocation, remoteEditorCommand, remoteEditorUnsupported, remotePathInside, type RemotePlatform } from "./remote-editors.js";
 import { AUTO_PULL_OPTION, CHECKPOINT_EVENT, CLONE_PROGRESS_EVENT, HEAD_CHANGED_EVENT, isWorktreeSubmodules, PROJECT_SCRIPTS_HOST_EXTENSION_ID, WORKSPACE_HOST_EXTENSION_ID, WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC, type ProjectDefaults, type UiDirectoryListing } from "./protocol.js";
 import { createBranchRequests } from "./branch-request.js";
 import { readReviewRequestContext } from "./review-request-context.js";
@@ -57,6 +60,8 @@ import { readSetupFile, registerProjectApprovals } from "./project-approval-host
 import { createFolderIndexCache, repositoryOf } from "./folder-index.js";
 
 const execFileAsync = promisify(execFile);
+/** Run by the window machine's host whatever thread is shown: its editors open on this device's screen. */
+const REMOTE_EDITOR_COMMANDS = ["remote-editors", "open-remote-editor", "editor-machines", "set-editor-machine"];
 /** The kits built on this one; their host entries may call the commands that name them. */
 const REVIEW_KIT_ID = "tau.review";
 /** Workspaces one `thread-branches` call reads at most. */
@@ -199,9 +204,11 @@ export function createWorkspaceHostExtension(): HostExtension {
       "runtime:extend",
       "process",
       "network",
+      // Only to name this machine to an editor elsewhere (`editor-target`).
+      "machines",
     ],
     async activate(context: HostExtensionContext) {
-      context.registerMachineRouting({ localCommands: ["pick-folder", "create-scratch", "create-project", "publish-visualization", "release-visualization"] });
+      context.registerMachineRouting({ localCommands: ["pick-folder", "create-scratch", "create-project", "publish-visualization", "release-visualization", ...REMOTE_EDITOR_COMMANDS] });
       const { services } = context;
       const approvals = registerProjectApprovals(context);
       // The kit owns the Git cache; core only learns project facts from it.
@@ -319,11 +326,23 @@ export function createWorkspaceHostExtension(): HostExtension {
       });
       context.registerCommand("create-project", async (input) => {
         const name = requiredString(input, "name");
+        // A malformed GitHub choice is refused before any folder exists.
+        let github: NewProjectGithub | undefined;
+        try { github = readNewProjectGithub(record(input).github); } catch (error) { throw new HostCommandError(error instanceof Error ? error.message : String(error)); }
         const parent = optionalString(input, "parentPath") ?? await services.pickDirectory();
         if (!parent) return undefined;
         const created = await createNamedProject(expandHome(parent), name, gitExecutable());
         services.rememberProjectName(created.path, name.trim());
-        return { workspace: services.admitWorkspace(created.path), ...(created.warning ? { warning: created.warning } : {}) };
+        const workspace = services.admitWorkspace(created.path);
+        if (!github) return { workspace, ...(created.warning ? { warning: created.warning } : {}) };
+        // Review Kit publishes it on this host, the project's home; a failure is a warning, never a lost project.
+        const published = await publishNewProject(
+          (request) => context.invokeHostExtension(REVIEW_KIT_ID, "publish-repository", request),
+          { workspace: workspace.workspaceId, name, ...(created.warning ? { warning: created.warning } : {}) },
+          github,
+        );
+        if (published.warning) services.log("project.github-skipped", published.warning);
+        return { workspace, ...published };
       }, { long: true });
       // Project sources: browse, pick, clone. Opening the result is core's job.
       context.registerCommand("list-directories", async (input, call) => {
@@ -997,6 +1016,52 @@ export function createWorkspaceHostExtension(): HostExtension {
           ...(typeof line === "number" ? { line } : {}),
           ...(typeof column === "number" ? { column } : {}),
         });
+      });
+      context.registerCommand("editor-target", async (input) => {
+        const root = await services.knownWorkspacePath(workspaceOf(input));
+        const path = optionalRelativePath(input);
+        if (path) await workspacePaths.assertWorkspacePath(root, path);
+        const target = path ? resolve(root, path) : undefined;
+        const isFile = target ? (await stat(target)).isFile() : false;
+        let self: { id: string; name: string } | undefined;
+        try { self = services.machines?.self; } catch { self = undefined; }
+        const platform: RemotePlatform = process.platform === "win32" ? "win32" : "posix";
+        return { root, ...(target ? { path: target } : {}), isFile, platform, ...(self ? { machine: { id: self.id, name: self.name } } : {}) };
+      }, { access: "read" });
+      // Another machine's project, opened by an editor of the window's machine over SSH.
+      const editorMachines = new EditorMachineSettings(join(services.stateDir, "editor-machines.json"));
+      context.registerCommand("remote-editors", (input) => {
+        const location = decodeRemoteLocation(record(input).location);
+        return installedEditors().map(({ id, name, launch }) => {
+          const unsupported = remoteEditorUnsupported({ id, name, launch }, location);
+          return { id, name, ...(unsupported ? { unsupported } : {}) };
+        });
+      }, { access: "read" });
+      context.registerCommand("open-remote-editor", async (input) => {
+        const editorId = requiredString(input, "editorId");
+        const location = decodeRemoteLocation(record(input).location);
+        const root = requiredString(input, "root");
+        const path = optionalString(input, "path");
+        const platform: RemotePlatform = record(input).platform === "win32" ? "win32" : "posix";
+        if (!remotePathInside(root, root, platform) || (path !== undefined && !remotePathInside(root, path, platform))) throw new HostCommandError("Name a file inside the project.");
+        const line = record(input).line;
+        const column = record(input).column;
+        const position = { ...(typeof line === "number" ? { line } : {}), ...(typeof column === "number" ? { column } : {}) };
+        const editor = installedEditors().find((entry) => entry.id === editorId);
+        if (!editor) throw new HostCommandError(`${editorId} is not installed on this machine.`);
+        let launch: { command: string; args: string[] };
+        try { launch = remoteEditorCommand(editor, { location, root, ...(path && path !== root ? { file: path } : {}), position, platform }); }
+        catch (error) { throw new HostCommandError(error instanceof Error ? error.message : String(error)); }
+        services.noteSubprocess();
+        await launchEditor(launch.command, launch.args, homedir());
+      });
+      context.registerCommand("editor-machines", () => editorMachines.read(), { access: "read" });
+      context.registerCommand("set-editor-machine", async (input) => {
+        const item = record(input);
+        const ssh = item.ssh === null || typeof item.ssh === "string" ? item.ssh : undefined;
+        const openOn = item.openOn === null || item.openOn === "here" || item.openOn === "machine" ? item.openOn : undefined;
+        try { return await editorMachines.set(requiredString(input, "machine"), { ...(ssh !== undefined ? { ssh } : {}), ...(openOn !== undefined ? { openOn } : {}) }); }
+        catch (error) { throw new HostCommandError(error instanceof Error ? error.message : String(error)); }
       });
       context.registerCommand("list-terminals", () => terminals.listTerminals(), { access: "read" });
       context.registerCommand("open-terminal", async (input) => {

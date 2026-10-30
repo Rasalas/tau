@@ -98,10 +98,11 @@ export class ThreadProjection {
 
   /** `branchMessages`: the thread's, when the caller has just read them. */
   messages(thread: ThreadRuntime, branchMessages?: unknown[]): UiMessage[] {
-    const messages: UiMessage[] = [];
+    const conversation = thread.backend.capabilities.conversation;
+    const messages: UiMessage[] = isPiBackend(thread) ? [...conversation?.history() ?? []] : [];
     if (isPiBackend(thread)) {
       const mapping = this.mapping(thread);
-      messages.push(...(branchMessages ?? this.branchMessages(thread))
+      messages.push(...(branchMessages ?? this.branchMessages(thread)).slice(conversation?.offset ?? 0)
         .map((message, index) => mapMessage(message, index, mapping))
         .filter((message): message is UiMessage => isVisibleMessage(message, mapping.pinned)));
     }
@@ -114,6 +115,7 @@ export class ThreadProjection {
    * persisted reader's index once per branch revision and reuse its cache.
    */
   async transcriptPage(thread: ThreadRuntime, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
+    if (thread.backend.capabilities.conversation) return localTranscriptPage(thread.threadId, this.messages(thread), [], isPiBackend(thread) ? [...thread.backend.capabilities.conversation.activity(), ...turnActivityHistoryFromMessages(this.branchMessages(thread))] : thread.adapterActivity, true, cursor);
     const paging = thread.backend.capabilities.transcriptPaging;
     if (paging) return paging.page(cursor);
     if (!isPiBackend(thread)) return localTranscriptPage(
@@ -306,7 +308,7 @@ export class ThreadProjection {
       isCompacting: thread.isCompacting || thread.compactionPending,
       activeTools: [...state.activeTools],
       turnActivity: this.turnActivity(thread, branchMessages),
-      turnActivityHistory: turnActivityHistoryFromMessages(branchMessages),
+      turnActivityHistory: [...thread.backend.capabilities.conversation?.activity() ?? [], ...turnActivityHistoryFromMessages(branchMessages)],
       taskProgress: taskProgressFromMessages(branchMessages),
       taskHistory: taskProgressHistoryFromMessages(branchMessages),
       allTools: [...view.allTools],

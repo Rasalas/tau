@@ -23,6 +23,7 @@ import { tauHomeDir } from "./app-identity.js";
 /** The part of `node:os` a reading needs; tests hand in their own. */
 export interface ResourceOs {
   platform(): NodeJS.Platform;
+  arch?(): string;
   cpus(): ReadonlyArray<{ times: { user: number; nice: number; sys: number; idle: number; irq: number } }>;
   totalmem(): number;
   freemem(): number;
@@ -105,7 +106,7 @@ export function testResourceOs(env: NodeJS.ProcessEnv = process.env, os: Resourc
     last = next;
     return Array.from({ length: count }, () => ({ times: { user: busy / count, nice: 0, sys: 0, idle: idle / count, irq: 0 } }));
   };
-  return { platform: () => os.platform(), cpus, totalmem: () => os.totalmem(), freemem: () => os.freemem() };
+  return { platform: () => os.platform(), ...(os.arch ? { arch: () => os.arch!() } : {}), cpus, totalmem: () => os.totalmem(), freemem: () => os.freemem() };
 }
 
 /** The ticket's 5 s: long enough that one busy burst does not decide. */
@@ -178,7 +179,10 @@ export class HostResourceSampler {
       (this.options.battery ?? platformBattery)(this.os.platform()).catch(() => undefined),
     ]);
     const cpu = utilization(before, after);
+    const arch = this.os.arch?.();
     const result: HostResources = {
+      platform: this.os.platform(),
+      ...(arch ? { arch } : {}),
       sampledAt: this.now(),
       cpuCount: after.count,
       ...(cpu !== undefined ? { cpuUtilization: cpu } : {}),

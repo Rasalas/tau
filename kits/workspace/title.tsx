@@ -82,16 +82,27 @@ const EDITOR_PREFIX = "editor:";
 const GIT_PREFIX = "git:";
 
 /** The editors "Open in" offers, the chosen one marked. */
-function editorSections(editors: ReturnType<typeof useWorkspaceKit>["editors"], active?: { id: string }): MenuSection[] {
+function editorSections(editors: ReturnType<typeof useWorkspaceKit>["editors"], active?: { id: string }, remote?: ReturnType<typeof useWorkspaceKit>["editorRemote"]): MenuSection[] {
   return editors.length > 0 ? [{
-    heading: "Open in",
+    heading: remote ? `Open ${remote.name}'s project in` : "Open in",
     items: editors.map((editor) => ({
       id: `${EDITOR_PREFIX}${editor.id}`,
       label: editor.name,
       selected: editor.id === active?.id,
+      // An editor that cannot reach the other machine stays listed, saying why.
+      ...(editor.unsupported ? { disabled: true, description: editor.unsupported } : {}),
       icon: <EditorIcon editorId={editor.id} className="menu-editor-icon" />,
     })),
   }] : [];
+}
+
+/** What the editor button says when it has nothing to open the project with. */
+export function editorButtonLabel(state: Pick<ReturnType<typeof useWorkspaceKit>, "editorRemote" | "editors">, active?: { name: string }): string {
+  const remote = state.editorRemote;
+  if (active) return remote?.location?.kind === "ssh" ? `Open in ${active.name} on ${remote.name} over SSH (${remote.location.destination})` : `Open in ${active.name}`;
+  if (remote?.problem) return remote.problem;
+  if (remote) return state.editors.length > 0 ? `No editor on this device opens a project of ${remote.name}` : `No supported editor found on this device`;
+  return "No supported editor found on PATH";
 }
 
 /**
@@ -105,10 +116,11 @@ export function WorkspaceEditorButton(_props: RegionProps) {
   const { localFiles } = useHostCapabilities();
   useSyncExternalStore(preferences.subscribe, preferences.getSnapshot, preferences.getSnapshot);
   const [menu, setMenu] = useState(false);
-  if (!localFiles) return null;
+  // A project of another machine opens in this device's editor over SSH, when the window places it so.
+  if (!localFiles && !workspaceStore.editorsHere()) return null;
   const activeEditor = workspaceStore.activeEditor();
   const mac = typeof navigator !== "undefined" && /mac|iphone|ipad/iu.test(navigator.platform);
-  const label = activeEditor ? `Open in ${activeEditor.name}` : "No supported editor found on PATH";
+  const label = editorButtonLabel(state, activeEditor);
   return <span className="menu-anchor workspace-editor-button" aria-label="Open in editor" role="group">
     <button
       type="button"
@@ -130,7 +142,7 @@ export function WorkspaceEditorButton(_props: RegionProps) {
     ><ChevronDown size={12} /></button>
     {menu ? <Menu
       align="right"
-      sections={editorSections(state.editors, activeEditor)}
+      sections={editorSections(state.editors, activeEditor, state.editorRemote)}
       label="Open in"
       onSelect={(id) => {
         setMenu(false);

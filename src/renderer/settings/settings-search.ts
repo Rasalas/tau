@@ -104,6 +104,7 @@ const CORE_PAGES: ReadonlyArray<{ page: string; label: string; keywords: readonl
     rows: [
       ["Address", ["url", "endpoint", "reachable", "ip"]],
       ["Other machines", ["nearby", "bonjour", "find machines", "discover"]],
+      ["MCP clients", ["mcp", "claude code", "codex", "cursor", "claude desktop", "token", "external client", "loopback"]],
       ["Local network", ["lan", "wifi", "listen", "network access"]],
       ["Announce on this network", ["bonjour", "mdns", "discover", "announce"]],
       ["Tailscale", ["tailnet", "magicdns", "vpn"]],

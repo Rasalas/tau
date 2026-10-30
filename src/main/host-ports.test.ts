@@ -69,6 +69,18 @@ describe("registerRuntimeBackend", () => {
   });
 });
 
+describe("reopenThread", () => {
+  it("hands a kit the port's reopened thread, and is absent where the port cannot reopen one", async () => {
+    const thread = { sessionId: "s2" };
+    const reopenThread = vi.fn(async () => thread);
+    const base = { registerTurnObserver: () => () => undefined, log: () => undefined };
+    const { services } = createHostExtensionSeam({ ...base, reopenThread } as unknown as ExtensionServicesPort);
+    await expect(services.reopenThread?.("s2")).resolves.toBe(thread);
+    expect(reopenThread).toHaveBeenCalledWith("s2");
+    expect(createHostExtensionSeam(base as unknown as ExtensionServicesPort).services.reopenThread).toBeUndefined();
+  });
+});
+
 describe("sessions.open for a session another process holds", () => {
   const timestamp = "2026-09-27T00:00:00.000Z";
   const entry = (id: string, parentId: string | null, role: "user" | "assistant", text: string) =>
@@ -187,6 +199,36 @@ describe("startOwnPackage", () => {
     expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "ask", "t1");
     await built.services.startOwnPackage("hello", "f1", "t2");
     expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "read-only", "t2");
+  });
+
+  it("clamps every runtime's level to a thread's core ceiling, whatever an extension provides or lifts", async () => {
+    const { seam: built, startOwnExtensionPackage } = seam();
+    built.setThreadCeiling((threadId) => threadId === "client" ? "ask" : undefined);
+    expect(built.permissionLevel("client")).toBe("ask");
+    expect(built.permissionLevel("owner")).toBe("full");
+    built.services.setPermissionLevel(() => "auto");
+    expect(built.permissionLevel("client")).toBe("ask");
+    built.services.setPermissionLevel(() => "read-only");
+    expect(built.permissionLevel("client")).toBe("read-only");
+    // An access extension reloading leaves no provider for a moment; the ceiling holds.
+    built.services.setPermissionLevel(undefined);
+    expect(built.permissionLevel("client")).toBe("ask");
+    await built.services.startOwnPackage("hello", "f1", "client");
+    expect(startOwnExtensionPackage).toHaveBeenLastCalledWith("hello", "f1", "ask", "client");
+  });
+
+  it("keeps Tau's MCP tools from a ceilinged thread while no extension enforces its level", async () => {
+    const { seam: built } = seam();
+    const execute = vi.fn(async () => ({ content: [{ type: "text", text: "ran" }], details: undefined }));
+    built.services.mcp.registerTools(() => [{ name: "tau_write", label: "w", description: "w", parameters: { type: "object", properties: {} }, execute } as never]);
+    built.setThreadCeiling((threadId) => threadId === "client" ? "ask" : undefined);
+    const call = (threadId: string) => built.mcp.call({ sessionId: threadId, cwd: "/w" }, "tau_write", {});
+    expect((await call("client")).isError).toBe(true);
+    expect((await call("owner")).isError).toBeUndefined();
+    built.services.setPermissionLevel(() => "full");
+    expect((await call("client")).isError).toBeUndefined();
+    expect(execute).toHaveBeenCalledTimes(2);
+    await built.mcp.close();
   });
 
   it("turns a package off as the owner only", async () => {

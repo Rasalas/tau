@@ -11,6 +11,8 @@ export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export const THREAD_TITLES_SERVICE = "tau.thread-titles/titles";
 export interface ThreadTitlesSlice {
   regenerate(actions: WorkbenchActions): Promise<void>;
+  /** Names a thread again by id without opening it; absent on an older Thread Titles. */
+  regenerateThread?(sessionId: string): Promise<void>;
 }
 /** Review Kit's host entry; its `pr-status` names Thread Rail as a caller. */
 export const REVIEW_EXTENSION_ID = "tau.review";

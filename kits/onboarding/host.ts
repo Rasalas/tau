@@ -59,7 +59,7 @@ function version(stdout: string): string | undefined {
   return /\d+\.\d+\.\d+[^\s)]*/u.exec(stdout)?.[0];
 }
 
-interface BackendScan { sessions?: unknown; truncated?: unknown }
+interface BackendScan { sessions?: unknown; truncated?: unknown; unsupported?: unknown }
 
 function sessionsOf(source: ImportableSession["source"], answer: BackendScan): ImportableSession[] {
   if (!Array.isArray(answer.sessions)) return [];
@@ -114,7 +114,8 @@ export interface OnboardingHostOptions {
 /**
  * The host half of `tau.onboarding`. It runs in a worker: it asks the
  * machine which CLIs are there, asks the backend kits which conversations
- * their CLIs keep, and hands their import on. It reads no session file itself.
+ * their CLIs keep (or why theirs cannot be imported), and hands their import
+ * on. It reads no session file itself.
  */
 export function createOnboardingHostExtension(options: OnboardingHostOptions = {}): WorkerHostExtension & { permissions: string[] } {
   const platform = options.platform ?? process.platform;
@@ -177,11 +178,13 @@ export function createOnboardingHostExtension(options: OnboardingHostOptions = {
 
       context.registerCommand("discover", async (): Promise<Discovery> => {
         const unavailable: Discovery["unavailable"] = [];
+        const unsupported: NonNullable<Discovery["unsupported"]> = [];
         let truncated = false;
         const scans = await Promise.all(SESSION_SOURCES.map(async ({ source, extensionId }) => {
           try {
             const answer = await context.invokeHostExtension(extensionId, "import-scan") as BackendScan;
             if (answer?.truncated === true) truncated = true;
+            if (typeof answer?.unsupported === "string" && answer.unsupported) unsupported.push({ source, reason: answer.unsupported });
             return sessionsOf(source, answer ?? {});
           } catch (error) {
             unavailable.push({ source, reason: error instanceof Error ? error.message : String(error) });
@@ -191,7 +194,9 @@ export function createOnboardingHostExtension(options: OnboardingHostOptions = {
         const sessions = scans.flat().sort((left, right) => right.updatedAt - left.updatedAt);
         const pi = await services.sessions.list().catch(() => []);
         // Pi's threads are Tau's already; they only suggest folders.
-        return { projects: await projectCandidates(sessions, pi, excluded), sessions, truncated, unavailable };
+        const order = (entry: { source: string }) => SESSION_SOURCES.findIndex((source) => source.source === entry.source);
+        unsupported.sort((left, right) => order(left) - order(right));
+        return { projects: await projectCandidates(sessions, pi, excluded), sessions, truncated, unavailable, unsupported };
       }, { long: true });
 
       // The identity a client opens a found folder under; the host admits it here.

@@ -17,7 +17,7 @@ import type { RemoteThreadLink, RemoteThreadStartInput } from "../remote-work/pr
 import type { AgentGitRunner } from "../workspace/agent-worktrees.js";
 import { createAgentsHostExtension, wakeMessage } from "./host.js";
 import { AGENTS_HOST_EXTENSION_ID, type AgentMachinesView, type AgentsState } from "./protocol.js";
-import { resolveMachine } from "./remote.js";
+import { listAgentMachines, resolveMachine } from "./remote.js";
 
 const made: string[] = [];
 const closers: Array<() => Promise<void> | void> = [];
@@ -252,6 +252,43 @@ describe("resolveMachine", () => {
     expect(await resolveMachine("auto", "setting", ports([rex]))).toEqual({ reason: expect.stringMatching(/choose-machine; this machine runs it/u) });
     expect(await resolveMachine("auto", "tool", ports([rex], { machine: null, reason: "rex is busy" }))).toEqual({ reason: "rex is busy" });
     expect(await resolveMachine("auto", "tool", ports([rex], { machine: "rex-id", reason: "rex has room" }))).toEqual({ machine: { id: "rex-id", name: "rex" }, reason: "rex has room" });
+  });
+});
+
+describe("listAgentMachines", () => {
+  it("names each machine's operating system, asks a machine once, and says why one is unknown", async () => {
+    const asked: string[] = [];
+    const list: HostMachine[] = [
+      { id: "studio-id", name: "studio", status: "connected" },
+      { id: "old-id", name: "old", status: "connected", hostVersion: "0.7.1" },
+      { id: "gone-id", name: "gone", status: "offline", detail: "last seen 5m ago" },
+      { id: "mute-id", name: "mute", status: "connected", readOnly: true },
+    ];
+    const services = {
+      self: { id: "me", name: "linux-box", version: "1" },
+      list: () => list,
+      request: async (machine: string, method: string) => {
+        asked.push(`${machine} ${method}`);
+        if (machine === "studio-id") return { platform: "darwin", arch: "arm64", cpuCount: 12 };
+        if (machine === "old-id") return { cpuCount: 4 };
+        throw new Error("timed out");
+      },
+    } as unknown as HostMachineServices;
+    const known = new Map<string, { os?: string; cores?: number }>();
+    const listed = await listAgentMachines(services, { platform: "linux", arch: "x64" }, known);
+    expect(listed).toEqual([
+      { id: "me", name: "linux-box", self: true, status: "connected", os: "Linux x64" },
+      // The Mac an agent here sends an iOS build to.
+      { id: "studio-id", name: "studio", status: "connected", os: "macOS arm64", cores: 12 },
+      { id: "old-id", name: "old", status: "connected", cores: 4, note: "Its Tau 0.7.1 does not say its operating system; update it." },
+      { id: "gone-id", name: "gone", status: "offline", note: "last seen 5m ago" },
+      { id: "mute-id", name: "mute", status: "connected", readOnly: true, note: "It did not answer: timed out" },
+    ]);
+    expect(asked).toEqual(["studio-id host-resources", "old-id host-resources", "mute-id host-resources"]);
+    await listAgentMachines(services, { platform: "linux", arch: "x64" }, known);
+    // A platform does not change while the machine runs; the others are asked again.
+    expect(asked.filter((entry) => entry.startsWith("studio-id"))).toHaveLength(1);
+    expect(await listAgentMachines(undefined, { platform: "darwin", arch: "arm64" }, new Map())).toEqual([{ id: "local", name: "This machine", self: true, status: "connected", os: "macOS arm64" }]);
   });
 });
 

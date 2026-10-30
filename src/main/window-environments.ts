@@ -3,7 +3,7 @@ import { lookup } from "node:dns/promises";
 import { dirname, join } from "node:path";
 import { bootstrapSshHost, ManagedSshTunnel, freeLocalPort, type SshRoute } from "./managed-ssh.js";
 import { ConnectClientBridge } from "./connect-tunnel.js";
-import { decodeConnectOffer, type ManagedRoute } from "../shared/managed-connections.js";
+import { decodeConnectOffer, type ConnectRoute, type ManagedRoute } from "../shared/managed-connections.js";
 import { parsePairingPayload, pairingUrl } from "../shared/connections.js";
 import { decodeHostUpdateStatus, HOST_UPDATE_METHODS, type HostUpdateAction, type HostUpdateStatus } from "../shared/host-updates.js";
 import type { UiDiscoveredHosts } from "../shared/discovery.js";
@@ -13,6 +13,7 @@ import type {
   EnvironmentOpenTarget,
   EnvironmentPairInput,
   EnvironmentPreferences,
+  EnvironmentRoute,
   EnvironmentPairResult,
   EnvironmentTarget,
   UiEnvironment,
@@ -25,7 +26,7 @@ import type { TranscriptPage } from "../shared/host-protocol.js";
 import { HOST_ERROR, type HostPushEvent } from "../shared/host-transport.js";
 import type { ConfigLayers } from "../shared/config-layers.js";
 import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
-import { agentsDeviceName, environmentProjects, environmentThreads, orderEndpoints, refreshEndpoints, sameEndpoints, socketUrl } from "../shared/environments.js";
+import { agentsDeviceName, environmentProjects, environmentRoute, environmentThreads, machineRoutes, orderEndpoints, refreshEndpoints, sameEndpoints, samePinnedKey, socketUrl } from "../shared/environments.js";
 import type { PairingEndpoint } from "../shared/connections.js";
 import { EnvironmentCatalog, endpointTrust, type SavedEnvironment, type SecretBox } from "./environment-catalog.js";
 import { EnvironmentMonitor, type EnvironmentMonitorOptions, type MonitorState } from "./environment-monitor.js";
@@ -94,11 +95,14 @@ export interface WindowEnvironmentsOptions {
   /** Test seams. */
   monitor?(options: EnvironmentMonitorOptions): EnvironmentMonitor;
   sshTunnel?(route: SshRoute, hostId: string): ManagedSshTunnel;
+  connectBridge?(route: ConnectRoute): { start(): Promise<void>; close(): void };
   pair?(options: PairEnvironmentOptions): ReturnType<typeof pairEnvironment>;
   now?(): number;
 }
 
 const READ_COMMANDS_RETRY_MS = 10_000;
+/** What `machines-add` takes at most; a Tau Connect bridge counts as one. */
+const MAX_ENDPOINTS = 16;
 
 interface Watched {
   monitor: EnvironmentMonitor;
@@ -119,6 +123,10 @@ export class WindowEnvironments {
   private readonly routes = new Map<string, { close(): void }>();
   /** The SSH forwards among `routes`: a machine reached through one is only greeted while it is up. */
   private readonly tunnels = new Map<string, ManagedSshTunnel>();
+  /** Tau Connect bridges that listen, by machine: a route beside the machine's own, taken only while it listens. */
+  private readonly bridges = new Map<string, { port: number; bridge: { close(): void } }>();
+  /** The address the page was pointed at for the machine it shows. */
+  private shownAddress: string | undefined;
   /** What a route did on its own that the machine's status says, such as a port it moved from. */
   private readonly notices = new Map<string, string>();
   private catalog: EnvironmentCatalog | undefined;
@@ -156,8 +164,13 @@ export class WindowEnvironments {
     this.catalog = await EnvironmentCatalog.open(this.options.catalogPath, this.options.box, this.options.logger);
     if (this.closed) return;
     const restoring = Promise.all(this.catalog.list().map(async (saved) => {
-      try { await this.resumeRoute(saved); }
-      catch (error: unknown) { this.options.logger.warn("environment.route.failed", { id: saved.id, error: error instanceof Error ? error.message : String(error) }); }
+      // Each route comes up on its own: a relay that is down does not hold back an SSH forward.
+      await Promise.all([
+        ...(saved.managed?.connect ? [{ route: "connect", start: this.startBridge(saved.id, saved.managed.connect) }] : []),
+        { route: "own", start: this.resumeRoute(saved) },
+      ].map(({ route, start }) => start.catch((error: unknown) => {
+        this.options.logger.warn("environment.route.failed", { id: saved.id, route, error: error instanceof Error ? error.message : String(error) });
+      })));
       if (this.closed) return;
       this.watchSaved(saved);
       this.schedulePublish();
@@ -211,6 +224,8 @@ export class WindowEnvironments {
       local: false,
       readOnly: entry.readOnly,
       address: entry.lastUrl,
+      route: environmentRoute(entry),
+      via: this.via(entry),
     }));
     return {
       shown: this.shownId,
@@ -268,6 +283,7 @@ export class WindowEnvironments {
     let close: (() => void) | undefined;
     let finish: (() => Promise<void>) | undefined;
     let transport: { close(): void } | undefined;
+    let bridgePort: number | undefined;
     try {
       this.pairing = { address: input.ssh ?? input.wsl ?? "Tau Connect", state: "connecting" }; this.schedulePublish();
       let link: string; let managed: ManagedRoute;
@@ -283,16 +299,22 @@ export class WindowEnvironments {
         const payload = offer ? parsePairingPayload(offer.link) : undefined;
         if (!offer || !payload?.publicKey) throw new Error("The Tau Connect link is invalid or has no pinned host key. Create a new link on the host machine.");
         const route = { relay: offer.relay, id: offer.id, token: offer.token, port: await freeLocalPort() };
-        const bridge = new ConnectClientBridge(route); transport = bridge; await bridge.start();
+        const bridge = this.newBridge(route); transport = bridge; bridgePort = route.port; await bridge.start();
         const endpoint = { url: `https://127.0.0.1:${route.port}/` };
         link = pairingUrl(endpoint, { ...payload, endpoints: [endpoint] }); managed = { connect: route };
       }
       if (abort.signal.aborted) return { state: "cancelled" };
       const result = await this.pairDirect({ ...input, ssh: undefined, wsl: undefined, text: link, nearby: undefined }, managed);
       if (result.state === "added") {
-        if (transport) {
-          this.routes.get(result.environment.id)?.close(); this.routes.set(result.environment.id, transport);
-          if (transport instanceof ManagedSshTunnel) this.followTunnel(result.environment.id, transport);
+        const id = result.environment.id;
+        if (transport && bridgePort !== undefined) {
+          this.bridges.get(id)?.bridge.close(); this.bridges.set(id, { port: bridgePort, bridge: transport });
+          // Its monitor started before the bridge was its own; the bridge is a route from now on.
+          this.watched.get(id)?.monitor.retryNow();
+          transport = undefined;
+        } else if (transport) {
+          this.routes.get(id)?.close(); this.routes.set(id, transport);
+          if (transport instanceof ManagedSshTunnel) this.followTunnel(id, transport);
           transport = undefined;
         }
         await finish?.();
@@ -308,14 +330,65 @@ export class WindowEnvironments {
       this.routes.set(saved.id, tunnel);
       this.followTunnel(saved.id, tunnel);
       await tunnel.start();
-    } else if (saved.managed?.connect) {
-      const bridge = new ConnectClientBridge(saved.managed.connect); this.routes.set(saved.id, bridge);
-      await bridge.start();
     } else if (saved.managed?.wsl && this.options.wsl) {
       const url = await this.options.wsl.resume(saved.managed.wsl);
       if (this.closed) return;
       await this.catalog?.update(saved.id, { endpoints: [{ url }], lastUrl: url });
     }
+  }
+
+  private newBridge(route: ConnectRoute): { start(): Promise<void>; close(): void } {
+    return this.options.connectBridge?.(route) ?? new ConnectClientBridge(route);
+  }
+
+  /** Starts a saved machine's Tau Connect bridge; its address is a route once it listens. */
+  private async startBridge(id: string, route: ConnectRoute): Promise<void> {
+    const bridge = this.newBridge(route);
+    try { await bridge.start(); }
+    catch (error: unknown) { bridge.close(); throw error; }
+    if (this.closed || this.catalog?.get(id)?.managed?.connect?.port !== route.port) { bridge.close(); return; }
+    this.bridges.get(id)?.bridge.close();
+    this.bridges.set(id, { port: route.port, bridge });
+  }
+
+  /** Closes a bridge the machine no longer has, or one on another port than its route's. */
+  private dropStaleBridge(id: string): void {
+    const running = this.bridges.get(id);
+    if (!running || this.catalog?.get(id)?.managed?.connect?.port === running.port) return;
+    running.bridge.close();
+    this.bridges.delete(id);
+  }
+
+  /**
+   * A saved machine's socket URLs, best first: its own addresses (or its SSH
+   * forward), the one that worked last first, then Tau Connect's bridge while
+   * it listens. A forward that is not up gives way to Tau Connect; without
+   * it, the monitor is held instead.
+   */
+  private routeUrls(id: string, saved: SavedEnvironment): string[] {
+    const { direct, connect } = machineRoutes(saved);
+    const bridge = connect && this.bridges.get(id)?.port === saved.managed?.connect?.port ? [socketUrl(connect.url)] : [];
+    const forwardDown = saved.managed?.ssh !== undefined && this.tunnels.get(id)?.state.status !== "up";
+    // Beside the relay, its own addresses are TLS ones only; an SSH forward is the exception that stands for them.
+    const plainAllowed = !connect || saved.managed?.ssh !== undefined;
+    const own = forwardDown && connect ? [] : orderEndpoints(direct.filter((endpoint) => plainAllowed || endpoint.url.startsWith("https:")), saved.lastUrl).map((endpoint) => socketUrl(endpoint.url));
+    return [...own, ...bridge];
+  }
+
+  private isConnectUrl(saved: SavedEnvironment, url: string | undefined): boolean {
+    const connect = machineRoutes(saved).connect;
+    return url !== undefined && connect !== undefined && socketUrl(connect.url) === url;
+  }
+
+  /** Which route the window's connection to a saved machine takes now, or took last. */
+  private via(saved: SavedEnvironment): UiEnvironment["via"] {
+    const url = this.watched.get(saved.id)?.state.address ?? (saved.lastUrl ? socketUrl(saved.lastUrl) : undefined);
+    if (this.isConnectUrl(saved, url)) return "connect";
+    if (saved.managed?.ssh) return "ssh";
+    if (saved.managed?.wsl) return "wsl";
+    if (url) return "direct";
+    // Never reached yet: Tau Connect is its route only when it has no address of its own.
+    return saved.managed?.connect && machineRoutes(saved).direct.length === 0 ? "connect" : undefined;
   }
 
   /**
@@ -333,10 +406,12 @@ export class WindowEnvironments {
         this.schedulePublish();
       },
       onMoved: async (from, to) => {
-        const ssh = this.catalog?.get(id)?.managed?.ssh;
-        if (ssh) {
+        const saved = this.catalog?.get(id);
+        const ssh = saved?.managed?.ssh;
+        if (saved && ssh) {
           const url = `http://127.0.0.1:${to}/`;
-          await this.catalog!.update(id, { managed: { ssh: { ...ssh, port: to } }, endpoints: [{ url }], lastUrl: url });
+          const connect = machineRoutes(saved).connect;
+          await this.catalog!.update(id, { managed: { ...saved.managed, ssh: { ...ssh, port: to } }, endpoints: [{ url }, ...(connect ? [connect] : [])], lastUrl: url });
         }
         this.notices.set(id, `Port ${from} was in use by another program, now using ${to}.`);
         this.options.logger.info("environment.tunnel.moved", { id, from, to });
@@ -348,7 +423,9 @@ export class WindowEnvironments {
 
   /** Why a machine behind an SSH forward may not be greeted yet; the access key goes only to a forward that is up. */
   private tunnelHold(id: string): { status: "connecting" | "offline"; detail: string } | undefined {
-    if (!this.catalog?.get(id)?.managed?.ssh) return undefined;
+    const managed = this.catalog?.get(id)?.managed;
+    // With Tau Connect beside it, the machine is reached that way meanwhile.
+    if (!managed?.ssh || managed.connect) return undefined;
     const state = this.tunnels.get(id)?.state;
     if (state?.status === "up") return undefined;
     return state?.status === "failed" ? { status: "offline", detail: state.detail } : { status: "connecting", detail: "Opening the SSH connection…" };
@@ -376,11 +453,14 @@ export class WindowEnvironments {
     if (result.environment.id === this.options.local.id) {
       return { state: "failed", message: "That address is this machine; its threads are listed already." };
     }
+    const existing = this.catalog.get(result.environment.id);
+    if (existing) result.environment = keepRoutes(existing, result.environment);
     try {
       await this.catalog.save(result.environment);
     } catch (error: unknown) {
       return { state: "failed", message: error instanceof Error ? error.message : String(error) };
     }
+    this.dropStaleBridge(result.environment.id);
     this.options.logger.info("environment.added", { id: result.environment.id, name: result.environment.name, endpoints: result.environment.endpoints.length });
     this.watchSaved(result.environment);
     this.schedulePublish();
@@ -469,6 +549,7 @@ export class WindowEnvironments {
     this.watched.get(id)?.monitor.close();
     this.watched.delete(id);
     this.routes.get(id)?.close(); this.routes.delete(id);
+    this.bridges.get(id)?.bridge.close(); this.bridges.delete(id);
     this.tunnels.delete(id); this.notices.delete(id);
     await this.catalog.remove(id);
     // Its agents' key goes with it; the other machine lists both devices until its owner revokes them.
@@ -509,6 +590,7 @@ export class WindowEnvironments {
     }
     if (id === this.options.local.id) {
       this.shownId = id;
+      this.shownAddress = undefined;
       this.arrival = target;
       this.schedulePublish();
       this.rememberShown();
@@ -524,8 +606,26 @@ export class WindowEnvironments {
     }
     this.shownId = id;
     this.arrival = target;
+    this.shownAddress = connection.url;
     this.schedulePublish();
     this.rememberShown();
+    await this.options.show(await this.forPage(connection));
+  }
+
+  /**
+   * The page follows the machine it shows between Tau Connect and the
+   * machine's own addresses: onto the relay once no address of its own
+   * answers, and back once one does again. A move between two of its own
+   * addresses leaves the page where it is, as before.
+   */
+  private async followShown(id: string, address: string): Promise<void> {
+    const saved = this.catalog?.get(id);
+    if (this.shownId !== id || !saved || this.shownAddress === undefined) return;
+    if (this.isConnectUrl(saved, address) === this.isConnectUrl(saved, this.shownAddress)) return;
+    const connection = this.connection(id);
+    if (!connection) return;
+    this.shownAddress = connection.url;
+    this.options.logger.info("environment.shown.route", { id, via: this.isConnectUrl(saved, connection.url) ? "connect" : "direct" });
     await this.options.show(await this.forPage(connection));
   }
 
@@ -561,7 +661,7 @@ export class WindowEnvironments {
     const saved = this.catalog?.get(id);
     if (!saved) return undefined;
     const address = this.watched.get(id)?.state.address;
-    const url = address ?? socketUrl(orderEndpoints(saved.endpoints, saved.lastUrl)[0]!.url);
+    const url = address ?? this.routeUrls(id, saved)[0] ?? socketUrl(orderEndpoints(saved.endpoints, saved.lastUrl)[0]!.url);
     const trust = endpointTrust(saved, url);
     return { id, url, token: saved.token, ...(trust ? { trust } : {}) };
   }
@@ -811,6 +911,7 @@ export class WindowEnvironments {
     this.watched.clear();
     this.extensionInterest.clear();
     for (const route of this.routes.values()) route.close(); this.routes.clear(); this.tunnels.clear();
+    for (const { bridge } of this.bridges.values()) bridge.close(); this.bridges.clear();
     if (this.publishTimer) clearTimeout(this.publishTimer);
   }
 
@@ -819,13 +920,18 @@ export class WindowEnvironments {
     const current = () => catalog?.get(saved.id) ?? saved;
     // Pins are read at every attempt, so a migrated pin needs no new monitor.
     this.watch(saved.id, saved.token, {
-      urls: () => orderEndpoints(current().endpoints, current().lastUrl).map((endpoint) => socketUrl(endpoint.url)),
+      urls: () => this.routeUrls(saved.id, current()),
+      // Tau Connect only while none of the machine's own routes answers.
+      fallback: (url) => this.isConnectUrl(current(), url),
+      // A machine saved before hosts named themselves goes by its address.
+      ...(saved.id.startsWith("address:") ? {} : { hostId: saved.id }),
       token: saved.token,
       trust: (url) => endpointTrust(current(), url),
       held: () => this.tunnelHold(saved.id),
       onReached: (url, reply, certificate) => {
         const entry = current();
-        const page = entry.endpoints.find((endpoint) => socketUrl(endpoint.url) === url)?.url;
+        // The address that worked last is one of its own: the relay never goes first.
+        const page = this.isConnectUrl(entry, url) ? undefined : entry.endpoints.find((endpoint) => socketUrl(endpoint.url) === url)?.url;
         // A certificate pin that just held vouches for the key it certified; from now on the key is pinned.
         const migrate = !entry.publicKey && entry.fingerprint && certificate?.via === "pin";
         if (migrate) this.options.logger.info("environment.pin-migrated", { id: saved.id, publicKey: certificate.presented.publicKey });
@@ -847,8 +953,19 @@ export class WindowEnvironments {
   private async refreshAddresses(id: string, fresh: readonly PairingEndpoint[], keep: string | undefined, source: "hello" | "bonjour"): Promise<boolean> {
     const current = this.catalog?.get(id);
     if (!current) return false;
-    if (current.managed) return false;
-    const endpoints = refreshEndpoints(current.endpoints, fresh, keep ?? current.lastUrl);
+    // An SSH forward or a WSL address is the machine's route; Tau Connect is one beside its addresses.
+    if (current.managed?.ssh || current.managed?.wsl) return false;
+    const { direct, connect } = machineRoutes(current);
+    const bridge = connect ? socketUrl(connect.url) : undefined;
+    // Through the relay, a loopback address it names is this device's own.
+    // A machine pinned to a key, or reached through the relay, is only ever greeted over TLS:
+    // a plaintext address it names could belong to anyone on another network, and the hello carries the key.
+    const tlsOnly = Boolean(current.publicKey || current.fingerprint || connect);
+    const own = fresh.filter((endpoint) => (!tlsOnly || endpoint.url.startsWith("https:"))
+      && (!connect || (endpoint.kind !== "loopback" && socketUrl(endpoint.url) !== bridge)));
+    const lastDirect = direct.some((endpoint) => endpoint.url === current.lastUrl) ? current.lastUrl : undefined;
+    const refreshed = refreshEndpoints(direct, own, keep ?? lastDirect);
+    const endpoints = connect ? [...refreshed.slice(0, MAX_ENDPOINTS - 1), connect] : refreshed;
     if (sameEndpoints(endpoints, current.endpoints)) return false;
     await this.catalog!.update(id, { endpoints });
     this.options.logger.info("environment.addresses", { id, source, endpoints: endpoints.length });
@@ -885,6 +1002,9 @@ export class WindowEnvironments {
         if (reached) this.readCommands.delete(id);
         if (reached && this.lookIns.threads(id).length > 0) this.askOpenDialogs(id);
         if (state.status === "connected") for (const waiter of [...this.connectedWaiters.get(id) ?? []]) waiter();
+        if (state.status === "connected" && state.address && id === this.shownId && id !== this.options.local.id) {
+          this.followShown(id, state.address).catch((error: unknown) => this.options.logger.warn("environment.shown.route-failed", { id, error: error instanceof Error ? error.message : String(error) }));
+        }
         if (state.index) {
           entry.kept = {
             threads: environmentThreads(state.index, state.running),
@@ -897,7 +1017,7 @@ export class WindowEnvironments {
     });
   }
 
-  private describe(id: string, base: { name: string; local: boolean; readOnly?: boolean | undefined; address?: string | undefined }): UiEnvironment {
+  private describe(id: string, base: { name: string; local: boolean; readOnly?: boolean | undefined; address?: string | undefined; route?: EnvironmentRoute; via?: UiEnvironment["via"] }): UiEnvironment {
     const watched = this.watched.get(id);
     const state = watched?.state;
     const kept = watched?.kept;
@@ -916,6 +1036,8 @@ export class WindowEnvironments {
       ...(state?.hostVersion ? { hostVersion: state.hostVersion } : {}),
       ...(state?.update ? { update: state.update } : {}),
       ...(notice ? { notice } : {}),
+      ...(base.route ? { route: base.route } : {}),
+      ...(base.via ? { via: base.via } : {}),
       threads: kept?.threads ?? [],
       threadCount: kept?.threadCount ?? 0,
       projects: kept?.projects ?? [],
@@ -931,6 +1053,34 @@ export class WindowEnvironments {
     }, 50);
     this.publishTimer.unref?.();
   }
+}
+
+/**
+ * A machine paired again over one route keeps the routes it had beside it,
+ * when both pairings pinned the same key: Tau Connect joins its own
+ * addresses (or SSH forward), and a pairing over those keeps Tau Connect.
+ * A machine that pinned another key, or a WSL one, starts over.
+ */
+export function keepRoutes(existing: SavedEnvironment, fresh: SavedEnvironment): SavedEnvironment {
+  if (!samePinnedKey(existing, fresh) || existing.managed?.wsl || fresh.managed?.wsl) return fresh;
+  const before = machineRoutes(existing);
+  if (fresh.managed?.connect) {
+    const { lastUrl: _bridge, ...rest } = fresh;
+    // The address that worked last stays one of its own; the relay never goes first.
+    const lastUrl = before.direct.length > 0 ? existing.lastUrl : fresh.lastUrl;
+    return {
+      ...rest,
+      endpoints: [...before.direct.slice(0, MAX_ENDPOINTS - 1), machineRoutes(fresh).connect!],
+      managed: { ...(existing.managed?.ssh ? { ssh: existing.managed.ssh } : {}), connect: fresh.managed.connect },
+      ...(lastUrl ? { lastUrl } : {}),
+    };
+  }
+  if (!existing.managed?.connect || !before.connect) return fresh;
+  return {
+    ...fresh,
+    endpoints: [...machineRoutes(fresh).direct.slice(0, MAX_ENDPOINTS - 1), before.connect],
+    managed: { ...fresh.managed, connect: existing.managed.connect },
+  };
 }
 
 /** A Bonjour record carries the pin a machine was saved with: its key, or for an old pin its certificate. */

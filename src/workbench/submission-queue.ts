@@ -15,6 +15,8 @@ export interface ShouldQueueSubmissionInput {
   isPendingNewThread: boolean;
   hasSnapshot: boolean;
   visibleStreaming: boolean;
+  /** The thread waits for a limit's scheduled resume: a message sent now leaves with it. */
+  awaitingResume?: boolean;
   delivery?: "followUp" | "steer";
 }
 
@@ -23,7 +25,7 @@ export interface ShouldQueueSubmissionInput {
  * rather than dispatched immediately (e.g. while the current thread is streaming a turn).
  */
 export function shouldQueueSubmission(input: ShouldQueueSubmissionInput): boolean {
-  return !input.isPendingNewThread && input.hasSnapshot && input.visibleStreaming && input.delivery !== "steer";
+  return !input.isPendingNewThread && input.hasSnapshot && (input.visibleStreaming || input.awaitingResume === true) && input.delivery !== "steer";
 }
 
 export function formatQueuedFollowUp(

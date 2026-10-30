@@ -210,6 +210,13 @@ export function createHandoffHostExtension(options: HandoffHostOptions = {}): Ho
         if (!machine) throw new HostCommandError("The home device of this thread is unavailable.");
         return { machine: machine.id, threadId: id.slice(split + 1) };
       };
+      context.registerCommand("switch-runtime", async input => {
+        if (!services.sessions.switchRuntime) throw new HostCommandError("Update Tau to switch a thread's runtime.");
+        const threadId = required(input, "threadId");
+        const source = remoteSource(threadId);
+        if (source) return services.machines!.call(source.machine, HANDOFF_EXTENSION_ID, "switch-runtime", { threadId: source.threadId, target: required(input, "target") }, { timeoutMs: 120_000 });
+        await services.sessions.switchRuntime(threadId, required(input, "target"));
+      }, { long: true, audit: { label: "changed a thread's executing runtime" } });
       context.registerCommand("continue-targets", (input) => {
         const raw = record(input);
         const source = remoteSource(raw.threadId);

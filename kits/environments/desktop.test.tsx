@@ -945,7 +945,7 @@ describe("Settings → Machines: this machine's agents", () => {
     const GB = 1024 ** 3;
     const resources = (input: unknown): HostResources => (input as { machine: string }).machine === "studio"
       ? { sampledAt: 1, cpuCount: 2, cpuUtilization: 0.14, totalMemory: 8 * GB, availableMemory: 5.2 * GB, runningTurns: 1 }
-      : { sampledAt: 1, cpuCount: 10, cpuUtilization: 0.5, totalMemory: 32 * GB, availableMemory: 20 * GB, runningTurns: 0, onBattery: true };
+      : { platform: "darwin", arch: "arm64", sampledAt: 1, cpuCount: 10, cpuUtilization: 0.5, totalMemory: 32 * GB, availableMemory: 20 * GB, runningTurns: 0, onBattery: true };
     const readiness = (): HostReadiness => ({
       checkedAt: 1,
       runtimes: [
@@ -972,7 +972,7 @@ describe("Settings → Machines: this machine's agents", () => {
     expect(studioHealth.getByText("1 of 3 ready · Git 2.34.1 · 41.0 GB free for worktrees · Invisible display :99")).toBeTruthy();
     expect(studioHealth.getByText(/older than 2\.38/u)).toBeTruthy();
     // This machine answers its own host.
-    expect(within(screen.getByRole("group", { name: "How laptop is doing" })).getByText(/10 cores · CPU 50 % · 20.0 GB of 32.0 GB free · idle · on battery/u)).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "How laptop is doing" })).getByText(/macOS arm64 · 10 cores · CPU 50 % · 20.0 GB of 32.0 GB free · idle · on battery/u)).toBeTruthy();
     // A machine whose agents' key is refused is not asked.
     expect(screen.queryByRole("group", { name: "How attic is doing" })).toBeNull();
     expect(host.invoke).not.toHaveBeenCalledWith("resources", { machine: "attic" });

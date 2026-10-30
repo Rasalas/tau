@@ -1,5 +1,5 @@
 import type { DeviceAccess, PairingEndpoint } from "../../src/shared/connections";
-import { refreshEndpoints, sameEndpoints } from "../../src/shared/environments";
+import { refreshEndpoints, sameEndpoints, samePinnedKey } from "../../src/shared/environments";
 import type { HostIdentity } from "../../src/shared/host-transport";
 import type { SocketCandidate } from "./endpoints";
 import type { MobileConnect } from "./relay-connect";
@@ -96,17 +96,30 @@ export class HostBook {
     return text;
   }
 
-  /** Adds a host or replaces the one with its id, with the token pairing just gave. */
+  /**
+   * Adds a host or replaces the one with its id, with the token pairing just
+   * gave. A host paired again with the key it was pinned to keeps its other
+   * routes, as a desktop window does: Tau Connect stays beside a pairing over
+   * its own addresses, and those stay beside a pairing over Tau Connect.
+   */
   save(host: SavedHost, token: string, connect?: MobileConnect): Promise<void> {
     return this.serial(async () => {
       const secrets = hostSecureStore(this.store, host.id);
+      const hosts = await this.list();
+      const previous = hosts.find((entry) => entry.id === host.id);
+      const same = previous !== undefined && samePinnedKey(previous, host);
+      const keepConnect = !connect && same && previous?.connect === true;
       if (connect) await secrets.set("connect", JSON.stringify(connect));
+      else if (keepConnect) await migrateHostSecret(this.store, host.id, "connect", connectKey(host.id));
       else await secrets.remove("connect");
       await secrets.set("token", token);
       await this.store.remove(tokenKey(host.id));
       await this.store.remove(connectKey(host.id));
-      const others = (await this.list()).filter((entry) => entry.id !== host.id);
-      await this.write([...others, host]);
+      const endpoints = connect && same
+        ? [...host.endpoints, ...(previous?.endpoints ?? []).filter((endpoint) => !host.endpoints.some((entry) => entry.url === endpoint.url))].slice(0, 16)
+        : host.endpoints;
+      const saved: SavedHost = { ...host, endpoints, ...(keepConnect ? { connect: true } : {}) };
+      await this.write([...hosts.filter((entry) => entry.id !== host.id), saved]);
     });
   }
 

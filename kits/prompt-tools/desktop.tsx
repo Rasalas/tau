@@ -1,5 +1,5 @@
-import { useEffect, useSyncExternalStore } from "react";
-import { Archive, Quote, X } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Archive, ChevronDown, ChevronRight, Quote, X } from "lucide-react";
 import { ComposerMenuItem, ComposerMenuSection, errorMessage, type ComposerControlProps, type ComposerInlineContext, type DesktopExtension, type HostSnapshot } from "tau";
 import { buildHistory, stepHistory, type HistoryDirection, type HistoryPosition } from "./history.js";
 import {
@@ -11,7 +11,7 @@ import {
   type FollowUpBehavior,
   type StashEntry,
 } from "./protocol.js";
-import { StashController, type HostApi } from "./stash.js";
+import { StashController, projectLabel, type HostApi } from "./stash.js";
 
 /** Another thread's prompts are read again after this long. */
 const PROJECT_PROMPTS_TTL_MS = 60_000;
@@ -48,14 +48,20 @@ export function threadPrompts(snapshot: HostSnapshot | undefined): string[] {
 
 /**
  * The stash as a section of the composer's "…" menu: stash the draft, then
- * each entry to bring back, newest first, with a button to delete it.
+ * each entry to bring back, newest first, with a button to delete it. The
+ * other projects' entries fold under one row, so a draft stashed in one
+ * project can be brought back in another.
  */
 export function createStashControl(controller: StashController) {
   return function StashControl({ actions }: ComposerControlProps) {
     const project = actions?.activeThread()?.cwd;
     const entries = useSyncExternalStore(controller.subscribe, () => controller.list(project));
+    const others = useSyncExternalStore(controller.subscribe, () => controller.listOthers(project));
+    const [showOthers, setShowOthers] = useState(false);
     useEffect(() => {
-      if (project) controller.refresh(project).catch(() => undefined);
+      if (!project) return;
+      controller.refresh(project).catch(() => undefined);
+      controller.refreshOthers(project).catch(() => undefined);
     }, [project]);
     if (!actions || !project) return null;
     const attempt = (work: () => Promise<unknown>) => { work().catch((error) => actions.notify(errorMessage(error), "error")); };
@@ -74,6 +80,23 @@ export function createStashControl(controller: StashController) {
             </button>
           </span>
         ))}
+        {others.length > 0 ? (
+          <ComposerMenuItem
+            icon={showOthers ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            label="From other projects"
+            trailing={<span className="prompt-stash-count">{others.length}</span>}
+            keepOpen
+            onSelect={() => setShowOthers((shown) => !shown)}
+          />
+        ) : null}
+        {showOthers ? others.map((entry) => (
+          <span key={entry.id} className="prompt-stash-entry other" title={entry.text || undefined}>
+            <ComposerMenuItem label={entryTitle(entry)} detail={`${projectLabel(entry.project)} · ${entryDetail(entry)}`} onSelect={() => attempt(() => controller.restore(actions, entry.id, entry))} />
+            <button type="button" className="prompt-stash-drop" aria-label={`Delete stashed prompt from ${projectLabel(entry.project)}: ${entryTitle(entry)}`} onClick={() => attempt(() => controller.dropOther(project, entry))}>
+              <X size={12} />
+            </button>
+          </span>
+        )) : null}
       </ComposerMenuSection>
     );
   };
@@ -135,7 +158,7 @@ const promptTools: DesktopExtension = {
     });
     context.host.onEvent(STASH_CHANGED_EVENT, (payload) => {
       const project = (payload as { project?: unknown } | undefined)?.project;
-      if (typeof project === "string") controller.refresh(project).catch(() => undefined);
+      if (typeof project === "string") controller.changedOn(project).catch(() => undefined);
     });
 
     context.registerCommand({

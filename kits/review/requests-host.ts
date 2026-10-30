@@ -12,6 +12,7 @@ import {
 import type { RepositoryTarget, SourceControlProvider } from "./provider.js";
 import type { SourceControl } from "./provider-registry.js";
 import { withInstructions } from "./writing.js";
+import { modelEffort, readTextRuntime, threadWritingModel, writingBudget } from "../_shared/text-generation-host.js";
 import { attachmentReader, embedMedia } from "./evidence-upload.js";
 import { findEvidenceTokens } from "./local-request.js";
 import { SERVICES, type CliRunner } from "./request-cli.js";
@@ -249,10 +250,20 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const modelId = text(fields.modelId);
     // Pi attached to the runtime owns the model; the commits alone make the draft then.
     if (services.runtimeOwner() === "pi") return { ...fallbackDraft(git), base: git.base, generated: false };
-    services.log("request-draft.started", provider && modelId ? `${provider}/${modelId}` : "default model");
+    const chosen = provider && modelId ? { provider, id: modelId } : undefined;
+    const system = withInstructions(draftSystemPrompt(info.noun), fields.instructions);
     let answer: string;
     try {
-      answer = await services.complete({ system: withInstructions(draftSystemPrompt(info.noun), fields.instructions), prompt: buildDraftPrompt(git), maxTokens: 900 }, provider && modelId ? { provider, id: modelId } : undefined);
+      if (readTextRuntime(fields.runtime) === "thread") {
+        const thread = services.thread();
+        const own = await threadWritingModel(thread, chosen);
+        services.log("request-draft.started", `${own.provider}/${own.id} on the thread's runtime`);
+        answer = await thread!.complete(own.provider, own.id, { system, prompt: buildDraftPrompt(git), maxTokens: 900, timeoutMs: 120_000 });
+      } else {
+        services.log("request-draft.started", chosen ? `${chosen.provider}/${chosen.id}` : "default model");
+        const effort = await modelEffort(services, chosen ? `${chosen.provider}/${chosen.id}` : "", fields.thinkingLevel, git.root);
+        answer = await services.complete({ system, prompt: buildDraftPrompt(git), ...writingBudget(effort, 900), ...(effort ? { thinkingLevel: effort } : {}) }, chosen);
+      }
     } catch (error) {
       services.log("request-draft.failed", message(error));
       return { ...fallbackDraft(git), base: git.base, generated: false };

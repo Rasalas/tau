@@ -62,3 +62,10 @@ it("uses only the selected model's levels and shows the default for a stale effo
   await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
   expect(screen.getByRole("button", { name: "Chosen model: Plain" })).toBeTruthy();
 });
+
+it("names what an unset choice means where the option says, and clears to it", async () => {
+  const preferences = setup([{ id: "title-model", kind: "model", label: "Model that names threads", emptyLabel: "Default model" }]);
+  fireEvent.click(await screen.findByRole("button", { name: "Use the default model for Model that names threads" }));
+  await waitFor(() => expect(preferences.value("acme.writing", "title-model")).toBe(""));
+  expect((await screen.findByRole("button", { name: "Model that names threads: Default model" })).textContent).toContain("Default model");
+});

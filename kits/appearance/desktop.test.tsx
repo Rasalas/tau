@@ -44,6 +44,21 @@ describe("the Appearance Kit applies what the preferences say", () => {
     expect(document.getElementById("tau-appearance")).toBeNull();
   });
 
+  it("sets the chat width the conversation column reads, and leaves the design's default alone", () => {
+    const { registry, preferences } = activate();
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--chat-max-width")).toBe("");
+    preferences.setValue(ID, "chat-width", "wide");
+    expect(root.style.getPropertyValue("--chat-max-width")).toBe("1040px");
+    preferences.setValue(ID, "chat-width", "full");
+    expect(root.style.getPropertyValue("--chat-max-width")).toBe("100%");
+    preferences.setValue(ID, "chat-width", "sideways");
+    expect(root.style.getPropertyValue("--chat-max-width")).toBe("");
+    preferences.setValue(ID, "chat-width", "narrow");
+    registry.deactivate(ID);
+    expect(root.style.getPropertyValue("--chat-max-width")).toBe("");
+  });
+
   it("paints a user theme as the dark scheme's theme", async () => {
     const { preferences } = activate();
     const client = createFakeHostClient({ listUserThemes: async () => [{ id: "ember", name: "Ember", css: ":root { color-scheme: dark; --shell: #1a1010; }" }] });
@@ -80,10 +95,19 @@ describe("Settings → Appearance", () => {
     // How Tau looks is not a project's to override.
     expect(page.scope).toBeUndefined();
     expect(page.keywords).toContain("density");
-    for (const title of ["Mode", "Themes", "Density", "Contrast", "Timestamps", "Panel animations", "Interface font", "Prompt font", "Code font"]) {
+    for (const title of ["Mode", "Themes", "Density", "Contrast", "Chat width", "Timestamps", "Panel animations", "Interface font", "Prompt font", "Code font"]) {
       expect(screen.getByRole("heading", { level: 3, name: title })).toBeTruthy();
     }
     expect(within(screen.getByRole("radiogroup", { name: "Density" })).getAllByRole("radio").map((button) => button.textContent)).toEqual(["Airy", "Balanced", "Dense"]);
+  });
+
+  it("chooses the chat width from four widths and keeps it with the other appearance values", async () => {
+    const { preferences } = renderPage();
+    const widths = within(screen.getByRole("radiogroup", { name: "Chat width" })).getAllByRole("radio");
+    expect(widths.map((button) => button.textContent)).toEqual(["Narrow", "Default", "Wide", "Full"]);
+    fireEvent.click(widths[2]!);
+    await waitFor(() => expect(preferences.value(ID, "chat-width")).toBe("wide"));
+    expect(document.documentElement.style.getPropertyValue("--chat-max-width")).toBe("1040px");
   });
 
   it("chooses the mode from three tiles and gives a theme one scheme from its card", async () => {

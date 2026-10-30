@@ -168,7 +168,7 @@ describe("Onboarding in the workbench", () => {
     const backends = [{ kind: "pi", label: "Pi" }, { kind: "acme", label: "Acme" }];
 
     /** A first start whose scan finds nothing and whose one agent, Acme, answers `acme` (signed in by default); `gate` holds the scan back. */
-    function firstStart({ acme = SIGNED_IN, gate }: { acme?: unknown; gate?: Promise<void> } = {}) {
+    function firstStart({ acme = SIGNED_IN, gate, found = nothing }: { acme?: unknown; gate?: Promise<void>; found?: Discovery } = {}) {
       const { calls, invokeHostExtension } = host();
       const base = createFakeHostClient();
       const bootstrap = async () => {
@@ -176,7 +176,7 @@ describe("Onboarding in the workbench", () => {
         return { ...snapshot, catalog: { ...snapshot.catalog, runtimeBackends: backends } };
       };
       const answer = vi.fn(async (extensionId: string, command: string, input?: unknown) => {
-        if (command === "discover") { await gate; return nothing; }
+        if (command === "discover") { await gate; return found; }
         if (extensionId === "tau.acme" && command === "status") return acme;
         return invokeHostExtension(extensionId, command, input);
       });
@@ -198,6 +198,20 @@ describe("Onboarding in the workbench", () => {
       fireEvent.click(screen.getByRole("button", { name: "Start a thread" }));
       await waitFor(() => expect(calls.some(([, command]) => command === "complete")).toBe(true));
       await waitFor(() => expect(screen.queryByRole("heading", { name: "Acme is ready" })).toBeNull());
+    });
+
+    it("stops at the conversations to say whose cannot be imported, then goes on", async () => {
+      const reason = "Cursor 2026.10.01 does not list its sessions to other apps, so Tau cannot find them.";
+      const { answer } = firstStart({ found: { ...nothing, unsupported: [{ source: "cursor", reason }] } });
+      await screen.findByText("1.0.0 · Acme Team");
+      await waitFor(() => expect(answer).toHaveBeenCalledWith("tau.onboarding", "discover", undefined));
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      await screen.findByRole("heading", { name: "Import conversations" });
+      expect(screen.getByText(`Cursor conversations can't be imported: ${reason}`)).toBeTruthy();
+      expect(screen.getByText("No earlier conversations of your agents were found.")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /^Import \d/ })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+      await screen.findByRole("heading", { name: "Acme is ready" });
     });
 
     it("goes on by itself when the scan that a step waited for finds nothing", async () => {

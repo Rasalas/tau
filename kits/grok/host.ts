@@ -22,6 +22,7 @@ import {
   type UiModelBilling,
 } from "tau/host-extension";
 import { customModelIds, withCustomModels } from "../_acp/custom-models.js";
+import { IMPORT_TIMEOUTS, importAcpSessions, importHome, scanAcpSessions, type OpenImportSession } from "../_acp/history-import.js";
 import type { AcpProcess, AcpSpawnInput } from "../_acp/client.js";
 import { withTauServer } from "../_acp/mcp.js";
 import type { AcpStoredModel } from "../_acp/session-store.js";
@@ -33,6 +34,7 @@ import {
   GROK_HOME_VARIABLE,
   GROK_HOST_EXTENSION_ID,
   INSTANCES_EVENT,
+  ONBOARDING_KIT_ID,
   SEARCH_KIT_ID,
   USAGE_KIT_ID,
   type GrokInstancesReport,
@@ -414,6 +416,41 @@ export function createGrokHostExtension(options: GrokHostExtensionOptions = {}):
         return { accounts };
       }, { access: "read", long: true, callers: [USAGE_KIT_ID] });
       context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => store.threadTexts(input), { long: true, callers: [SEARCH_KIT_ID] });
+
+      // Sessions the default instance's CLI ran on its own, for Onboarding to list and import as threads; Grok names and replays them over ACP.
+      const importEnv = (): NodeJS.ProcessEnv => {
+        const home = importHome(env, GROK_BACKEND_KIND);
+        return home ? grokEnvironment({ ...settings.environment(DEFAULT_INSTANCE_ID, env), [GROK_HOME_VARIABLE]: home }) : instanceEnv(DEFAULT_INSTANCE_ID);
+      };
+      const openForImport: OpenImportSession = async (onUpdate) => {
+        const found = await cli(DEFAULT_INSTANCE_ID);
+        refuseBroken(found);
+        await mkdir(services.stateDir, { recursive: true });
+        if (!options.spawn) services.noteSubprocess();
+        return openGrokSession({
+          command: found.path,
+          // Read-only: a load runs no tool, and nothing it asks is approved.
+          args: [...settings.args(DEFAULT_INSTANCE_ID), ...grokAgentArgs("read-only", true)],
+          cwd: services.stateDir,
+          env: grokProbeEnvironment(importEnv()),
+          clientVersion: options.clientVersion ?? "0.0.0",
+          ...(options.spawn ? { spawn: options.spawn } : {}),
+          onUpdate,
+          onPermission: async () => ({ outcome: { outcome: "cancelled" } }),
+          onStderrLine: (line) => services.log("grok.stderr", line.slice(0, 500)),
+          timeouts: IMPORT_TIMEOUTS,
+        });
+      };
+      context.registerCommand("import-scan", async () => {
+        // Without the CLI there is nothing to import, which is no failure.
+        if (!locate(DEFAULT_INSTANCE_ID)) return { source: GROK_BACKEND_KIND, sessions: [], truncated: false };
+        const held = await store.acpSessionIds();
+        return { source: GROK_BACKEND_KIND, ...await scanAcpSessions(openForImport, (id) => held.has(id), "Grok") };
+      }, { long: true, callers: [ONBOARDING_KIT_ID] });
+      context.registerCommand("import-sessions", async (input) => {
+        const outcome = await importAcpSessions(openForImport, (input as { paths?: unknown } | undefined)?.paths, store, "Grok");
+        return { ...outcome, ...(outcome.imported.length ? { update: await services.sessions.refreshIndex() } : {}) };
+      }, { long: true, callers: [ONBOARDING_KIT_ID] });
 
       for (const instance of settings.list()) register(instance.id);
       return async () => { for (const id of [...states.keys()]) unregister(id); await store.flushAndRelease(); };

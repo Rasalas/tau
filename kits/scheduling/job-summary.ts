@@ -21,7 +21,7 @@ export function scheduleText(schedule: Schedule): string {
 export function statusText(job: Job): string {
   if (job.status === "held") return job.detail ?? `Missed ${jobTime(job, job.nextAt)}. This machine did not run it.`;
   if (job.status === "failed") return `Couldn't start or finish: ${job.lastRun?.detail ?? job.detail ?? "inspect the thread"}`;
-  if (job.status === "uncertain") return `Tau restarted while starting the ${utc(job.lastRun?.at)} run. Unclear whether a thread started.`;
+  if (job.status === "uncertain") return `Tau restarted while starting the ${utc(job.lastRun?.at)} run. ${job.config.target ? "Unclear whether the message reached the thread." : "Unclear whether a thread started."}`;
   if (busyJob(job)) return `${job.status === "starting" ? "Starting" : "Running"} since ${utc(job.lastRun?.at)}`;
   if (!job.enabled) return "Off";
   const next = job.config.schedule.kind === "webhook" ? "Waiting for signed delivery" : `Next: ${jobTime(job, job.nextAt) || "no future run"}`;

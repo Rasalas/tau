@@ -8,11 +8,14 @@ import { FILES_KIT_ID } from "./protocol.js";
  * imported — a kit never imports another kit.
  */
 export interface WorkspaceStoreLike {
-  getSnapshot(): { cwd?: string; editors: UiEditor[] };
+  /** An editor of this device listed for another machine's project says why it cannot open it. */
+  getSnapshot(): { cwd?: string; editors: Array<UiEditor & { unsupported?: string }> };
   subscribe(listener: () => void): () => void;
   activeEditor(): UiEditor | undefined;
   chooseEditor(id: string): void;
   openInEditor(relPath?: string, editorOverride?: string, position?: { line?: number; column?: number }): Promise<void>;
+  /** Whether its editors open anything from this client; absent from an older Workspace Kit, which offered the host's files only. */
+  editorsHere?(): boolean;
   refresh(): Promise<void>;
   /** Shows a project folder, opened, in the Files panel; absent from an older Workspace Kit. */
   revealFolder?(relPath: string): void;

@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { githubRepositoryPath, type NewProjectGithub, type NewProjectRepository, type RepositoryVisibility } from "./project-github.js";
 
 const execute = promisify(execFile);
 
@@ -62,4 +63,43 @@ export async function createNamedProject(parentPath: string, value: string, git:
   } catch {
     return { path, warning: "Project created. Git setup could not finish; check Git and your commit identity." };
   }
+}
+
+/** Review Kit's `publish-repository`, as the host's own call reaches it. */
+export type PublishRepository = (input: { workspace: string; service: "github"; repository: string; visibility: RepositoryVisibility; confirm: true }) => Promise<unknown>;
+
+const sentence = (text: string): string => /[.!?]$/u.test(text.trim()) ? text.trim() : `${text.trim()}.`;
+const LATER = "Publish it later with \"Publish repository…\" in the Changes panel.";
+
+/**
+ * Creates the GitHub repository of a project just made, on the machine that made it,
+ * and pushes the first commit, which sets `main`'s upstream to `origin/main`. Every
+ * failure leaves the project as it is and comes back as a warning that says what to do.
+ */
+export async function publishNewProject(
+  publish: PublishRepository,
+  project: { workspace: string; name: string; warning?: string },
+  github: NewProjectGithub,
+): Promise<{ github?: NewProjectRepository; warning?: string }> {
+  // Without a first commit there is nothing to push and no upstream to set.
+  if (project.warning) return { warning: `${sentence(project.warning)} Its GitHub repository was not created; publish it with "Publish repository…" in the Changes panel once Git works.` };
+  const repository = githubRepositoryPath(project.name, github.owner);
+  if (!repository) return { warning: `Project created, but not its GitHub repository: GitHub needs a name with letters or digits. ${LATER}` };
+  let answer: Record<string, unknown>;
+  try {
+    const result = await publish({ workspace: project.workspace, service: "github", repository, visibility: github.visibility, confirm: true });
+    answer = result && typeof result === "object" ? result as Record<string, unknown> : {};
+  } catch (error) {
+    return { warning: `Project created, but not its GitHub repository: ${sentence(error instanceof Error ? error.message : String(error))} ${LATER}` };
+  }
+  const created: NewProjectRepository = {
+    repository: typeof answer.repository === "string" ? answer.repository : repository,
+    url: typeof answer.url === "string" ? answer.url : "",
+    pushed: answer.pushed === true,
+    ...(typeof answer.branch === "string" ? { branch: answer.branch } : {}),
+  };
+  if (typeof answer.pushProblem === "string") {
+    return { github: created, warning: `Created ${created.repository} on GitHub and added it as origin, but the first push failed. ${sentence(answer.pushProblem)}` };
+  }
+  return { github: created };
 }

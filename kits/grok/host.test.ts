@@ -21,7 +21,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-async function harness(options: { customModels?: string; found?: boolean; env?: Record<string, string>; fetch?: typeof globalThis.fetch } = {}) {
+async function harness(options: { customModels?: string; found?: boolean; env?: Record<string, string>; fetch?: typeof globalThis.fetch; sessions?: unknown } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-grok-host-"));
   directories.push(root);
   const log = join(root, "agent.log");
@@ -38,6 +38,7 @@ async function harness(options: { customModels?: string; found?: boolean; env?: 
     stateDir: join(root, "state"),
     settings: async () => ({ options: {}, values: { customModels: options.customModels ?? "" } }),
     noteSubprocess: () => undefined,
+    ...(options.sessions ? { sessions: options.sessions as never } : {}),
     registerRuntimeBackend: (provider) => {
       backends.push(provider);
       return () => { backends.splice(backends.indexOf(provider), 1); };
@@ -178,6 +179,63 @@ describe("Grok host half", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     await expect(stranger.call!("usage")).rejects.toThrow(/not allowed/u);
     await expect(stranger.call!("usage-limits")).rejects.toThrow(/not allowed/u);
+  });
+
+  it("lists the sessions Grok ran outside Tau for Onboarding alone, and imports them as threads that load the session", async () => {
+    const refreshed: unknown[] = [];
+    const { registry, provider, root, sent } = await harness({ env: { FAKE_GROK_LIST_SESSIONS: "1" }, sessions: { refreshIndex: async () => { refreshed.push(1); return { type: "thread-index" }; } } });
+    // Synthetic sessions in the instance's home, as the fake CLI keeps them.
+    const home = join(root, "grok-home");
+    await mkdir(home, { recursive: true });
+    await writeFile(join(home, "fake-sessions.json"), JSON.stringify({ "g-1": [{ role: "user", text: "Tidy the tabs" }, { role: "assistant", text: "Tidied." }], "g-2": [] }));
+    await writeFile(join(home, "fake-session-info.json"), JSON.stringify({ "g-1": { cwd: root, title: "Tidy tabs", updatedAt: "2026-03-01T10:00:00Z" }, "g-2": { cwd: root, updatedAt: "2026-03-02T10:00:00Z" } }));
+    const onboarding = caller("tau.onboarding");
+    const stranger = caller("acme.stranger");
+    await registry.activate(onboarding);
+    await registry.activate(stranger);
+    await expect(stranger.call!("import-scan")).rejects.toThrow(/not allowed/u);
+    await expect(onboarding.call!("import-scan")).resolves.toEqual({ source: "grok", truncated: false, sessions: [
+      { path: "g-2", sessionId: "g-2", cwd: root, title: "Untitled conversation", updatedAt: Date.parse("2026-03-02T10:00:00Z"), imported: false },
+      { path: "g-1", sessionId: "g-1", cwd: root, title: "Tidy tabs", updatedAt: Date.parse("2026-03-01T10:00:00Z"), imported: false },
+    ] });
+    const outcome = await onboarding.call!("import-sessions", { paths: ["g-1", "g-2"] }) as { imported: string[]; skipped: number; failed: unknown[]; update?: unknown };
+    expect(outcome).toEqual({ imported: [expect.any(String)], skipped: 0, failed: [{ path: "g-2", reason: "no conversation to resume" }], update: { type: "thread-index" } });
+    expect(refreshed).toHaveLength(1);
+    await expect(onboarding.call!("import-scan")).resolves.toMatchObject({ sessions: [{ sessionId: "g-2", imported: false }, { sessionId: "g-1", imported: true }] });
+    await expect(onboarding.call!("import-sessions", { paths: ["g-1"] })).resolves.toEqual({ imported: [], skipped: 1, failed: [] });
+    const threadId = outcome.imported[0]!;
+    expect(await provider.listThreads!()).toEqual([expect.objectContaining({ threadId, cwd: root, title: "Tidy tabs", messages: [expect.objectContaining({ role: "user", text: "Tidy the tabs" })] })]);
+    // The imported thread continues the same Grok session.
+    const thread = await provider.open(threadId, root, { resume: true }, context());
+    try {
+      await thread.prompt({ text: "Hi", delivery: "prompt" });
+      expect((await thread.transcript()).map((message) => message.text).slice(0, 2)).toEqual(["Tidy the tabs", "Tidied."]);
+    } finally {
+      await thread.dispose();
+    }
+    expect((await sent()).filter((message) => message.method === "session/load").map((message) => message.params?.sessionId)).toEqual(["g-1", "g-2", "g-1"]);
+  });
+
+  it("says Grok's sessions cannot be imported when the CLI does not list them, and finds nothing without the CLI", async () => {
+    const listing = await harness();
+    const onboarding = caller("tau.onboarding");
+    await listing.registry.activate(onboarding);
+    await expect(onboarding.call!("import-scan")).resolves.toEqual({ source: "grok", sessions: [], truncated: false, unsupported: "Grok 0.9.12 does not list its sessions to other apps, so Tau cannot find them." });
+    const missing = await harness({ found: false });
+    const asking = caller("tau.onboarding");
+    await missing.registry.activate(asking);
+    await expect(asking.call!("import-scan")).resolves.toEqual({ source: "grok", sessions: [], truncated: false });
+  });
+
+  it("reads the fixture home an import root names instead of the instance's", async () => {
+    const imports = await mkdtemp(join(tmpdir(), "tau-grok-imports-"));
+    directories.push(imports);
+    await mkdir(join(imports, "grok"), { recursive: true });
+    await writeFile(join(imports, "grok", "fake-session-info.json"), JSON.stringify({ "g-fixture": { cwd: "/work/fixture", updatedAt: 5 } }));
+    const { registry } = await harness({ env: { FAKE_GROK_LIST_SESSIONS: "1", TAU_IMPORT_ROOTS: imports } });
+    const onboarding = caller("tau.onboarding");
+    await registry.activate(onboarding);
+    await expect(onboarding.call!("import-scan")).resolves.toMatchObject({ sessions: [{ sessionId: "g-fixture", cwd: "/work/fixture" }] });
   });
 
   it("lists what each thread cost from its store, without opening it", async () => {

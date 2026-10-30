@@ -36,6 +36,8 @@ import { createProtocolServer, startSocketHostTransport, type SocketHostTranspor
 import { createWebClientServer } from "./host-web-server.js";
 import { hostHttpListener, type HostHttpRoute } from "./host-http-route.js";
 import type { ExternalMcpHttp } from "./external-mcp-http.js";
+import { ExternalMcpLocal, routeExternalMcpManage } from "./external-mcp-local.js";
+import { ExternalMcpThreads } from "./external-mcp-threads.js";
 import { isLoopbackHost, parseListen, rememberPort, rememberedPort, stickyListen } from "./host-listen.js";
 import { HostTlsReloader, resolveHostTls } from "./host-tls.js";
 import { HostNetworkAccess } from "./host-network.js";
@@ -257,9 +259,11 @@ async function main(): Promise<void> {
   // Files other machines' agents send here; what an earlier run left is gone.
   const blobs = await HostBlobStore.open({ dir: join(userData, "blobs"), logger: hostLog });
   const browserResources = new HostBrowserResourceStore();
+  // Threads external MCP clients started keep their execution ceilings from the host's first turn on (ADR 0046).
+  const externalThreads = await ExternalMcpThreads.open({ path: join(userData, "external-mcp-threads.json"), logger: hostLog });
   const started = new HostStart(() => {
     primeOpenCodeCatalog();
-    return new PiHost(startupWorkspace, publish, projectHistory, safeMode, false, {
+    const host = new PiHost(startupWorkspace, publish, projectHistory, safeMode, false, {
       defaultBackendKind: selectDefaultBackend(undefined, { safeMode }),
       hostExtensions: safeMode ? [] : shippedHostExtensions(kitOptions, (label, detail) => hostLog.warn(label, detail)),
       hostExtensionPackages: (cwd: string) => loadHostExtensionPackages(cwd, getAgentDir(), {
@@ -295,7 +299,9 @@ async function main(): Promise<void> {
       runtimeCatalogsPath: join(userData, "runtime-catalogs.json"),
       warmRuntimeCatalogs: true,
     });
-  });
+    externalThreads.attach(host);
+    return host;
+  }, () => { void externalThreads.restore(); });
   const tokenFile = new HostTokenFile(hostTokenPath());
   let terminalPairing: (() => void) | undefined;
   const access = await HostAccess.open({
@@ -426,7 +432,7 @@ async function main(): Promise<void> {
     releaseNotes,
     clientCalls,
     connections: () => connectionsService(),
-    externalMcp: () => externalMcp,
+    externalMcp: () => externalMcpManage,
     connect: () => connect,
     service: () => service,
     machines: () => machines,
@@ -471,10 +477,15 @@ async function main(): Promise<void> {
   let externalMcp: ExternalMcpHttp | undefined;
   let externalRoute: HostHttpRoute | undefined;
   let mcpProxyUrl: string | undefined;
+  const mcpLog = (label: string, detail?: string) => hostLog.warn(label, detail);
+  // Local MCP clients need no public origin; the loopback listener stays closed until the owner opens it.
+  const localMcp = await ExternalMcpLocal.open({ userData, version: hostVersion, host: () => started.require(), threads: externalThreads, logger: hostLog, log: mcpLog })
+    .catch((error: unknown) => { hostLog.warn("external-mcp.local-unavailable", error); return undefined; });
+  const externalMcpManage = routeExternalMcpManage(() => localMcp, () => externalMcp);
   if (process.env.TAU_MCP_ORIGIN) {
     const { ExternalMcpHttp } = await import("./external-mcp-http.js");
     externalMcp = await ExternalMcpHttp.open({
-      userData, issuer: process.env.TAU_MCP_ORIGIN, version: hostVersion,
+      userData, issuer: process.env.TAU_MCP_ORIGIN, version: hostVersion, threads: externalThreads, log: mcpLog,
       browserOrigins: process.env.TAU_MCP_BROWSER_ORIGINS?.split(",").filter(Boolean),
       host: () => started.require(),
       proxyUrl: () => {
@@ -493,6 +504,8 @@ async function main(): Promise<void> {
       // A host on its way out starts no window on the display.
       clientCalls.setWindowLauncher(undefined);
       await externalMcp?.close();
+      await localMcp?.close();
+      externalThreads.close();
       await started.current()?.dispose().catch((error: unknown) => hostLog.error("host.shutdown.failed", error));
     },
     async (code) => {

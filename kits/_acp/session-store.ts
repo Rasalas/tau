@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DEFAULT_INSTANCE_ID, appendUsageTurn, legacyUsageTurn, mergeTallies, readUsageTurns, type PersistedJsonLogger, type ThreadTitleSource, type UiMessage, type UiThreadUsage, type UsageTally, type UsageTurn } from "tau/host-extension";
@@ -319,6 +320,43 @@ export class AcpSessionStore<K extends string = string> {
     change(record);
     record.updatedAt = this.now();
     await this.persist(tauThreadId);
+  }
+
+  /** The agent's sessions Tau holds a thread for, on any instance. */
+  async acpSessionIds(): Promise<Set<string>> {
+    await this.load();
+    return new Set([...this.records.values()].flatMap((record) => record.acpSessionId ? [record.acpSessionId] : []));
+  }
+
+  /**
+   * Threads for sessions the agent ran outside Tau, on the default instance;
+   * the next turn loads each by its id. Answers the new thread ids, `undefined`
+   * where Tau holds the session already.
+   */
+  async adopt(sessions: readonly { acpSessionId: string; cwd: string; title: string; messages: readonly AcpStoredMessage[]; updatedAt: number }[]): Promise<Array<string | undefined>> {
+    const held = await this.acpSessionIds();
+    const ids = sessions.map((session) => {
+      const acpSessionId = text(session.acpSessionId, MAX_ID_LENGTH);
+      const cwd = text(session.cwd, 4_096);
+      if (!acpSessionId || !cwd || held.has(acpSessionId)) return undefined;
+      held.add(acpSessionId);
+      const tauThreadId = randomUUID();
+      const messages = session.messages.flatMap((message) => { const parsed = storedMessage(message); return parsed ? [parsed] : []; });
+      const title = session.title.trim().slice(0, MAX_TITLE_LENGTH);
+      this.records.set(tauThreadId, {
+        backendKind: this.options.backendKind,
+        tauThreadId,
+        acpSessionId,
+        cwd,
+        messages,
+        ...(title ? { title, titleSource: "derived" as const } : {}),
+        createdAt: messages[0]?.timestamp ?? session.updatedAt,
+        updatedAt: session.updatedAt,
+      });
+      return tauThreadId;
+    });
+    if (ids.some(Boolean)) await this.persistence.write({ sessions: ids.flatMap((id) => id ? [{ id, record: this.records.get(id), appendOnly: true }] : []) });
+    return ids;
   }
 
   setAcpSession(tauThreadId: string, cwd: string, acpSessionId: string | undefined): Promise<void> {

@@ -115,6 +115,8 @@ export interface OpenCodeRead {
   cursors: Record<string, OpenCodeCursor>;
   /** The database has no table this reader knows. */
   unsupported?: boolean;
+  /** Why: each message table this reader knows, and what it lacks. */
+  unsupportedReason?: string;
 }
 
 export interface OpenCodeReadOptions {
@@ -156,7 +158,9 @@ export async function readOpenCodeDatabase(path: string, options: OpenCodeReadOp
     let skipped = 0;
     let supported = false;
     const cursors: Record<string, OpenCodeCursor> = {};
-    const tables = ["session_message", "message"].filter((table) => ["id", "session_id", "data", "time_created"].every((column) => columns(db, table).has(column)));
+    const needed = ["id", "session_id", "data", "time_created"];
+    const messageTables = ["session_message", "message"];
+    const tables = messageTables.filter((table) => needed.every((column) => columns(db, table).has(column)));
     const idAt = (table: string, rowid: number) => text(object(db.prepare(`SELECT id FROM ${table} WHERE rowid = ?`).all(rowid)[0])?.id);
     let start = options.cursors ?? {};
     if (Object.entries(start).some(([table, cursor]) => !tables.includes(table) || idAt(table, cursor.rowid) !== cursor.id)) {
@@ -203,7 +207,12 @@ export async function readOpenCodeDatabase(path: string, options: OpenCodeReadOp
       }
       if (cursor) cursors[table] = cursor;
     }
-    return { sessions: places, skipped, cursors, ...(supported ? {} : { unsupported: true }) };
+    if (supported) return { sessions: places, skipped, cursors };
+    const lacks = messageTables.map((table) => {
+      const have = columns(db, table);
+      return have.size === 0 ? `no ${table} table` : `${table} lacks ${needed.filter((column) => !have.has(column)).join(", ")}`;
+    });
+    return { sessions: places, skipped, cursors, unsupported: true, unsupportedReason: lacks.join("; ") };
   } finally {
     db.close();
   }

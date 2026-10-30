@@ -1,4 +1,5 @@
 import { buildTitleConversation, cleanThreadTitle, smallCompletionModel, type HostExtension, type HostExtensionContext, type HostThread } from "tau/host-extension";
+import { readTextRuntime, threadWritingModel, writingBudget } from "../_shared/text-generation-host.js";
 import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_FAILED_EVENT, TITLE_SYSTEM_PROMPT, TITLE_USER_PROMPT } from "./protocol.js";
 
 const record = (input: unknown): Record<string, unknown> =>
@@ -56,6 +57,8 @@ export function createThreadTitlesHostExtension(): HostExtension {
         const prefer = text(preferred.provider) && text(preferred.id) ? { provider: text(preferred.provider), id: text(preferred.id) } : undefined;
         const chooseModel = async (hint = prefer) => provider && modelId ? { provider, id: modelId } : smallCompletionModel(services, hint, { elsePrefer: true });
         const force = regenerate || fields.force === true;
+        // Text generation's choice: `pi` never asks the thread's runtime, `thread` always does.
+        const runtime = readTextRuntime(fields.runtime);
         const sessionId = typeof fields.sessionId === "string" ? fields.sessionId : undefined;
         const prompt = typeof fields.prompt === "string" ? fields.prompt : "";
         if (services.runtimeOwner() === "pi") {
@@ -66,7 +69,8 @@ export function createThreadTitlesHostExtension(): HostExtension {
           if (!chosen) throw new Error("Title generation needs a model while Pi is attached to the runtime.");
           return attached.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { provider: chosen.provider, modelId: chosen.id, force });
         }
-        const thread = services.thread(sessionId);
+        // A title the user asked for reaches a thread they are not reading (the rail's selection); an automatic one never reopens it.
+        const thread = services.thread(sessionId) ?? (regenerate && sessionId && services.reopenThread ? await services.reopenThread(sessionId) : undefined);
         if (!thread) {
           throw new Error(sessionId ? "That thread is not open any more. Open it again to continue." : "Pi runtime is not ready");
         }
@@ -103,18 +107,24 @@ export function createThreadTitlesHostExtension(): HostExtension {
         }
 
         // The thread knows its model even where a new thread's draft named none.
-        const ownModels = await thread.completionModels?.().catch(() => []) ?? [];
+        const ownModels = runtime === "pi" ? [] : await thread.completionModels?.().catch(() => []) ?? [];
         const hint = thread.model ?? prefer;
-        const ownModel = provider && modelId
-          ? ownModels.find((candidate) => candidate.provider === provider && candidate.id === modelId)
-          : await smallCompletionModel({ completionModels: async () => ownModels }, hint, { elsePrefer: true });
+        const ownModel = runtime === "thread"
+          ? await threadWritingModel(thread, provider && modelId ? { provider, id: modelId } : undefined)
+          : provider && modelId
+            ? ownModels.find((candidate) => candidate.provider === provider && candidate.id === modelId)
+            : await smallCompletionModel({ completionModels: async () => ownModels }, hint, { elsePrefer: true });
         const model = ownModel ?? await chooseModel(hint);
-        services.log("title.started", model ? `${model.provider}/${model.id}` : "default model");
+        services.log("title.started", model ? `${model.provider}/${model.id}${ownModel ? " on the thread's runtime" : ""}` : "default model");
+        // An effort is Pi's: it goes with a model chosen in the settings, never with the harness's own login.
+        // The settings offer only the levels Pi lists for that model, and Pi takes an unknown one as the default.
+        const effort = !ownModel && provider && modelId && text(fields.thinkingLevel).trim() && text(fields.thinkingLevel).trim() !== "off" ? text(fields.thinkingLevel).trim() : undefined;
         // Prefer the harness's own login; other runtimes use the host catalog.
         const request = {
           system: TITLE_SYSTEM_PROMPT,
           prompt: TITLE_USER_PROMPT(conversation),
-          maxTokens: 256,
+          ...writingBudget(effort, 256),
+          ...(effort ? { thinkingLevel: effort } : {}),
         };
         const title = cleanThreadTitle(await (ownModel
           ? thread.complete(ownModel.provider, ownModel.id, request)

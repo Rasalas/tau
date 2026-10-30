@@ -32,6 +32,7 @@ import {
 } from "tau";
 import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailSection, type ThreadRailOrganizer, type ThreadRailRowAction } from "./protocol.js";
 import { homeRelative } from "./folder-finder.js";
+import { githubRepositoryName, githubRepositoryPath, isGithubOwner, type RepositoryVisibility } from "./project-github.js";
 import { railActivity } from "./rail-activity.js";
 import { useRailDrag } from "./rail-drag.js";
 import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
@@ -107,19 +108,31 @@ export function navigationRowKey(rows: readonly NavigationRow[], index: number):
   return rows[index]?.id ?? index;
 }
 
-/** A name and the host's parent folder create a ready project. */
+/**
+ * A name and the host's parent folder create a ready project. Ticking GitHub
+ * also creates its repository (private unless chosen otherwise) and pushes the
+ * first commit, so `main` tracks `origin/main`; that runs on the host that
+ * makes the project, and a failure there still leaves the project.
+ */
 export function NewProjectSource({ actions, onBack, onDone }: ProjectSourceProps) {
   const store = useWorkspaceStore();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [github, setGithub] = useState(false);
+  const [owner, setOwner] = useState("");
+  const [visibility, setVisibility] = useState<RepositoryVisibility>("private");
   const base = store.projectBaseDirectory();
+  const repository = githubRepositoryPath(name, owner);
+  const ownerValid = !owner.trim() || isGithubOwner(owner.trim());
+  const ready = Boolean(name.trim()) && !busy && (!github || (ownerValid && Boolean(repository)));
   const submit = async (useBase: boolean) => {
-    if (!name.trim() || busy) return;
+    if (!ready) return;
     setBusy(true);
     try {
-      const created = await store.createProject(name, useBase ? base : undefined);
+      const created = await store.createProject(name, useBase ? base : undefined, github ? { ...(owner.trim() ? { owner: owner.trim() } : {}), visibility } : undefined);
       if (!created) return;
-      if (created.warning) actions.notify(created.warning);
+      if (created.warning) actions.notify(created.warning, "warning");
+      else if (created.github) actions.notify(`Created ${created.github.repository} on GitHub and pushed ${created.github.branch ?? "the first commit"}.`, "info");
       if (await actions.openWorkspace(created.workspace.workspaceId)) {
         actions.newSession({ workspace: created.workspace.workspaceId });
         onDone();
@@ -131,11 +144,23 @@ export function NewProjectSource({ actions, onBack, onDone }: ProjectSourceProps
     <header className="project-modal-bar">
       <button type="button" className="project-modal-bar-glyph" onClick={onBack} aria-label="Back to project sources"><ArrowLeft size={15} /></button>
       <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Project name" aria-label="Project name" disabled={busy} />
-      <button type="submit" className="project-modal-bar-action" disabled={!name.trim() || busy}>{busy ? "Creating…" : base ? "Create" : "Continue"}</button>
+      <button type="submit" className="project-modal-bar-action" disabled={!ready}>{busy ? "Creating…" : base ? "Create" : "Continue"}</button>
     </header>
     <div className="project-picker-heading"><span>Create in</span></div>
     <div className="clone-project-destination"><Folder size={15} />{base ? <code>{homeRelative(base)}/{name.trim() || "…"}</code> : <span>A folder you choose next</span>}</div>
-    <footer className="project-modal-footer">{base ? <button type="button" disabled={!name.trim() || busy} onClick={() => void submit(false)}><FolderOpen size={14} /> Choose parent folder…</button> : null}<small>Starts with a README and Git repository</small></footer>
+    <div className="new-project-github">
+      <label><input type="checkbox" checked={github} disabled={busy} onChange={(event) => setGithub(event.target.checked)} />Create a GitHub repository</label>
+      {github ? <div className="new-project-github-options">
+        <input value={owner} onChange={(event) => setOwner(event.target.value)} placeholder="Your account" aria-label="GitHub owner" aria-invalid={!ownerValid} spellCheck={false} disabled={busy} />
+        <code title={repository}>/{githubRepositoryName(name) || "…"}</code>
+        <div className="toggle-group" role="radiogroup" aria-label="Visibility">
+          {(["private", "public"] as const).map((next) => (
+            <button key={next} type="button" role="radio" aria-checked={visibility === next} className={visibility === next ? "active" : ""} disabled={busy} onClick={() => setVisibility(next)}>{next === "private" ? "Private" : "Public"}</button>
+          ))}
+        </div>
+      </div> : null}
+    </div>
+    <footer className="project-modal-footer">{base ? <button type="button" disabled={!ready} onClick={() => void submit(false)}><FolderOpen size={14} /> Choose parent folder…</button> : null}<small>{github ? "Starts with a README, pushed to GitHub through gh" : "Starts with a README and Git repository"}</small></footer>
   </form>;
 }
 

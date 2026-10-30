@@ -12,7 +12,7 @@ Settings → Runtimes lists the agent runtimes a machine offers as a list, with 
 
 ## Runtime backend
 
-The owner of one thread's runtime for that thread's whole life (ADR 0005). Core knows the Pi backend; every other one arrives through `registerRuntimeBackend` and speaks to core in Tau's vocabulary: runtime events, a dialog route, an access level. A thread never changes its backend; the workbench chooses it before the first message, from the list the host publishes (`runtimeBackends`), and `TAU_RUNTIME_ADAPTER` only sets the default. A Codex thread may change its executing account between compatible accounts that share its session, while its backend remains its durable owner. A Pi model reached through a subscription login carries `login: "subscription"`; where the vendor forbids that login outside its own apps, the Subscription Login Warning kit asks once per provider and never blocks it.
+The owner of a persisted runtime session (ADR 0005). A conversation may hand its context to another runtime session while retaining its Tau thread identity. Core knows the Pi backend; every other one arrives through `registerRuntimeBackend` and speaks to core in Tau's vocabulary: runtime events, a dialog route, an access level. The workbench chooses the first runtime before the first message, from the list the host publishes (`runtimeBackends`). An idle conversation can later switch its executing runtime with a context handoff; each underlying session keeps its own backend owner. `TAU_RUNTIME_ADAPTER` only sets the default. A Codex thread may change its executing account between compatible accounts that share its session, while its backend remains its durable owner. A Pi model reached through a subscription login carries `login: "subscription"`; where the vendor forbids that login outside its own apps, the Subscription Login Warning kit asks once per provider and never blocks it.
 
 ## Executing account
 
@@ -31,6 +31,13 @@ does: "This machine", "Back to this machine", "Run on this machine". Neither
 reads, in Settings too; "host" stays in the docs and the code.
 `src/shared/machine-wording.test.ts` guards "this computer" and "this host".
 
+A machine may be reachable over several **routes**: its own addresses (LAN,
+Tailscale, names), Tau's SSH forward and Tau Connect's relay. They lead to one
+machine under one id and one pinned key. A window prefers the machine's own
+routes and uses the relay only while none of them answers. A machine's **SSH
+destination** is what the person's own editor uses to open that machine's
+projects over SSH; it is set per machine or derived from its routes.
+
 ## Workbench
 
 The interactive client in which a person manages projects, threads, agent activity, and extension-provided workflows. Tau is the workbench.
@@ -48,6 +55,17 @@ Wherever a person reads about it, in Settings, on the phone or in the browser's 
 ## Access key
 
 What the owner of a machine holds: a window with it manages who may connect, rotates the key, signs devices out and can show and copy the key under Settings → Connections → This machine, to enter it on their own devices or browsers. The code and the docs call it the host token. A paired device holds a key of its own, which the owner can revoke without changing the access key.
+
+## MCP client
+
+A program outside Tau, such as Claude Code, Codex or Claude Desktop, that uses
+Tau's tools over MCP with a grant the owner approved (ADR 0045, ADR 0046). On
+this machine it holds an owner-issued **MCP client token** for the loopback
+address; elsewhere it signs in with OAuth. A grant names its projects and may
+read them; with thread control it may also start threads and steer or stop the
+threads it started, never the owner's own. Each such thread runs under the
+grant's **execution ceiling**: the strictest of the workbench's access level and
+the ceiling applies to every turn on every runtime, also after a restart.
 
 ## Device
 
@@ -115,7 +133,7 @@ An objective a thread's runtime pursues across turns of its own until a check sa
 
 ## Automation
 
-Saved work for a project, started at a configured time or by a signed webhook. Each run creates an ordinary thread that the user can inspect, steer or stop. Uncertain starts require a decision before repeating the work.
+Saved work for a project, started at a configured time or by a webhook signed by Tau, GitHub or Stripe or carrying a shared secret. Each run creates an ordinary thread that the user can inspect, steer or stop, or continues one existing local thread as a wake. Uncertain starts require a decision before repeating the work. An agent may propose an automation for its thread; only the owner approves it.
 
 ## Pull request watch
 

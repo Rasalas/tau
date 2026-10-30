@@ -232,6 +232,10 @@ jobs:
             # node-pty's N-API binaries load as they are; a node-gyp rebuild fails on the runner.
             platform: --win --x64 -c.npmRebuild=false
             artifact: windows
+          - name: Windows arm64
+            runner: windows-11-arm
+            platform: --win --arm64 -c.npmRebuild=false -c.nsis.artifactName='Tau-Setup-${version}-arm64.${ext}' -c.publish.channel=latest-arm64
+            artifact: windows-arm64
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -312,7 +316,7 @@ jobs:
       - name: Package the portable remote host
         shell: bash
         run: |
-          archive="$(node scripts/packaging/portable-host.mjs ${{ (matrix.artifact == 'macos-arm64' || matrix.artifact == 'linux-arm64') && 'arm64' || 'x64' }})"
+          archive="$(node scripts/packaging/portable-host.mjs ${{ (matrix.artifact == 'macos-arm64' || matrix.artifact == 'linux-arm64' || matrix.artifact == 'windows-arm64') && 'arm64' || 'x64' }})"
           version="$(node -p 'require("./package.json").version')"
           node scripts/packaging/portable-host-smoke.mjs "$archive" "$version"
 
@@ -655,7 +659,7 @@ jobs:
           PUBLISHING: ${{ needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish == true }}
         run: |
           # One per platform of the matrix; a missing one leaves that platform without updates.
-          for name in latest-mac.yml latest.yml latest-linux.yml latest-host-darwin-arm64.yml latest-host-darwin-x64.yml latest-host-linux-x64.yml latest-host-linux-arm64.yml latest-host-win32-x64.yml; do
+          for name in latest-mac.yml latest.yml latest-arm64.yml latest-linux.yml latest-host-darwin-arm64.yml latest-host-darwin-x64.yml latest-host-linux-x64.yml latest-host-linux-arm64.yml latest-host-win32-x64.yml latest-host-win32-arm64.yml; do
             [ -f "feed/$name" ] || { echo "::error::The builds wrote no $name."; exit 1; }
           done
           if [ -z "${TAU_RELEASE_SIGNING_KEY:-}" ]; then

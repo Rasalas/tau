@@ -3,8 +3,9 @@ import { promisify } from "node:util";
 import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { createNamedProject, createScratchWorkspace, isScratchWorkspace, projectFolderName } from "./project-starts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createNamedProject, createScratchWorkspace, isScratchWorkspace, projectFolderName, publishNewProject } from "./project-starts";
+import { githubRepositoryPath, readNewProjectGithub } from "./project-github";
 const roots: string[] = [];
 async function fixture() { const path = await mkdtemp(join(tmpdir(), "tau-project-starts-")); roots.push(path); return path; }
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -67,5 +68,43 @@ describe("project starts", () => {
     expect(await readFile(join(created.path, "project-icon.svg"), "utf8")).toContain(">GA</text>");
     await expect(createNamedProject(root, "Garden Notes", "/missing/git")).rejects.toThrow();
     expect(await readFile(join(created.path, "README.md"), "utf8")).toBe("# Garden Notes\n");
+  });
+});
+
+describe("a new project's GitHub repository", () => {
+  const project = { workspace: "ws1_new", name: "Quiet Lake" };
+  it("names the repository as GitHub would and reads only a sane choice", () => {
+    expect(githubRepositoryPath("Quiet Lake")).toBe("Quiet-Lake");
+    expect(githubRepositoryPath("  my app (v2)! ", "acme")).toBe("acme/my-app-v2");
+    expect(githubRepositoryPath("日本")).toBeUndefined();
+    expect(readNewProjectGithub(undefined)).toBeUndefined();
+    expect(readNewProjectGithub({})).toEqual({ visibility: "private" });
+    expect(readNewProjectGithub({ owner: " acme ", visibility: "public" })).toEqual({ owner: "acme", visibility: "public" });
+    for (const owner of ["-x", "a--b", "a/b", "x-"]) expect(() => readNewProjectGithub({ owner })).toThrow(/not a GitHub/u);
+  });
+  it("asks Review to create and push it, and reports what GitHub made", async () => {
+    const publish = vi.fn(async () => ({ repository: "octo/Quiet-Lake", url: "https://github.com/octo/Quiet-Lake", remote: "https://github.com/octo/Quiet-Lake.git", pushed: true, branch: "main" }));
+    await expect(publishNewProject(publish, project, { visibility: "private" })).resolves.toEqual({ github: { repository: "octo/Quiet-Lake", url: "https://github.com/octo/Quiet-Lake", pushed: true, branch: "main" } });
+    expect(publish).toHaveBeenCalledWith({ workspace: "ws1_new", service: "github", repository: "Quiet-Lake", visibility: "private", confirm: true });
+  });
+  it.each([
+    ["gh is missing", "GitHub CLI (gh) is not installed or not on your PATH."],
+    ["gh is signed out", "GitHub CLI (gh) is not signed in. Run `gh auth login` in a terminal, then try again."],
+    ["the name is taken", "A repository named acme/Quiet-Lake already exists on GitHub. Choose another name, or add the existing one as origin by hand."],
+  ])("keeps the project with an actionable warning when %s", async (_case, problem) => {
+    const answer = await publishNewProject(async () => { throw new Error(problem); }, project, { owner: "acme", visibility: "private" });
+    expect(answer).toEqual({ warning: `Project created, but not its GitHub repository: ${problem} Publish it later with "Publish repository…" in the Changes panel.` });
+  });
+  it("keeps the repository and says why when the first push fails", async () => {
+    const answer = await publishNewProject(async () => ({ repository: "octo/Quiet-Lake", url: "u", remote: "r", pushed: false, branch: "main", pushProblem: "SSH authentication was rejected. Add an SSH key to your account, then push again." }), project, { visibility: "private" });
+    expect(answer.github).toMatchObject({ repository: "octo/Quiet-Lake", pushed: false });
+    expect(answer.warning).toBe("Created octo/Quiet-Lake on GitHub and added it as origin, but the first push failed. SSH authentication was rejected. Add an SSH key to your account, then push again.");
+  });
+  it("asks nothing of GitHub without a first commit or a usable name", async () => {
+    const publish = vi.fn(async () => ({}));
+    const unborn = await publishNewProject(publish, { ...project, warning: "Project created. Git setup could not finish; check Git and your commit identity." }, { visibility: "private" });
+    expect(unborn.warning).toMatch(/^Project created\. Git setup could not finish.*Its GitHub repository was not created; publish it with "Publish repository…" in the Changes panel once Git works\.$/u);
+    expect((await publishNewProject(publish, { ...project, name: "日本" }, { visibility: "private" })).warning).toMatch(/letters or digits/u);
+    expect(publish).not.toHaveBeenCalled();
   });
 });

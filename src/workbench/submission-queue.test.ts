@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { shouldQueueSubmission, formatQueuedFollowUp } from "./submission-queue";
 
 describe("submission-queue", () => {
+  it("queues a message for an idle thread that waits for its limit's scheduled resume", () => {
+    const idle = { isPendingNewThread: false, hasSnapshot: true, visibleStreaming: false };
+    expect(shouldQueueSubmission({ ...idle, awaitingResume: true })).toBe(true);
+    expect(shouldQueueSubmission({ ...idle, awaitingResume: false })).toBe(false);
+    expect(shouldQueueSubmission({ ...idle, awaitingResume: true, isPendingNewThread: true })).toBe(false);
+  });
+
   it("determines when to queue follow up submissions", () => {
     // Normal case during streaming turn: queues as follow-up
     expect(

@@ -103,6 +103,10 @@ function pickerSections(backend: string, runtimes: readonly UiRuntimeBackend[], 
       : "A new thread; a small model hands over a summary when you send.",
     ...(runtime.kind === backend ? { badge: "This thread" } : {}),
   }));
+  const switches: MenuItem[] = runtimes.filter(runtime => runtime.kind !== backend).map(runtime => ({
+    id: `switch:${runtime.kind}`, label: runtime.label,
+    description: "Keep this conversation and hand its context to this runtime.",
+  }));
   const elsewhere: MenuItem[] = targets.map((target) => {
     const why = unavailableOn(target, backend, runtimes, draft);
     return {
@@ -112,7 +116,7 @@ function pickerSections(backend: string, runtimes: readonly UiRuntimeBackend[], 
       ...(why ? { disabled: true } : {}),
     };
   });
-  return [{ heading: "Continue in", items: here }, ...(elsewhere.length > 0 ? [{ heading: "On another machine", items: elsewhere }] : [])];
+  return [...(switches.length ? [{ heading: "Switch runtime in this conversation", items: switches }] : []), { heading: "Continue in", items: here }, ...(elsewhere.length > 0 ? [{ heading: "On another machine", items: elsewhere }] : [])];
 }
 
 /** The thread on screen, when it is one that exists. */
@@ -262,6 +266,16 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
         }
       };
 
+      const switchRuntime = async (target: string, actions: WorkbenchActions): Promise<void> => {
+        store.openPicker(undefined);
+        const thread = currentThread(actions);
+        if (!thread) return;
+        try {
+          await host.invoke("switch-runtime", { threadId: thread.sessionId, target });
+          actions.notify(`This conversation now uses ${runtimeLabel(target, store.getSnapshot().runtimes ?? [])}.`);
+        } catch (error) { actions.notify(errorMessage(error), "error"); }
+      };
+
       const continueIn = async (target: string, actions: WorkbenchActions): Promise<void> => {
         store.openPicker(undefined);
         const thread = currentThread(actions);
@@ -395,7 +409,7 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
                 <Menu
                   align="left"
                   sections={pickerSections(snapshot?.backendKind ?? "pi", runtimes, view.targets, actions.composerDraft())}
-                  onSelect={(id) => void (id.startsWith(MACHINE_ITEM) ? continueOn(id.slice(MACHINE_ITEM.length), actions) : continueIn(id, actions))}
+                  onSelect={(id) => void (id.startsWith("switch:") ? switchRuntime(id.slice(7), actions) : id.startsWith(MACHINE_ITEM) ? continueOn(id.slice(MACHINE_ITEM.length), actions) : continueIn(id, actions))}
                   onClose={() => store.openPicker(undefined)}
                 />
               </span>
@@ -575,6 +589,12 @@ export function createHandoffExtension(store = new HandoffStore()): DesktopExten
       });
 
       context.registerRegion({ id: "handoff.lineage", placement: "thread-title", order: 60, profiles: PROFILES, Component: LineageTitle });
+      context.registerRegion({ id: "handoff.switch-runtime", placement: "composer-above", order: 39, profiles: PROFILES, Component: ({ snapshot, actions }) => {
+        const allowed = useCommandAllowed(HANDOFF_EXTENSION_ID, "switch-runtime");
+        const thread = currentThread(actions);
+        if (!thread || (snapshot?.runtimeBackends?.length ?? 0) < 2) return null;
+        return <button type="button" className="handoff-switch-runtime" disabled={!allowed || snapshot?.isStreaming} onClick={() => store.openPicker(thread.sessionId)}>Switch runtime</button>;
+      } });
       context.registerRegion({ id: "handoff.remote", placement: "composer-above", order: 40, profiles: PROFILES, Component: RemoteBanner });
       context.registerComposerInline({
         id: "handoff.draft",

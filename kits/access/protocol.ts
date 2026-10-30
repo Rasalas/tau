@@ -38,8 +38,10 @@ export function strictestAccessLevel(left: AccessLevel, right: AccessLevel | und
 
 /**
  * Narrows one thread below the workbench's level, `{ threadId, level }`;
- * `level: null` lifts it again. Kept in memory: the caller owns the durable
- * record and sets it again when the thread's runtime is built.
+ * `level: null` lifts it again. Each calling kit keeps its own narrowing and
+ * the strictest applies, so one kit's `null` leaves another's in place. Kept
+ * in memory: the caller owns the durable record and sets it again when the
+ * thread's runtime is built.
  */
 export const ACCESS_THREAD_LEVEL_COMMAND = "thread-level";
 
@@ -49,5 +51,18 @@ export const ACCESS_THREAD_LEVEL_CALLERS = ["tau.agents", "tau.scheduling"] as c
 /** The level one thread runs at, `{ threadId }` → `AccessLevel`: the workbench's, narrowed by the thread's own. */
 export const ACCESS_THREAD_LEVEL_OF_COMMAND = "thread-level-of";
 
-/** Servers Kit holds its server commands to the stricter of this and the target's level. */
-export const ACCESS_THREAD_LEVEL_OF_CALLERS = ["tau.servers"] as const;
+/**
+ * Servers Kit holds its server commands to the stricter of this and the target's level;
+ * Scheduling holds an automation an agent proposes to its thread's level.
+ */
+export const ACCESS_THREAD_LEVEL_OF_CALLERS = ["tau.servers", "tau.scheduling"] as const;
+
+/**
+ * How far one thread is narrowed below the workbench, `{ threadId }` → `AccessLevel | null`:
+ * the strictest of every kit's and the host's narrowing, without the workbench's level.
+ * The composer's chip shows it beside the level a person picks.
+ */
+export const ACCESS_THREAD_NARROWING_COMMAND = "thread-narrowing";
+
+/** Published with `{ threadId }` whenever a thread's narrowing changes. */
+export const ACCESS_THREAD_NARROWING_EVENT = "thread-narrowing";

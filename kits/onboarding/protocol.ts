@@ -10,13 +10,20 @@ export interface MachineImportService { Component: (props: MachineImportProps) =
 /** Pushed while `import-sessions` runs: `{ source, done, total }`. */
 export const IMPORT_PROGRESS_EVENT = "import-progress";
 
-export type SessionSource = "claude-code" | "codex" | "opencode";
+export type SessionSource = "claude-code" | "codex" | "opencode" | "cursor" | "grok" | "antigravity";
 
-/** The backend kits that list and import their CLI's sessions (`import-scan`, `import-sessions`, granted to this kit). */
+/**
+ * The backend kits asked for their CLI's sessions (`import-scan`, and
+ * `import-sessions` where they list any; granted to this kit). A kit whose
+ * sessions cannot be imported answers why, and the wizard shows it.
+ */
 export const SESSION_SOURCES: ReadonlyArray<{ source: SessionSource; extensionId: string; label: string }> = [
   { source: "claude-code", extensionId: "tau.claude-code", label: "Claude Code" },
   { source: "codex", extensionId: "tau.codex", label: "Codex" },
   { source: "opencode", extensionId: "tau.opencode", label: "OpenCode" },
+  { source: "cursor", extensionId: "tau.cursor", label: "Cursor" },
+  { source: "grok", extensionId: "tau.grok", label: "Grok" },
+  { source: "antigravity", extensionId: "tau.antigravity", label: "Antigravity" },
 ];
 
 export interface WelcomeState {
@@ -73,6 +80,8 @@ export interface Discovery {
   truncated: boolean;
   /** Sources that could not be asked, with the reason. */
   unavailable: Array<{ source: SessionSource; reason: string }>;
+  /** Sources that were asked but whose sessions cannot be imported, with the reason; absent from older hosts. */
+  unsupported?: Array<{ source: SessionSource; reason: string }>;
 }
 
 export interface ImportProgress {
@@ -90,5 +99,5 @@ export interface ImportResult {
 }
 
 export function isSessionSource(value: unknown): value is SessionSource {
-  return value === "claude-code" || value === "codex" || value === "opencode";
+  return SESSION_SOURCES.some((entry) => entry.source === value);
 }

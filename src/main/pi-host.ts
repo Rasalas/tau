@@ -1,12 +1,14 @@
+import { tmpdir } from "node:os";
+import { RuntimeSwitches } from "./runtime-switches.js";
 import { RequestReceipts } from "./request-receipts.js";
 import type { AgentSessionControl } from "./agent-session-control.js";
 import { compactThreadContext } from "./host-compaction.js";
-import { rm } from "node:fs/promises";
+import { rm, mkdir, writeFile } from "node:fs/promises";
 import { promptFiles } from "./prompt-attachments.js";
 import { decodeUiPromptAttachments, decodeUiSkillDraft } from "./ipc-input.js";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
@@ -27,6 +29,7 @@ import type {
   UiPromptAttachment,
   UiRuntimeBackend,
   UiSkillDraft,
+  UiSession,
   NewThreadConfiguration,
   NewThreadRequestId,
   ThreadBackendKind,
@@ -75,6 +78,7 @@ import type {
   HostStartedThread,
   HostThread,
   HostThreadStartOptions,
+  HostTurnObserver,
   HostUiPresenter,
   HostWorkspaceCloseReason,
   RuntimeSessionInfo,
@@ -107,7 +111,7 @@ import type { ThreadProjection } from "./thread-projection.js";
 import type { ExtensionUiCoordinator } from "./extension-ui-coordinator.js";
 import type { PiHostOptions } from "./pi-host-options.js";
 import { buildPiHostComponents, type PiHostComponents } from "./pi-host-components.js";
-import { finishHostShutdown, PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
+import { finishHostShutdown, PhaseTimer, promptRebindForThread, clientIdentityForRequest, externalThreadFromPath, externalThreadPath, findKnownWorkspacePath, processIsAlive, samePath, type ClientTurnRequest } from "./pi-host-support.js";
 export type { PiHostOptions } from "./pi-host-options.js";
 export { workspaceLabel } from "./pi-host-support.js";
 import type { WorkspaceIdentity } from "./workspace-identity.js";
@@ -118,7 +122,7 @@ import { skillMessagePresentation } from "./skill-invocation.js";
 import { skillDraftOf } from "../shared/prepared-prompt.js";
 import { piWorkspaceCommands } from "./workspace-skills.js";
 import type { WorkbenchReloadCoordinator } from "./workbench-reload-coordinator.js";
-import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
+import type { AgentRuntimeAdapter, RuntimePermissionLevel } from "./runtime-adapters.js";
 import {
   firstSentence,
   visibleTitleText,
@@ -201,6 +205,9 @@ export class PiHost {
   private readonly projects: ProjectFactsCache;
   /** Every persisted thread, the shell it is drawn as, and the publication of both. */
   private readonly index: ThreadIndex;
+  private readonly runtimeSwitches: RuntimeSwitches;
+  private readonly runtimeSegmentsDir: string;
+  private readonly runtimeSwitching = new Set<string>();
   /** Deleted threads, restorable until their retention runs out. */
   private readonly trash: ThreadTrash;
   /** Tau's dialog surface inside a runtime's extensions, and the events it lets through. */
@@ -241,6 +248,7 @@ export class PiHost {
     options: PiHostOptions = {},
   ) {
     this.currentCwd = cwd;
+    this.runtimeSegmentsDir = options.dataFolder ? join(options.dataFolder, "runtime-segments") : join(tmpdir(), `tau-runtime-segments-${randomUUID()}`);
     const components = buildPiHostComponents(options, {
       getCwd: () => this.cwd,
       setCwd: (value) => { this.cwd = value; },
@@ -284,6 +292,7 @@ export class PiHost {
       admitWorkspace: (path) => this.admitWorkspace(path),
       prepareThread: (session, manager, prepareOptions) => this.prepareThread(session, manager, prepareOptions),
       startThread: (startOptions) => this.startThread(startOptions),
+      switchThreadRuntime: (id, kind) => this.switchThreadRuntime(id, kind),
       removeThread: (sessionId) => this.removeThread(sessionId),
       restoreThread: (sessionId) => this.restoreThread(sessionId),
       purgeThread: (sessionId) => this.purgeThread(sessionId),
@@ -307,6 +316,7 @@ export class PiHost {
     this.workbenchReload = components.workbenchReload;
     this.projects = components.projects;
     this.index = components.index;
+    this.runtimeSwitches = components.runtimeSwitches;
     this.trash = components.trash;
     this.publication = components.publication;
     this.seam = components.seam;
@@ -630,6 +640,21 @@ export class PiHost {
   hostExtensionMachineRouting(id: string) { return this.hostExtensions.machineRoutingFor(id); }
 
   authorizeHostExtension(extensionId: string, command: string, input: unknown, principal: HostInvocationPrincipal): Promise<void> { return this.hostExtensions.authorizeInvocation(extensionId, command, input, principal); }
+  /** A thread's live runtime, for external MCP control (ADR 0046); undefined once released. */
+  liveThread(sessionId: string): HostThread | undefined { return sessionId ? this.hostThread(sessionId) : undefined; }
+
+  /** Core's own turn observer beside the extensions' (ADR 0046): the ceilings of externally started threads. */
+  observeTurns(observer: HostTurnObserver): () => void { return this.turnObservers.add(observer); }
+
+  /** Every host extension that became active, a reload included (ADR 0046). */
+  observeExtensionActivation(listener: (id: string) => void): () => void { return this.hostExtensions.observeActivation(listener); }
+
+  /** Core's per-thread ceilings, which clamp every runtime's level whatever the extensions do (ADR 0046). */
+  setThreadCeiling(provider: ((sessionId: string) => RuntimePermissionLevel | undefined) | undefined): void { this.seam.setThreadCeiling(provider); }
+
+  /** Who started a thread over MCP, for the thread list (ADR 0046). */
+  markMcpClient(sessionId: string, client: UiSession["mcpClient"]): void { this.index.setMcpClient(sessionId, client); }
+
   activeThreadIdentity(): { sessionId: string; backendKind: string } | undefined { const thread = this.active; return thread ? { sessionId: thread.threadId, backendKind: thread.backend.kind } : undefined; }
 
   hasRequiredBackgroundWork(): boolean {
@@ -745,12 +770,17 @@ export class PiHost {
     if (this.defaultBackendKind !== "pi") {
       const kind = this.defaultBackendKind;
       const latest = (await this.requireBackend(kind).listThreads())
-        .filter((record) => record.cwd === cwd)
+        .filter((record) => record.cwd === cwd && !this.runtimeSwitches.get(record.threadId)?.deleted)
         .sort((left, right) => right.updatedAt - left.updatedAt)[0];
-      return this.runtimes.openExternal(kind, latest?.threadId ?? randomUUID(), cwd, { resume: Boolean(latest) });
+      const switched = latest ? this.runtimeSwitches.get(latest.threadId) : undefined;
+      if (switched?.sessionPath) return this.runtimes.open(SessionManager.open(switched.sessionPath), { type: "session_start", reason: "resume" });
+      return this.runtimes.openExternal(switched?.kind ?? kind, latest?.threadId ?? randomUUID(), cwd, { resume: Boolean(latest) });
     }
     try {
-      return await this.runtimes.open(await this.initialSessionManager(cwd), undefined);
+      const manager = await this.initialSessionManager(cwd);
+      const switched = this.runtimeSwitches.get(manager.getSessionId());
+      if (!this.safeMode && switched && !switched.deleted) return switched.sessionPath ? this.runtimes.open(SessionManager.open(switched.sessionPath), { type: "session_start", reason: "resume" }) : this.runtimes.openExternal(switched.kind, manager.getSessionId(), cwd);
+      return await this.runtimes.open(manager, undefined);
     } catch (error) {
       // The last session of this workspace points at a folder that is gone, or
       // another host writes it; a fresh session in the workspace is the right
@@ -889,6 +919,7 @@ export class PiHost {
    * backend keeps. Neither opens a runtime.
    */
   private async releasedTranscript(sessionId: string, cursor?: HostTranscriptCursor): Promise<TranscriptPage> {
+    if (this.runtimeSwitches.get(sessionId)) return this.projection.transcriptPage(await this.runtimes.reopen(sessionId), cursor);
     const session = await this.index.find(sessionId);
     const kind = session?.backendKind ?? "pi";
     if (!session || kind === "pi") {
@@ -1393,6 +1424,72 @@ export class PiHost {
     return kind !== "pi" ? this.externalComposerCommands(kind, cwd) : await piWorkspaceCommands(this.runtimeCommands, cwd, this.piAdapter);
   }
 
+  /** Runtime sessions stay owned by their provider; the conversation retains one Tau identity. */
+  async switchThreadRuntime(id: string, kind: string): Promise<void> {
+    this.workbenchReload.assertAvailable();
+    if (this.runtimeSwitching.has(id)) throw new Error("This thread is already switching runtimes.");
+    this.runtimeSwitching.add(id);
+    try { await this.lifecycle.runActivation("switch-runtime", async activation => {
+      const source = await this.runtimes.reopen(id);
+      if (this.ownedByPi(source) || source.backend.kind === "machine") throw new Error("Switch the runtime on the thread's home machine; attached sessions must be taken over first.");
+      if (kind === source.backend.kind) return;
+      if (kind === "machine" || (kind !== "pi" && this.requireBackend(kind).hidden)) throw new Error("Choose an executing runtime on this machine.");
+      if (source.state.streaming || !source.state.idle || this.threads.isBusy(id) || this.queue.list(id).length || source.adapterPending > 0 || source.pendingClientMessageIds.length > 0 || source.inFlightClientMessageIds.size > 0) throw new Error("Wait for this thread and its queued messages to finish before switching runtimes.");
+      if ((source.backend.capabilities.background?.list?.() ?? source.backend.capabilities.background?.current() ?? []).some(task => task.state !== "reported")) throw new Error("Stop this runtime's background tasks before switching runtimes.");
+      const goal = source.backend.capabilities.goals?.current();
+      if (goal && goal.status !== "complete") throw new Error("End this runtime's goal before switching runtimes.");
+      await this.prompts.assertRuntimeKind(kind, source.cwd);
+      if (kind !== "pi") {
+        const catalog = await this.requireBackend(kind).newThreadCatalog?.();
+        if (catalog?.status) throw new Error(catalog.note ?? `The ${kind} runtime is ${catalog.status}. Configure it before switching.`);
+      }
+      const history = this.projection.messages(source);
+      if (history.reduce((size, message) => size + message.text.length, 0) > 500_000) throw new Error("This conversation is too large for a direct runtime switch. Use Continue in… to pass a summary instead.");
+      const previous = this.runtimeSwitches.get(id);
+      let target: ThreadRuntime;
+      let freshExternal = false;
+      let sessionPath: string | undefined;
+      // A fresh Pi segment has the same Tau id and its own file. Its original file stays untouched.
+      if (kind === "pi") {
+        const manager = SessionManager.create(source.cwd, this.runtimeSegmentsDir, { id });
+        sessionPath = manager.getSessionFile();
+        if (!sessionPath) throw new Error("Pi could not create a persisted runtime segment.");
+        await mkdir(dirname(sessionPath), { recursive: true });
+        await writeFile(sessionPath, `${JSON.stringify(manager.getHeader())}\n`, { mode: 0o600, flag: "wx" });
+        try { target = await this.runtimes.open(SessionManager.open(sessionPath), { type: "session_start", reason: "resume" }, { adopt: false, prepared: true }); }
+        catch (error) { await rm(sessionPath, { force: true }); throw error; }
+      } else {
+        const provider = this.requireBackend(kind);
+        const existing = await provider.lookup(id);
+        freshExternal = !existing;
+        try { target = await this.runtimes.openExternal(kind, id, source.cwd, { resume: Boolean(existing), adopt: false }); }
+        catch (error) { if (freshExternal) await provider.removeThread?.(id); throw error; }
+      }
+      let published = false;
+      let replacement: ReturnType<ThreadRuntimeRegistry<ThreadRuntime>["stageReplacement"]> | undefined;
+      try {
+        if (target.state.streaming || !target.state.idle) throw new Error("The target runtime is already working in its saved session.");
+        const offset = (await target.backend.transcript()).length;
+        const title = source.state.title;
+        if (title) await target.backend.setTitle(title, source.state.titleSource ?? "renamed");
+        await this.runtimeSwitches.set(id, { kind, cwd: source.cwd, ...(title ? { title } : {}), history, offset, contextPending: true, paths: [...new Set([...previous?.paths ?? [], source.sessionFile ?? externalThreadPath(source.backend.kind, id), sessionPath ?? externalThreadPath(kind, id)])], activity: this.projection.hostSnapshot(source, [], source.cwd, this.extensionCount).turnActivityHistory ?? [], activityOffset: target.adapterActivity.length, ...(sessionPath ? { sessionPath } : {}) });
+        target.decorateBackend(backend => this.runtimeSwitches.wrap(backend));
+        if (kind !== "pi") target.adapterMessages = await target.backend.transcript();
+        target.adapterActivity = await target.backend.capabilities.activityHistory?.load() ?? [];
+        replacement = this.threads.stageReplacement({ threadId: id, cwd: target.cwd, runtime: target, isolation: "in-process" });
+        if (!await this.activateThread(target, false, activation.epoch)) throw new Error("Runtime switching was superseded by another navigation.");
+        published = true;
+        await replacement.commit().catch(error => this.log("runtime.switch.cleanup-failed", this.errorMessage(error)));
+        target.releaseEventBarrier((event, thread, sessionId, cwd, error) => error ? this.fail(error, sessionId) : this.handleSessionEvent(event, thread, sessionId, cwd), event => this.emit(event), () => undefined);
+        await this.index.refresh("changes");
+        for (const update of (await this.publication.activeUpdates(activation.epoch)).updates) this.emitUpdate(update);
+      } catch (error) {
+        if (!published) { await this.runtimeSwitches.set(id, previous); if (replacement) await replacement.rollback(); else await this.runtimes.dispose(target); if (freshExternal) await this.requireBackend(kind).removeThread?.(id); if (sessionPath) await rm(sessionPath, { force: true }); }
+        throw error;
+      }
+    }); } finally { this.runtimeSwitching.delete(id); }
+  }
+
   async switchSession(path: string): Promise<HostActionResult> {
     // The index carries the lifecycle owner; the virtual path of an external
     // thread is the fallback for entries that predate the index.
@@ -1485,6 +1582,7 @@ export class PiHost {
     // The switch that opened this thread may still be binding its extensions.
     await this.binding.settle(thread);
     this.sessionControl.assertAvailable(thread.threadId);
+    if (this.runtimeSwitching.has(thread.threadId)) throw new Error("This thread is switching runtimes. Send again when the switch finishes.");
     if (thread.restartGeneration !== restartGeneration) throw new Error("The agent session changed while the message was being prepared. Send it again.");
     // A prompt named for its thread goes there while another one is on screen; it only needs the thread still open.
     if (sessionId !== undefined && thread.threadId === sessionId) {

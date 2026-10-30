@@ -496,7 +496,8 @@ button > svg { pointer-events: none; }
   position: relative; background: var(--stage);
   /* One content frame for transcript, dock regions and composer. Percentages resolve on the box that uses them,
      which is the column's width for each region: 32 px beside it, 12 px once the column is 560 px or narrower. */
-  --content-max: 780px;
+  /* Appearance Kit's chat width sets --chat-max-width on the root; without it the design's 780 px. */
+  --content-max: var(--chat-max-width, 780px);
   --content-inset: clamp(12px, (100% - 560px) * 1000, 32px);
   --composer-inset: max(var(--content-inset), calc((100% - var(--content-max)) / 2));
   /* The transcript's scrollbar lane, kept on both sides so its text stays centred over the composer. */

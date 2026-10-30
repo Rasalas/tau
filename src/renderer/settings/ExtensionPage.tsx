@@ -20,8 +20,10 @@ import { SettingRow, SettingsSection } from "./settings-layout";
 import { runtimePage } from "./settings-nav";
 
 /** A model choice an extension declared; empty means the thread's own model. */
-function ModelOptionRow({ label, value, models, disabled, thinkingLevel, onThinkingLevelChange, onChange }: {
+function ModelOptionRow({ label, emptyLabel = "Thread's model", value, models, disabled, thinkingLevel, onThinkingLevelChange, onChange }: {
   label: string;
+  /** What an unset choice means; the thread's model unless the option says otherwise. */
+  emptyLabel?: string | undefined;
   value?: string;
   models: readonly UiModel[];
   disabled: boolean;
@@ -37,13 +39,13 @@ function ModelOptionRow({ label, value, models, disabled, thinkingLevel, onThink
   const supportsThinking = levels.some((level) => level !== "off");
   return (
     <div className="settings-row-inline">
-      <button ref={pickerAnchor} type="button" className="settings-model-button" disabled={disabled} aria-label={`${label}: ${chosen?.name ?? "the thread's model"}`} onClick={() => setPickerOpen((open) => !open)}>
+      <button ref={pickerAnchor} type="button" className="settings-model-button" disabled={disabled} aria-label={`${label}: ${chosen?.name ?? (value || emptyLabel)}`} onClick={() => setPickerOpen((open) => !open)}>
         <Sparkles size={14} className="accent" />
-        <span>{chosen?.name ?? (value || "Thread's model")}</span>
+        <span>{chosen?.name ?? (value || emptyLabel)}</span>
         <ChevronDown size={14} aria-hidden />
       </button>
       {value ? (
-        <button type="button" className="tau-icon-button" disabled={disabled} aria-label={`Use the thread's model for ${label}`} {...tooltipProps("Use the thread's model")} onClick={() => onChange("")}>
+        <button type="button" className="tau-icon-button" disabled={disabled} aria-label={`Use the ${emptyLabel.toLowerCase()} for ${label}`} {...tooltipProps(`Use the ${emptyLabel.toLowerCase()}`)} onClick={() => onChange("")}>
           <X size={14} />
         </button>
       ) : null}
@@ -373,6 +375,7 @@ export function ExtensionPage({ entry, registry, models, cwd, distribution, sect
               return (
                 <SettingRow key={option.id} title={option.label} disabledReason={inert} control={<ModelOptionRow
                   label={option.label}
+                  emptyLabel={option.emptyLabel}
                   value={state.extensionValues[`${entry.id}.${option.id}`] || undefined}
                   models={models}
                   disabled={!running || readOnly}

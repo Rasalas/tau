@@ -72,15 +72,20 @@ function derivedClaudeTitle(text: string): string | undefined {
   return title ? title.slice(0, 80) : undefined;
 }
 
-/** Images go before the text: the CLI reads a slash command only from a trailing text block. */
+/**
+ * Images go before the text: the CLI reads a slash command only from a trailing
+ * text block. Files (the host's copies of those images) are named between them.
+ */
 export function promptContent(text: string, attachments: readonly UiPromptAttachment[] | undefined): UserContent {
   const images = (attachments ?? []).flatMap((attachment) => attachment.kind === "image" ? [attachment] : []);
-  if (!images.length) return text;
+  const files = (attachments ?? []).flatMap((attachment) => attachment.kind === "file" ? [attachment.path] : []);
+  if (!images.length && !files.length) return text;
   return [
     ...images.map((attachment) => ({
       type: "image" as const,
       source: { type: "base64" as const, media_type: attachment.mimeType as "image/png", data: attachment.data },
     })),
+    ...(files.length ? [{ type: "text" as const, text: `Attached files:\n${files.map((path) => `- ${path}`).join("\n")}` }] : []),
     { type: "text" as const, text },
   ];
 }
@@ -494,7 +499,7 @@ export class ClaudeThreadRuntimeBackend implements ThreadRuntimeBackend {
     await this.persist([user]);
     // No title is stored here: the thread index names an unnamed thread after
     // its first message, and a stored name would stop the title generator.
-    const content = promptContent(prepared.runtimeText, input.attachments);
+    const content = promptContent(input.continuationContext ? `Previous conversation from another runtime:\n${input.continuationContext}\n\nCurrent message:\n${prepared.runtimeText}` : prepared.runtimeText, input.attachments);
     if (input.delivery === "steer" && this.turns.length > 0) {
       // A steer joins the running turn and returns once it is on its way; the
       // turn's own result clears it from the queue the composer shows.

@@ -3,14 +3,18 @@ import type { UiSession } from "./contracts.js";
 import {
   addressPageUrl,
   decodeEnvironmentTarget,
+  environmentRoute,
   environmentProjects,
   environmentStorageKey,
   environmentThreads,
+  machineRoutes,
   orderEndpoints,
   refreshEndpoints,
   sameEndpoints,
+  samePinnedKey,
   socketUrl,
 } from "./environments.js";
+import { decodeManagedRoute } from "./managed-connections.js";
 import { decodeHostHelloReply, decodeHostServerFrame } from "./host-transport.js";
 
 const session = (id: string, modifiedAt: number, extra: Partial<UiSession> = {}): UiSession => ({
@@ -165,5 +169,52 @@ describe("an arrival target", () => {
     expect(decodeEnvironmentTarget({ newThread: { draft: " ", send: true, model: { provider: "p" } } })).toEqual({ newThread: { draft: " " } });
     expect(decodeEnvironmentTarget({ thread: { path: 3 } })).toBeUndefined();
     expect(decodeEnvironmentTarget("x")).toBeUndefined();
+  });
+});
+
+describe("environmentRoute", () => {
+  it("names Tau's own route, and otherwise a saved machine's host names best first", () => {
+    expect(environmentRoute({ managed: { ssh: { target: "me@studio" } }, endpoints: [{ url: "http://127.0.0.1:41000/" }] })).toEqual({ kind: "ssh", target: "me@studio" });
+    expect(environmentRoute({ managed: { wsl: "Ubuntu" }, endpoints: [] })).toEqual({ kind: "wsl", distro: "Ubuntu" });
+    expect(environmentRoute({ managed: { connect: { relay: "https://relay.example", id: "x", token: "secret", port: 1 } }, endpoints: [] })).toEqual({ kind: "connect" });
+    expect(environmentRoute({ endpoints: [
+      { url: "https://127.0.0.1:7788/", kind: "loopback" },
+      { url: "https://192.168.1.20:7788/", kind: "lan" },
+      { url: "https://[fd7a:115c::5]:7788/", kind: "tailscale" },
+      { url: "https://studio.tail1234.ts.net/", kind: "magicdns", trustedCertificate: true },
+      { url: "https://studio.local:7788/", kind: "mdns" },
+      { url: "not a url" },
+    ] })).toEqual({ kind: "direct", hosts: ["studio.tail1234.ts.net", "studio.local", "fd7a:115c::5", "192.168.1.20", "127.0.0.1"] });
+  });
+});
+
+describe("a machine's routes", () => {
+  const connect = { relay: "https://relay.example", id: "0123abcd-0123-4567-89ab-0123456789ab", token: "A".repeat(43), port: 41000 };
+  const lan = { url: "https://192.168.1.20:7788/", kind: "lan" as const };
+  const bridge = { url: "https://127.0.0.1:41000/" };
+
+  it("tells its own addresses from Tau Connect's bridge, and names those addresses as its route once it has some", () => {
+    expect(machineRoutes({ managed: { connect }, endpoints: [lan, bridge] })).toEqual({ direct: [lan], connect: bridge });
+    expect(machineRoutes({ managed: { connect }, endpoints: [] })).toEqual({ direct: [], connect: bridge });
+    expect(machineRoutes({ endpoints: [lan, bridge] })).toEqual({ direct: [lan, bridge] });
+    expect(environmentRoute({ managed: { connect }, endpoints: [bridge] })).toEqual({ kind: "connect" });
+    expect(environmentRoute({ managed: { connect }, endpoints: [lan, bridge] })).toEqual({ kind: "direct", hosts: ["192.168.1.20"] });
+  });
+
+  it("joins two pairings only under the same pinned key", () => {
+    const key = Array.from({ length: 32 }, () => "ef").join("");
+    expect(samePinnedKey({ publicKey: key }, { publicKey: key.toUpperCase().match(/.{2}/gu)!.join(":") })).toBe(true);
+    expect(samePinnedKey({ publicKey: key }, { publicKey: Array.from({ length: 32 }, () => "CD").join(":") })).toBe(false);
+    // An old certificate pin proves nothing about the key.
+    expect(samePinnedKey({}, { publicKey: key })).toBe(false);
+  });
+
+  it("keeps Tau Connect beside an SSH forward, and nothing beside a WSL distribution", () => {
+    const ssh = { target: "me@studio", platform: "linux" as const, port: 4721 };
+    expect(decodeManagedRoute({ ssh, connect })).toEqual({ ssh, connect });
+    expect(decodeManagedRoute({ connect })).toEqual({ connect });
+    expect(decodeManagedRoute({ ssh, connect: { ...connect, relay: "http://relay.example" } })).toEqual({ ssh });
+    expect(decodeManagedRoute({ wsl: "Ubuntu" })).toEqual({ wsl: "Ubuntu" });
+    expect(decodeManagedRoute({ connect: "nope" })).toBeUndefined();
   });
 });

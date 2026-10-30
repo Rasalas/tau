@@ -48,6 +48,30 @@ describe("HostBook", () => {
   });
 });
 
+describe("HostBook keeps a host's routes across pairings", () => {
+  const KEY = Array.from({ length: 32 }, () => "EF").join(":");
+  const relay = { relay: "https://relay.example", id: "0123abcd-0123-4567-89ab-0123456789ab", token: "A".repeat(43), url: "wss://127.0.0.1:9/" };
+
+  it("keeps Tau Connect when paired again over its own address with the same key, and drops it for another key", async () => {
+    const book = new HostBook(memoryStore());
+    await book.save(host("a", { publicKey: KEY, connect: true }), "t1", relay);
+    await book.save(host("a", { publicKey: KEY }), "t2");
+    expect(await book.connect("a")).toEqual(relay);
+    expect((await book.get("a"))?.connect).toBe(true);
+    await book.save(host("a", { publicKey: Array.from({ length: 32 }, () => "CD").join(":") }), "t3");
+    expect(await book.connect("a")).toBeUndefined();
+    expect((await book.get("a"))?.connect).toBeUndefined();
+  });
+
+  it("keeps the addresses it had when paired again through Tau Connect", async () => {
+    const book = new HostBook(memoryStore());
+    await book.save(host("a", { publicKey: KEY }), "t1");
+    await book.save(host("a", { publicKey: KEY, connect: true, endpoints: [{ url: "https://127.0.0.1:9/" }] }), "t2", relay);
+    expect((await book.get("a"))?.endpoints).toEqual([{ url: "https://127.0.0.1:9/" }, { url: "https://a.local:7788/", kind: "mdns" }]);
+    expect(await book.connect("a")).toEqual(relay);
+  });
+});
+
 describe("HostBook under concurrent changes", () => {
   it("keeps every one of several changes made at once", async () => {
     const book = new HostBook(memoryStore());

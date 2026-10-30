@@ -23,6 +23,7 @@ Tau is a desktop workbench for coding agents: Pi, Claude Code, Codex, OpenCode a
 | Mac with Apple silicon | [Tau-mac-arm64.dmg](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-mac-arm64.dmg) |
 | Mac with Intel | [Tau-mac-x64.dmg](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-mac-x64.dmg) |
 | Windows 10 and 11 | [Tau-windows-x64.exe](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-windows-x64.exe) |
+| Windows on ARM | [Tau-windows-arm64.exe](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-windows-arm64.exe) |
 | Debian and Ubuntu | [Tau-linux-amd64.deb](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-linux-amd64.deb) |
 | Other Linux (x64) | [Tau-linux-x86_64.AppImage](https://github.com/Rasalas/tau-releases/releases/latest/download/Tau-linux-x86_64.AppImage) |
 

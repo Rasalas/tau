@@ -20,7 +20,8 @@ export interface LocalRequestClient {
   /** A thumbnail through Evidence Kit when it took the picture, else the picture itself. */
   image(frame: Pick<LocalEvidence, "threadId" | "source" | "id">, thumb: boolean): Promise<string | null>;
   /** `pending`: the commit about to be made with the request, which the branch does not hold yet. */
-  describe(input: { thinkingLevel?: string | undefined; base?: string; model?: ModelRef; prefer?: ModelRef; instructions?: string; template?: boolean; evidence?: string[]; pending?: { message: string; files: Array<{ path: string; added: number; removed: number }> } }): Promise<ReviewRequestDraft & { model?: string }>;
+  /** `runtime: "thread"` writes with the thread's own runtime (Text generation's choice). */
+  describe(input: { thinkingLevel?: string | undefined; runtime?: "auto" | "pi" | "thread"; base?: string; model?: ModelRef; prefer?: ModelRef; instructions?: string; template?: boolean; evidence?: string[]; pending?: { message: string; files: Array<{ path: string; added: number; removed: number }> } }): Promise<ReviewRequestDraft & { model?: string }>;
   plan(url?: string, branch?: string): Promise<UploadPlan>;
   attach(input: { url: string; body: string; branch?: string }): Promise<{ uploaded: number }>;
 }
