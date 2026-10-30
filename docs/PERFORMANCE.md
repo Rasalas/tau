@@ -2192,6 +2192,9 @@ SHA-256 fingerprint are recorded in the comparison provenance. This holds the
 browser engine constant when a pull request upgrades Electron, while preserving
 each subject's product code and dependencies. An ambient
 `TAU_BENCHMARK_ELECTRON` override cannot change the runner's selected binary.
+Electron may download its binary on first resolution. The resolver writes the
+executable metadata to a separate JSON file, so download progress on stdout
+cannot become part of the executable path. A failed download still fails setup.
 
 Both builds receive identical copies of the gate checkout's benchmark sources,
 including `RendererBenchmark*.tsx`, the Electron fixtures and fixture JSON.

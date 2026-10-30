@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { comparePerformanceReports, comparisonHarnessFiles, comparisonPolicy } from "./performance-comparison.mjs";
+import { resolveElectronRuntime } from "./electron-runtime.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const args = process.argv.slice(2);
@@ -90,16 +91,11 @@ try {
   // Electron is measurement infrastructure here. Use the head's exact installed
   // binary for both bundles, including when the product upgrades Electron.
   // Each subject still builds against its own untouched dependency lockfile.
-  const runtimeEnv = { ...process.env };
-  delete runtimeEnv.ELECTRON_OVERRIDE_DIST_PATH;
-  const electronExecutable = run(subjects.head, process.execPath, ["-e", "process.stdout.write(require('electron'))"], { env: runtimeEnv });
-  const electronPackage = JSON.parse(await readFile(join(subjects.head, "node_modules/electron/package.json"), "utf8"));
   provenance.measurementRuntime = {
     sourceCommit: headCommit,
-    electronVersion: electronPackage.version,
-    executable: electronExecutable,
-    binarySha256: createHash("sha256").update(await readFile(electronExecutable)).digest("hex"),
+    ...await resolveElectronRuntime(subjects.head, temporary, run),
   };
+  const electronExecutable = provenance.measurementRuntime.executable;
   await writeFile(join(outputDirectory, "timing-comparison-provenance.json"), `${JSON.stringify(provenance, null, 2)}\n`);
   for (let round = 0; round < comparisonPolicy.pairs; round += 1) {
     // Alternate AB/BA order so a warming or slowing runner does not always
