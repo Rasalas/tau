@@ -135,6 +135,7 @@ describe("ThreadProjection catalog", () => {
 describe("ThreadProjection transcript", () => {
   it("retains sanitized public tool activity when a conversation switches to Pi", () => {
     const entries = [
+      { type: "message", id: "u", message: { role: "user", content: "Continue", timestamp: 1 } },
       { type: "message", id: "a", message: { role: "assistant", content: [{ type: "toolCall", id: "current", name: "bash", arguments: {} }], timestamp: 2 } },
       { type: "message", id: "r", message: { role: "toolResult", toolCallId: "current", content: [{ type: "text", text: "Current result" }], timestamp: 3 } },
     ];

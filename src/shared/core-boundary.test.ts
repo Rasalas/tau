@@ -170,6 +170,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
   "./agent-session-control.js",   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./runtime-switches.js",   "./prompt-image-files.js",   "./thread-trash.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
+  "./runtime-conversations.js", // Read persisted handoff history and Pi segments without opening a runtime.
   "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",   "./unavailable-thread-backend.js",
   "./queued-messages.js",   "./thread-stop.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
   "./user-themes.js",   "./workbench-build.js",

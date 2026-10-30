@@ -49,7 +49,7 @@ async function searchFixture() {
   const longText = `${"older conversation ".repeat(5_000)}needle after the old prefix`;
   for (const [index, id] of ["first", "second"].entries()) {
     await fixture.registry.invoke(ACP_ID, "save", { id, name: id, command: process.execPath, args: [FAKE, "acp"] });
-    const store = new AcpSessionStore({ filePath: join(fixture.root, "state", `${id}-sessions.json`), backendKind: `acp@${id}`, agent: id, now: () => (index + 1) * 100 });
+    const store = new AcpSessionStore({ filePath: join(fixture.root, "state", ACP_ID, `${id}-sessions.json`), backendKind: `acp@${id}`, agent: id, now: () => (index + 1) * 100 });
     cleanups.push(() => store.dispose());
     await store.appendMessages(`${id}-thread`, fixture.root, [{ id: `${id}-message`, role: "user", text: index === 0 ? "first agent's conversation" : longText, timestamp: index + 1 }]);
     // Native ids need only be unique within one agent; exported Tau ids stay global.
@@ -61,8 +61,8 @@ async function searchFixture() {
 
 async function searchClient(registry: Awaited<ReturnType<typeof activateHostKit>>, id = "tau.search") {
   let read!: (input: ThreadTextsRequest) => Promise<ThreadTextsAnswer>;
-  await registry.activate({ id, name: id, activate(context) {
-    read = async input => await context.invokeHostExtension(ACP_ID, THREAD_TEXTS_COMMAND, input) as ThreadTextsAnswer;
+  await registry.activate({ id, name: id, activate(searchContext) {
+    read = async input => await searchContext.invokeHostExtension(ACP_ID, THREAD_TEXTS_COMMAND, input) as ThreadTextsAnswer;
   } });
   return read;
 }

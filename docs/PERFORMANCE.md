@@ -2459,6 +2459,14 @@ JavaScript, CSS, build-time, first-paint, heap, transport and frame budgets do
 not change. This is an explicit feature-size allowance, not an optimization or
 a claim that unchanged size gates passed.
 
+After integrating main's local MCP clients, runtime switching and editor/title
+changes on 2026-10-30, desktop initial JavaScript measures 820,524 bytes and
+252,873 gzip bytes; its kit halves total 3,568,945 bytes. The combined browser
+entry measures 834,225 bytes and 258,021 gzip bytes. The browser initial gzip
+cap moves from 258,000 to 259,000 bytes, leaving 979 bytes of headroom for this
+combined feature set. Other size caps and the paired renderer timing policy
+remain as defined above. Main's build-time caps are described separately.
+
 The separate investigation in
 `docs/research/t3-release-budgets-2026-10-29.md` found no large duplicate vendor
 bundle across kits. A map-preserving compression candidate still exceeded the

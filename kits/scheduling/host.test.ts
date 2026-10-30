@@ -451,7 +451,7 @@ it("repeats a cron schedule in its own time zone and holds a missed occurrence l
   // The turn outlives 09:30, so that occurrence is held, not replayed.
   await vi.advanceTimersByTimeAsync(45 * 60_000);
   await h.end("thread-1");
-  expect(await h.call("list")).toMatchObject({ jobs: [{ status: "held", nextAt: "2026-10-16T07:30:00.000Z" }] });
+  await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ status: "held", nextAt: "2026-10-16T07:30:00.000Z" }] }));
   expect(h.threads).toHaveLength(1);
   // Skipping moves to the next future occurrence, after the clocks went back: 09:00 CET.
   vi.setSystemTime(new Date("2026-10-28T12:00:00Z"));

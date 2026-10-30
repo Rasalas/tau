@@ -1,7 +1,7 @@
 // Full host + browser check, confined to loopback and .tau-dev. No real tailnet,
 // credentials, model account, service manager or user browser profile is used.
 import assert from "node:assert/strict";
-import { createHash, createHmac, createPublicKey } from "node:crypto";
+import { createHash, createHmac, createPublicKey, randomBytes } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
 import { createServer as createTlsServer, request as httpsRequest } from "node:https";
@@ -19,7 +19,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const NAME = "sharing-webhooks";
 const DIR = testHostDir(NAME);
 const DNS = "tau-test-box.tail0000.ts.net";
-const SECRET = "isolated-webhook-fixture-key";
+const SECRET = randomBytes(32).toString("hex");
 const { HostUplink } = await import(pathToFileURL(join(ROOT, "dist-electron/main/host-uplink.js")));
 const { createSelfSignedCertificate } = await import(pathToFileURL(join(ROOT, "dist-electron/main/self-signed-certificate.js")));
 const steps = [];

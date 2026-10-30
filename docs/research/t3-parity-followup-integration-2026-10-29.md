@@ -148,3 +148,39 @@ Framegrenzen bleiben unverändert.
   einer realen Bibliothek. Der Status zeigt den kalten Aufbau deshalb an.
 - Keine echte GitHub-/Forgejo-Mutation oder öffentliche Gastfreigabe wurde zum
   Test ausgelöst. Produktions-CI und eine spätere Geräteprüfung bleiben sinnvoll.
+
+## Integration mit Main am 30. Oktober
+
+Der Stand wurde auf `d5c3b30c0` integriert. Damit bleiben die neuen lokalen
+MCP-Clients, Runtime-Wechsel, editorabhängigen Maschinenrouten und gemeinsamen
+Textgenerierungsfunktionen aus Main erhalten.
+
+- Webhooks verbinden native Tau-/GitHub-/Stripe-Signaturen, Payload-Opt-in und
+  fortgesetzte Threads mit Filtern, dauerhaften Sammelfenstern und Maximaldauer.
+  Providerabhängige Replay-Grenzen gelten auch für gesammelte Zustellungen.
+- Titelanweisungen und Schutz vor veralteten Jobs verwenden die gemeinsame
+  Runtime-/Modellwahl. Dateien behalten Vorschauen und Downloads neben den
+  neuen lokalen beziehungsweise SSH-Editor-Routen.
+- Der generische ACP-Provider exportiert vollständige, versionierte Nachrichten
+  für die Suche, einschließlich mehrerer konfigurierter Agenten.
+- `services.conversations` liest bei zurück zu Pi gewechselten Gesprächen den
+  gespeicherten geerbten Verlauf und das aktuelle Pi-Segment ohne Runtime-Start.
+  Search ersetzt alte Session-/Providerquellen erst nach vollständigem Commit.
+  Aktuell externe Runtimes behalten ihre vorhandenen Suchquellen; deren
+  vollständiger kanonischer Export bleibt eine eigene Schnittstellenerweiterung.
+- Gastprojektionen behalten frühere Toolkarten nach Runtime-Wechseln. Bekannte
+  Tau-MCP-Zugangsdaten und Gastcredentials werden auch bei einem abschließenden
+  Base64url-Bindestrich aus freigegebenen Tooltexten entfernt.
+- Die zusätzlichen öffentlichen Verträge tragen API 1.80.0. Gastfreigaben stehen
+  in ADR 0047; Main verwendet ADR 0046 für externe MCP-Threadsteuerung.
+
+Die kombinierte Prüfung umfasste 106 Testdateien und 1.663 Fälle. Fünf Fehler
+in Fixtures und Integrationsannahmen wurden korrigiert; die betroffenen fünf
+Dateien bestanden anschließend alle 104 Fälle. Alle acht Typprüfungsbereiche
+und Lint bestanden. Das initiale Browser-JavaScript maß 258.021 gzip-Bytes;
+die dokumentierte kombinierte Größengrenze liegt nun bei 259.000 Bytes.
+Der frische vollständige Release-Build bestand anschließend alle Budgets und
+enthielt keine kompilierten Testmodule. Der echte isolierte Host-/Runtime-/
+Browser-Smoke bestand alle fünf Schritte; seine Signatur-Fixture verwendet
+einen zufälligen 32-Byte-Schlüssel entsprechend der neuen Validierung in Main.
+Alle eigenen Testprozesse und Listener wurden beendet.

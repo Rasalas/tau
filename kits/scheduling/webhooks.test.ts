@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { afterEach, expect, it, vi } from "vitest";
-import type { HostHttpRoute, HostMcpTool, HostMcpToolProvider, HostNetworkServices, HostSessionServices, HostThread, HostTurnObserver, SecretStore } from "tau/host-extension";
+import type { HostHttpRoute, HostMcpTool, HostMcpToolProvider, HostNetworkServices, HostSessionServices, HostThread, HostThreadStartOptions, HostTurnObserver, SecretStore } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createSchedulingHostExtension } from "./host.js";
 import type { Job, ManagementState, WebhookFilter } from "./protocol.js";
@@ -38,14 +38,14 @@ async function harness(existing?: { stateDir: string; store: SecretStore }, firs
     sessions: {
       refreshIndex: async () => ({ type: "thread-index", index: { projects: [], sessions: structuredClone(localThreads) } }),
       trash: async () => [],
-      start: async (options) => {
+      start: async (options: HostThreadStartOptions) => {
         if (starts.length === 0) await firstStart;
         if (failStart.value) throw new Error("Runtime unavailable");
         const sessionId = `thread-${starts.length + 1}`;
         await options.beforePrompt?.({ sessionId, appendEntry: (type: string, data: unknown) => entries.push({ type, data }) } as unknown as HostThread);
         starts.push(options); return { sessionId, cwd: options.cwd };
       },
-    } as HostSessionServices,
+    } as unknown as HostSessionServices,
     registerTurnObserver: (value) => { observer = value; return () => { observer = undefined; }; },
     mcp: { registerTools: (value) => { providers.push(value); return () => undefined; }, gate: () => () => undefined, connect: async () => undefined },
   }, (event) => events.push(event));
@@ -91,7 +91,7 @@ it("shares the enabled HTTPS listener while retaining signatures, opt-in and loc
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No shared listener");
   const job = await h.call("create", config) as Job;
-  const sharedPost = (value: WebhookDelivery) => fetch(`http://127.0.0.1:${address.port}${WEBHOOK_ROUTE}/${job.id}`, { method: "POST", body: new Uint8Array(value.body), headers: { Connection: "close", "X-Tau-Delivery": value.id, "X-Tau-Timestamp": String(value.timestamp), "X-Tau-Signature": value.signature } });
+  const sharedPost = (value: WebhookDelivery) => fetch(`http://127.0.0.1:${address.port}${WEBHOOK_ROUTE}/${job.id}`, { method: "POST", body: new Uint8Array(value.body), headers: { Connection: "close", "X-Tau-Delivery": value.id, "X-Tau-Timestamp": String(value.timestamp), ...(value.signature === undefined ? {} : { "X-Tau-Signature": value.signature }) } });
   expect((await sharedPost(delivery())).status).toBe(404);
   await h.call("set-webhook-secret", { id: job.id, value: SECRET });
   await h.call("enable", { id: job.id });

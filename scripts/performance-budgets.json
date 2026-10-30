@@ -115,7 +115,7 @@
   ],
   "web": {
     "initialJavascriptBytes": 845000,
-    "initialJavascriptGzipBytes": 258000,
+    "initialJavascriptGzipBytes": 259000,
     "initialCssBytes": 151000,
     "initialCssGzipBytes": 30000,
     "totalJavascriptBytes": 2000000,
