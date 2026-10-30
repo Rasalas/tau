@@ -9,6 +9,7 @@ import {
   errorMessage,
   hostIsReadOnly,
   READ_ONLY_REASON,
+  registerThreadRenameHandler,
   useHostCapabilities,
   useSetting,
   type ComposerControlProps,
@@ -22,6 +23,7 @@ import {
   type WorkbenchActions,
 } from "tau";
 import { sectionOf, wakeLabel } from "./meta.js";
+import { createSnoozeRows } from "./snooze-settings.js";
 import { createArchivedPage } from "./archived-page.js";
 import { createRailOrganizer } from "./organizer.js";
 import {
@@ -435,6 +437,7 @@ export const threadRailExtension: DesktopExtension = {
     }, named);
 
     const disposers: Array<() => void> = [
+      registerThreadRenameHandler((threadId) => { const session = store.session(threadId); if (session) store.openRename(session); }),
       stopMeta,
       stopTrash,
       stopRunning,
@@ -470,6 +473,14 @@ export const threadRailExtension: DesktopExtension = {
       context.registerSettingsSection({
         id: "thread-rail.rail", page: "threads", card: "rail", order: 10, profiles: ["desktop", "web", "compact"], replaces: ["thread-rail.settings"], rows: THREAD_RAIL_ROWS,
         Component: createRailRows(store, async (settings) => {
+          const request = { epoch: store.getState().publication?.epoch };
+          store.set(await context.host.invoke("settings", settings), request);
+        }),
+      }),
+      context.registerSettingsSection({
+        id: "thread-rail.snooze", page: "threads", card: "snooze", order: 10, profiles: ["desktop", "web", "compact"],
+        rows: [{ id: "setting-thread-rail-snooze", label: "Snooze options", keywords: ["snooze", "preset", "after", "tomorrow"] }],
+        Component: createSnoozeRows(store, async (settings) => {
           const request = { epoch: store.getState().publication?.epoch };
           store.set(await context.host.invoke("settings", settings), request);
         }),

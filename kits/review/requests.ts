@@ -14,7 +14,7 @@ export interface RequestClient {
   request(workspace: string, fresh?: boolean): Promise<ReviewRequest | undefined>;
   draft(model?: { provider: string; id: string }, base?: string, writing?: { instructions?: string; template?: boolean; thinkingLevel?: string; runtime?: "auto" | "pi" | "thread" }): Promise<ReviewRequestDraft>;
   /** `uploadConfirmed`: the user saw which pictures the body names go where. */
-  create(input: { workspace: string; branch: string; title: string; body: string; base: string; draft: boolean; uploadConfirmed?: boolean }): Promise<{ status: ReviewRequestStatus; url?: string; uploaded?: number; kept?: number }>;
+  create(input: { workspace: string; branch: string; title: string; body: string; base: string; draft: boolean; maintainerCanModify?: boolean; uploadConfirmed?: boolean }): Promise<{ status: ReviewRequestStatus; url?: string; uploaded?: number; kept?: number }>;
   merge(target: RequestTarget, method: MergeMethod, deleteBranch?: boolean): Promise<ReviewRequestStatus & { merge?: MergeOutcome }>;
   /** Arms or disarms a merge the host runs once it allows it. */
   autoMerge(target: RequestTarget, enable: boolean, method?: MergeMethod, deleteBranch?: boolean): Promise<ReviewRequestStatus>;

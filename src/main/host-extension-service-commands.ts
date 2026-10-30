@@ -2,13 +2,14 @@ import { command } from "../shared/host-command-definition.js";
 import {
   decodeBoolean, decodeOptionalText, decodeText,
   decodeUiPromptAttachments, decodeUiSkillDraft,
+  decodeHostTranscriptCursor,
 } from "../shared/host-command-input.js";
 import type { UiMessage } from "../shared/contracts.js";
 import type { UiHostEndpoint, UiHostEndpointKind, UiNetworkAccess } from "../shared/connections.js";
 import type { HostActionResult } from "../shared/host-protocol.js";
 import type { WorkspaceRef } from "../shared/workspace-identity.js";
 import type {
-  DirectoryPickerOptions, HostExtensionSettings, HostImportedThread, HostSessionSummary,
+  DirectoryPickerOptions, HostConversationPage, HostConversationSummary, HostExtensionSettings, HostImportedThread, HostSessionSummary,
   HostSkill, HostStartedThread, HostThreadImportOptions, HostThreadStartOptions, HostTrashedThread,
 } from "./host-extension-contracts.js";
 import {
@@ -146,6 +147,8 @@ function pendingCount(value: unknown): number {
 
 /** Every worker service round trip, including context calls and the lock handshake. */
 export const WORKER_SERVICE_COMMANDS = {
+  "conversations.list": serviceCommand<HostConversationSummary[]>()("conversations.list", 0, 0, noArgs),
+  "conversations.page": serviceCommand<HostConversationPage>()("conversations.page", 2, 3, (p) => [text("conversations.page", p[0]), text("conversations.page", p[1]), decodeHostTranscriptCursor("conversations.page", "cursor", p[2])] as const),
   cwd: serviceCommand<string>()("cwd", 0, 0, noArgs),
   openWorkspace: serviceCommand<HostActionResult>()("openWorkspace", 1, 1, (p) => [text("openWorkspace", p[0])] as const),
   knownWorkspacePath: serviceCommand<string>()("knownWorkspacePath", 1, 1, (p) => [text("knownWorkspacePath", p[0])] as const),

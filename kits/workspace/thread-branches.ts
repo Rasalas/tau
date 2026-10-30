@@ -13,6 +13,8 @@ import {
   type BranchMergePreview,
 } from "./agent-worktrees.js";
 import { countUntrackedLines } from "./workspace-git.js";
+import { parseNumstat as parseGitNumstat } from "./git-output.js";
+import { parseWorktrees } from "./worktree-layout.js";
 import { readDefaultBranch } from "./git-refs.js";
 import { readConflictFiles, resolveTree, type ConflictFile, type HunkPick } from "./merge-picks.js";
 
@@ -68,26 +70,11 @@ export const THREAD_BRANCH_PATHS = 200;
 interface WorktreeEntry { path: string; branch?: string }
 
 function parseWorktreeList(output: string): WorktreeEntry[] {
-  const entries: WorktreeEntry[] = [];
-  let current: WorktreeEntry | undefined;
-  for (const line of output.split("\n")) {
-    if (line.startsWith("worktree ")) {
-      current = { path: line.slice("worktree ".length) };
-      entries.push(current);
-    } else if (current && line.startsWith("branch refs/heads/")) {
-      current.branch = line.slice("branch refs/heads/".length);
-    }
-  }
-  return entries;
+  return parseWorktrees(output, "").map(({ path, branch }) => ({ path, ...(branch && branch !== "detached" ? { branch } : {}) }));
 }
 
 function parseNumstat(output: string): ThreadBranch["paths"] {
-  const paths: ThreadBranch["paths"] = [];
-  for (const line of output.split("\n")) {
-    const match = /^(\d+|-)\t(\d+|-)\t(.+)$/u.exec(line);
-    if (match) paths.push({ path: match[3]!, added: Number(match[1]) || 0, removed: Number(match[2]) || 0 });
-  }
-  return paths;
+  return [...parseGitNumstat(output)].map(([path, counts]) => ({ path, ...counts }));
 }
 
 const PENDING_STATS = 500;
@@ -98,12 +85,12 @@ const PENDING_STATS = 500;
  */
 async function readPending(top: string, runGit: AgentGitRunner): Promise<{ total: number; paths: ThreadBranch["paths"] }> {
   const [tracked, others] = await Promise.all([
-    runGit(top, ["diff", "--numstat", "--no-renames", "HEAD"]).catch(() => ""),
-    runGit(top, ["ls-files", "--others", "--exclude-standard"]).catch(() => ""),
+    runGit(top, ["diff", "--numstat", "-z", "--no-renames", "HEAD"]).catch(() => ""),
+    runGit(top, ["ls-files", "--others", "--exclude-standard", "-z"]).catch(() => ""),
   ]);
   const paths: ThreadBranch["paths"] = parseNumstat(tracked).map((entry) => ({ ...entry, uncommitted: true as const }));
   const seen = new Set(paths.map((entry) => entry.path));
-  const untracked = others.split("\n").map((line) => line.trim()).filter((line) => line && !seen.has(line));
+  const untracked = others.split("\0").filter((path) => path && !seen.has(path));
   const counted = await Promise.all(untracked.slice(0, PENDING_STATS).map(async (path) => ({ path, added: await countUntrackedLines(top, path), removed: 0, uncommitted: true as const })));
   return { total: paths.length + untracked.length, paths: [...paths, ...counted] };
 }
@@ -251,7 +238,7 @@ const comparedTarget = (branch: ThreadBranch) => branch.comparedRef ?? branch.ta
 
 /** One worktree's branch against its target; remoteTarget checks origin instead of the local integration branch. */
 export async function readThreadBranch(path: string, runGit: AgentGitRunner = runAgentGit, requestedTarget?: string, remoteTarget = false): Promise<ThreadBranch | undefined> {
-  const entries = parseWorktreeList(await runGit(path, ["worktree", "list", "--porcelain"]));
+  const entries = parseWorktreeList(await runGit(path, ["worktree", "list", "--porcelain", "-z"]));
   const main = entries[0];
   const top = await real((await runGit(path, ["rev-parse", "--show-toplevel"])).trim());
   const reals = await Promise.all(entries.map((entry) => real(entry.path)));
@@ -295,11 +282,11 @@ export async function readThreadBranch(path: string, runGit: AgentGitRunner = ru
     // Nothing the target lacks: either merged, with what it carried from where it started, or a branch that never did anything.
     const start = await ownStart(root, branch, tip, runGit);
     if (!start) return { ...base, ...destination, ...empty, behind, ...withPending([], pending.paths, pending.total) };
-    const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "--no-renames", start, tip]).catch(() => ""));
+    const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "-z", "--no-renames", start, tip]).catch(() => ""));
     return { ...base, ...destination, ...empty, behind, merged: true, ...withPending(paths, pending.paths, pending.total) };
   }
   const forkPoint = (await runGit(root, ["merge-base", head, tip])).trim();
-  const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "--no-renames", forkPoint, tip]));
+  const paths = parseNumstat(await runGit(root, ["diff", "--numstat", "-z", "--no-renames", forkPoint, tip]));
   const preview = await previewBranchMerge(root, tip, runGit, head);
   // A rebase or merge from the target moves the common base; the creation
   // reflog would include unrelated target changes in the squash patch.
@@ -481,7 +468,7 @@ export interface TargetUpdate { branch: string; root: string; from: string; to: 
  * update when no checkout has it out. Anything else is refused with the reason.
  */
 export async function updateTargetBranch(path: string, target: string, runGit: AgentGitRunner = runAgentGit): Promise<TargetUpdate> {
-  const entries = parseWorktreeList(await runGit(path, ["worktree", "list", "--porcelain"]));
+  const entries = parseWorktreeList(await runGit(path, ["worktree", "list", "--porcelain", "-z"]));
   const main = entries[0];
   if (!main) throw new Error("This folder is no Git checkout.");
   const root = main.path;

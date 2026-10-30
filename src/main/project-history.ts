@@ -111,7 +111,7 @@ export class ProjectHistory {
     this.schedulePersist();
   }
 
-  async remember(path: string, name = basename(path) || path): Promise<void> {
+  async remember(path: string, name = basename(path) || path, onEvicted?: (projects: readonly UiProject[]) => void): Promise<void> {
     const key = this.key(path);
     const project: UiProject = {
       path,
@@ -120,12 +120,22 @@ export class ProjectHistory {
       lastOpenedAt: Date.now(),
       ...await this.icon(path),
     };
-    this.projects = [project, ...this.projects.filter((item) => this.key(item.path) !== key)].slice(
-      0,
-      MAX_PROJECTS,
-    );
+    const next = [project, ...this.projects.filter((item) => this.key(item.path) !== key)];
+    onEvicted?.(next.slice(MAX_PROJECTS).map((item) => ({ ...item })));
+    this.projects = next.slice(0, MAX_PROJECTS);
     this.hidden.delete(key);
     this.schedulePersist();
+  }
+
+  /** Restore entries displaced by a failed registration without replacing unrelated edits. */
+  restoreEvicted(projects: readonly UiProject[]): void {
+    let changed = false;
+    for (const project of projects) {
+      if (this.projects.length >= MAX_PROJECTS) break;
+      if (this.isHidden(project.path) || this.projects.some((item) => this.key(item.path) === this.key(project.path))) continue;
+      this.projects.push({ ...project }); changed = true;
+    }
+    if (changed) this.schedulePersist();
   }
 
   private schedulePersist(): void {

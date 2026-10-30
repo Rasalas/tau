@@ -46,7 +46,7 @@ export function ReviewDetailSidebar({ store, detailKey, back, backLabel }: { sto
               </>
             ) : (
               <>
-                <h2 className="rvd-side-heading">Files · {own.files.length + own.moreFiles}</h2>
+                <h2 className="rvd-side-heading">Files · {own.files.length + own.moreFiles}{own.hiddenFiles ? ` of ${own.files.length + own.moreFiles + own.hiddenFiles}` : ""}</h2>
                 <ul className="rvd-side-files" aria-label="Files">
                   {own.files.map((file) => <FileRow key={file.path} file={file} active={own.active === file.path} jump={actions.jump} />)}
                   {own.moreFiles > 0 ? <li className="rvd-side-more">and {plural(own.moreFiles, "more file")}</li> : null}

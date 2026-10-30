@@ -42,3 +42,10 @@
 
 /* Settings → Archived. */
 .thread-rail-menu-anchor { position: fixed; z-index: 61; width: 0; height: 0; }
+
+.thread-rail-snooze-options { width: 100%; min-width: 0; }
+.thread-rail-snooze-option { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; padding: 8px 0; }
+.thread-rail-snooze-option label { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-sm); }
+.thread-rail-snooze-option input { max-width: 120px; }
+.thread-rail-snooze-buttons { display: flex; gap: 12px; margin-block: 8px; }
+body[data-profile="compact"] .thread-rail-snooze-option { border-bottom: 1px solid var(--line); padding-block: 12px; }

@@ -404,3 +404,16 @@ describe("QueuedMessages.submit", () => {
     expect(queue.list("on").map((message) => message.text)).toEqual(["hello"]);
   });
 });
+
+it("rechecks revocable authorization after asynchronous queue admission", async () => {
+  let finish!: () => void; let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { finish = resolve; });
+  let allowed = true;
+  const deliver = vi.fn(async () => undefined);
+  const queue = new QueuedMessages({ busy: () => true, waitForIdle: async () => undefined, admit: async () => { entered(); await gate; }, deliver, publish: () => undefined, log: () => undefined });
+  const sending = queue.submit("one", { text: "revoked proposal", attachments: [] }, () => { if (!allowed) throw new Error("revoked"); });
+  const refused = expect(sending).rejects.toThrow("revoked");
+  await started; allowed = false; finish(); await refused;
+  expect(queue.list("one")).toEqual([]); expect(deliver).not.toHaveBeenCalled();
+});

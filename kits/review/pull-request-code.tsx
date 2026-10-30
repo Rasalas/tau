@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Info, MessageSquare, PanelRightClose, PanelRightOpen, WrapText } from "lucide-react";
-import { DiffFindBar, DiffView, READ_ONLY_REASON, useDiffFind, errorMessage, getClientStorage, tooltipProps, type WorkbenchActions } from "tau";
+import { DiffFindBar, DiffView, READ_ONLY_REASON, useDiffFind, getClientStorage, tooltipProps, type WorkbenchActions } from "tau";
 import { DiffUnavailable } from "./diff-unavailable.js";
 import { currentDiffWordWrap } from "./diff-settings.js";
 import { providerInfo, type PendingReviewComment, PullRequestComment, PullRequestDetail, PullRequestFile, PullRequestFiles, PullRequestThread, ReviewCommentChip } from "./protocol.js";
@@ -10,6 +10,8 @@ import { orderFiles, threadChip } from "./pull-request-logic.js";
 import { ThreadCard } from "./pull-request-parts.js";
 import { usePullRequestContext } from "./pull-request-context.js";
 import { usePullRequestLines } from "./pull-request-lines.js";
+import { isReviewTestFile } from "./review-file-interactions.js";
+import { useHideReviewTests, useViewedFileRanges } from "./use-review-files.js";
 import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
 
 const TREE_KEY = "tau.review.pr-file-tree-open";
@@ -55,15 +57,21 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
   const [layout, setLayout] = useState<"unified" | "split">("unified");
   const [wrap, setWrap] = useState(currentDiffWordWrap);
   const [treeOpen, setTreeOpen] = useState(() => getClientStorage()?.get(TREE_KEY) !== "false");
-  const [pending, setPending] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const [hideTests, setHideTests] = useHideReviewTests();
   const [looseOpen, setLooseOpen] = useState(true);
 
   useEffect(() => { if (!files && !filesError) void load(false); }, [files, filesError, load]);
-  useEffect(() => { if (focusPath) setSelected(focusPath); }, [focusPath]);
+  useEffect(() => {
+    if (!focusPath) return;
+    if (isReviewTestFile(focusPath)) setHideTests(false);
+    setSelected(focusPath);
+  }, [focusPath, setHideTests]);
 
   const ordered = useMemo(() => orderFiles(files?.files ?? []), [files]);
-  const isViewed = (file: PullRequestFile) => pending.get(file.path) ?? file.viewed === "viewed";
-  const current = ordered.find((file) => file.path === selected) ?? ordered.find((file) => !isViewed(file)) ?? ordered[0];
+  const visible = useMemo(() => hideTests ? ordered.filter((file) => !isReviewTestFile(file.path)) : ordered, [hideTests, ordered]);
+  const viewed = useViewedFileRanges({ request: detail.ref.url, files: visible, allowed: writes.viewed, save: onViewed, notify: actions.notify });
+  const { isViewed } = viewed;
+  const current = visible.find((file) => file.path === selected) ?? visible.find((file) => !isViewed(file)) ?? visible[0];
   const diffs = useMemo(() => ignoreWhitespace ? (files?.diffs ?? []).map(hideWhitespace) : files?.diffs ?? [], [files, ignoreWhitespace]);
   const diff = useMemo(() => diffs.find((entry) => entry.path === current?.path), [current?.path, diffs]);
   const threadCounts = useMemo(() => {
@@ -77,34 +85,30 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
   const lines = useMemo(() => current ? slotFor(current.path) : undefined, [current, slotFor]);
   const context = usePullRequestContext(client, detail, ordered);
   const expanded = diff && context.can(diff.path) ? context.apply(diff) : undefined;
-  // Every file of the request is searched, not only the one on screen; a match in another file selects it.
+  // Search the same visible files as the list and navigation.
   const findDiffs = useMemo(() => {
     const byPath = new Map(diffs.map((entry) => [entry.path, entry === diff && expanded ? expanded.diff : entry]));
-    return ordered.flatMap((file) => byPath.get(file.path) ?? []);
-  }, [diff, diffs, expanded, ordered]);
+    return visible.flatMap((file) => byPath.get(file.path) ?? []);
+  }, [diff, diffs, expanded, visible]);
   const find = useDiffFind({ diffs: findDiffs, onReveal: (match) => setSelected(match.path) });
 
-  const toggleViewed = async (file: PullRequestFile) => {
-    const next = !isViewed(file);
-    setPending((map) => new Map(map).set(file.path, next));
-    if (next && file.path === current?.path) {
-      const after = ordered.slice(ordered.indexOf(file) + 1).concat(ordered.slice(0, ordered.indexOf(file)));
+  const toggleViewed = (file: PullRequestFile, extend: boolean) => {
+    if (!writes.viewed || viewed.busy) return;
+    if (extend) setSelected(file.path);
+    // Preserve single-file auto-advance; a range stays where the reader clicked.
+    if (!extend && !isViewed(file) && file.path === current?.path) {
+      const index = visible.indexOf(file);
+      const after = visible.slice(index + 1).concat(visible.slice(0, index));
       const unviewed = after.find((candidate) => !isViewed(candidate));
       if (unviewed) setSelected(unviewed.path);
     }
-    try {
-      await onViewed(file.path, next);
-    } catch (error) {
-      actions.notify(`Could not update viewed files: ${errorMessage(error)}`, "error");
-    } finally {
-      setPending((map) => { const copy = new Map(map); copy.delete(file.path); return copy; });
-    }
+    void viewed.toggle(file, extend);
   };
 
   const step = (offset: 1 | -1) => {
-    if (!current || ordered.length === 0) return;
-    const index = ordered.indexOf(current);
-    setSelected(ordered[(index + offset + ordered.length) % ordered.length]!.path);
+    if (!current || visible.length === 0) return;
+    const index = visible.indexOf(current);
+    setSelected(visible[(index + offset + visible.length) % visible.length]!.path);
   };
 
   const setTree = (open: boolean) => { setTreeOpen(open); getClientStorage()?.set(TREE_KEY, String(open)); };
@@ -118,11 +122,14 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
   return (
     <div className="pr-code" onKeyDown={find.onKeyDown}>
       <header className="pr-code-toolbar">
-        <span>{ordered.length} {ordered.length === 1 ? "file" : "files"}</span>
+        <span>{hideTests ? `${visible.length} of ${ordered.length}` : ordered.length} {ordered.length === 1 ? "file" : "files"}</span>
         <span className="pr-viewed-count" title={files.viewedOn === "local" ? "GitLab keeps no viewed marks, so these are stored in this Tau only." : undefined}>
           {viewedCount} / {ordered.length} viewed{files.viewedOn === "local" ? <> in Tau <Info size={11} aria-hidden="true" /></> : null}
         </span>
         <span className="spacer" />
+        <label className="pr-whitespace" title="Hide test files, fixtures, mocks and snapshots">
+          <input type="checkbox" checked={hideTests} onChange={(event) => setHideTests(event.target.checked)} /> Hide test files
+        </label>
         <label className="pr-whitespace" title="Show lines that changed only in whitespace as unchanged">
           <input type="checkbox" checked={ignoreWhitespace} onChange={(event) => onIgnoreWhitespace(event.target.checked)} /> Hide whitespace
         </label>
@@ -162,14 +169,15 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
               <span className="spacer" />
               <span className="stat-add">+{current.added}</span>
               <span className="stat-del">−{current.removed}</span>
-              <label className={`pr-viewed ${current.viewed === "dismissed" && !pending.has(current.path) ? "dismissed" : ""}`} {...tooltipProps(!writes.viewed ? writes.reason ?? READ_ONLY_REASON : current.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : undefined)}>
-                <input type="checkbox" checked={isViewed(current)} disabled={!writes.viewed} onChange={() => void toggleViewed(current)} />
-                {current.viewed === "dismissed" && !pending.has(current.path) ? "Changed" : "Viewed"}
+              <label className={`pr-viewed ${current.viewed === "dismissed" && !viewed.pending?.has(current.path) ? "dismissed" : ""}`} {...tooltipProps(!writes.viewed ? writes.reason ?? READ_ONLY_REASON : current.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : "Shift-click to apply Viewed to a range of visible files.")}>
+                <input type="checkbox" checked={isViewed(current)} disabled={!writes.viewed || viewed.busy} onClick={(event) => toggleViewed(current, event.shiftKey)} onChange={() => undefined} />
+                {current.viewed === "dismissed" && !viewed.pending?.has(current.path) ? "Changed" : "Viewed"}
               </label>
               <button className="icon-button compact" aria-label="Previous file" onClick={() => step(-1)}><ChevronLeft size={14} /></button>
               <button className="icon-button compact" aria-label="Next file" onClick={() => step(1)}><ChevronRight size={14} /></button>
             </header>
           ) : null}
+          {visible.length === 0 ? <p className="pr-empty pr-pad">All changed files are hidden by the test file filter.</p> : null}
           <div className="pr-diff">
             <DiffView key={current?.path} {...(diff ? { diff: expanded?.diff ?? diff } : {})} mode={layout} wrap={wrap} {...(current ? { path: current.path } : {})} {...(lines ? { lines } : {})} {...(find.find ? { find: find.find } : {})}
               {...(expanded ? { onExpandGap: context.expand, contextState: context.state(diff!.path), ...(expanded.totalLines !== undefined ? { totalLines: expanded.totalLines } : {}) } : {})} />
@@ -177,7 +185,7 @@ export function PullRequestCode({ detail, client, files, filesError, threads, fo
         </main>
         {treeOpen ? (
           <aside className="pr-file-list" aria-label="Changed files">
-            {ordered.map((file) => {
+            {visible.map((file) => {
               const { name, directory } = split(file.path);
               const count = threadCounts.get(file.path) ?? 0;
               return (

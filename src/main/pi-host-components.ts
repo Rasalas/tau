@@ -1,4 +1,5 @@
 import { RuntimeSwitches } from "./runtime-switches.js";
+import { RuntimeConversations } from "./runtime-conversations.js";
 import { PromptImageFiles } from "./prompt-image-files.js";
 import { TurnEvents } from "./turn-events.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
@@ -68,6 +69,7 @@ import type { PersistedTranscriptReader } from "./persisted-transcript-reader.js
 import { ThreadProjection } from "./thread-projection.js";
 import { ThreadIndex } from "./thread-index.js";
 import { ProjectFactsCache } from "./project-facts-cache.js";
+import { refreshProjectRegistration } from "./project-registration.js";
 import { ThreadBinding } from "./thread-binding.js";
 import { ThreadRuntime } from "./thread-runtime.js";
 import { ThreadRuntimeRegistry } from "./thread-runtimes.js";
@@ -124,6 +126,7 @@ type Emit = (event: HostEvent) => void;
  * late-bound closures plus the raw constructor inputs the wiring reads.
  */
 export interface PiHostDeps {
+  readConversationSegment: ConstructorParameters<typeof RuntimeConversations>[1];
   readonly persistedTranscripts: PersistedTranscriptReader;
   getCwd(): string;
   setCwd(cwd: string): void;
@@ -178,7 +181,7 @@ export interface PiHostDeps {
   /** Sends a queued message as the prompt it stands for. */
   deliverQueued(sessionId: string, message: QueuedMessage): Promise<void>;
   /** An extension's message to a thread; a released runtime is reopened off screen first. */
-  sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments?: UiPromptAttachment[], wake?: UiWake, identity?: ClientTurnIdentity): Promise<void>;
+  sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments?: UiPromptAttachment[], wake?: UiWake, identity?: ClientTurnIdentity, beforeAdmit?: () => void): Promise<void>;
 }
 
 /** What PiHost currently assigns in its constructor, as one construction pass. */
@@ -494,6 +497,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   let backendsChangePending = false;
   /** The one place the components hand their collaborators what they may ask of the host. */
   const port: AttachedSessionPort & ExtensionServicesPort = {
+    conversations: new RuntimeConversations(runtimeSwitches, deps.readConversationSegment),
     background: backgrounds,
     safeMode,
     platform,
@@ -525,6 +529,10 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     admitWorkspace: (path) => deps.admitWorkspace(path),
     projectName: (cwd) => projects.loadName(cwd),
     rememberProjectName: (cwd, name) => { projects.rememberName(cwd, name); },
+    refreshProject: async (path) => {
+      const cwd = await deps.knownWorkspacePath(path);
+      await refreshProjectRegistration(cwd, projects, deps.projectHistory);
+    },
     runtimeTools: (action, input) => {
       if (!toolUpdates) return Promise.reject(new Error("Agent tools are not ready."));
       return toolUpdates.act(action, input);
@@ -583,9 +591,9 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       // A wake steers into a running turn unless the user wants wakes queued; a held queue keeps it.
       const { wake } = sendOptions;
       if (wake && wake.source !== "background" && sendOptions.delivery === "queue" && (defaultHostConfigManager.readSync(deps.getCwd()).threads?.wakeDelivery ?? "steer") === "steer" && deps.hostThread(sessionId)?.isIdle() === false && !queue.isHeld(sessionId)) {
-        try { return await deps.sendToThread(sessionId, markWake(text, wake).text, "steer", sendOptions.from, sendOptions.attachments); } catch { /* the turn ended meanwhile: queue it */ }
+        try { return await deps.sendToThread(sessionId, markWake(text, wake).text, "steer", sendOptions.from, sendOptions.attachments, undefined, undefined, sendOptions.beforeAdmit); } catch { /* the turn ended meanwhile: queue it */ }
       }
-      return deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments, wake, sendOptions.identity);
+      return deps.sendToThread(sessionId, text, sendOptions.delivery, sendOptions.from, sendOptions.attachments, wake, sendOptions.identity, sendOptions.beforeAdmit);
     },
     setThreadModel: async (sessionId, provider, id) => {
       const thread = await runtimes.reopen(sessionId);

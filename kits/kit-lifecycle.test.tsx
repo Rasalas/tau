@@ -51,12 +51,14 @@ import handoff from "./handoff/desktop.js";
 import environments from "./environments/desktop.js";
 import remoteWork from "./remote-work/desktop.js";
 import resumeCompaction from "./resume-compaction/desktop.js";
+import sharing from "./thread-sharing/desktop.js";
+import privateSecrets from "./private-secrets/desktop.js";
 import { screenService } from "./preview/screen-store.js";
 
 // Every kit under `kits/` fills core slots and gives them all back. Add the
 // kit's default export here when you move one; the shape of this list is the
 // point, not its length.
-const kits = [devices, access, agents, claudeCode, codex, openCode, cursor, grok, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piProviders, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, usageStatistics, workspace, worktreeNames, appearance, handoff, evidence, htmlPages, snapshots, takeover, environments, tailscale, push, servers, remoteWork, resumeCompaction, customize];
+const kits = [devices, access, agents, claudeCode, codex, openCode, cursor, grok, composerContext, computerUse, files, keybindings, notifications, onboarding, packages, piProviders, piUi, plan, preview, projectScripts, promptTools, questionnaire, review, search, serviceTier, signals, subscriptionLogin, terminal, threadRail, titleGenerator, usage, usageStatistics, workspace, worktreeNames, appearance, handoff, evidence, htmlPages, snapshots, takeover, environments, tailscale, push, servers, remoteWork, resumeCompaction, customize, sharing, privateSecrets];
 
 afterEach(cleanup);
 

@@ -37,6 +37,7 @@ export class RuntimeSwitches {
     return undefined;
   }
   get(id: string): RuntimeSwitch | undefined { return this.records.get(id); }
+  entries(): IterableIterator<[string, RuntimeSwitch]> { return this.records.entries(); }
   async set(id: string, record: RuntimeSwitch | undefined): Promise<void> {
     const previous = this.records.get(id);
     if (record) this.records.set(id, record); else this.records.delete(id);

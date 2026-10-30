@@ -1,4 +1,13 @@
 import { isDeepStrictEqual } from "node:util";
+import { isAbsolute, join } from "node:path";
+
+/** Paired runs use the head's installed Electron; ordinary reports use their own. */
+export function benchmarkElectron(root, env = process.env) {
+  const executable = env.TAU_BENCHMARK_ELECTRON;
+  if (executable === undefined) return join(root, "node_modules", ".bin", "electron");
+  requireValue(isAbsolute(executable), "benchmark Electron executable must be absolute");
+  return executable;
+}
 
 // Copy these measurement sources from the gate checkout into BOTH subjects.
 // Product components imported by RendererBenchmark remain each subject's own.
@@ -68,6 +77,11 @@ export function comparePerformanceReports(runs, provenance) {
   }
   requireValue(/^[a-f0-9]{64}$/u.test(provenance?.harnessSha256 ?? ""), "harness hash is missing");
   requireValue(typeof provenance?.seriesId === "string" && provenance.seriesId.length > 0, "series ID is missing");
+  const runtime = provenance.measurementRuntime;
+  requireValue(runtime?.sourceCommit === provenance.headCommit, "measurement runtime must come from the head lockfile");
+  requireValue(/^\d+\.\d+\.\d+$/u.test(runtime.electronVersion ?? ""), "measurement Electron version is missing");
+  requireValue(typeof runtime.executable === "string" && isAbsolute(runtime.executable), "measurement Electron executable must be absolute");
+  requireValue(/^[a-f0-9]{64}$/u.test(runtime.binarySha256 ?? ""), "measurement Electron fingerprint is missing");
   const first = runs[0];
   requireValue(first.renderer?.machine?.chip && first.renderer?.execution?.electronVersion, "machine/Electron metadata is missing");
   requireValue(first.renderer?.execution?.gpu?.featureStatus && Object.keys(first.renderer.execution.gpu.featureStatus).length > 0, "GPU metadata is missing");
@@ -88,6 +102,8 @@ export function comparePerformanceReports(runs, provenance) {
       for (const key of ["machine", "startConditions", "harnessSourceSha256", "harnessFileSha256"]) same(report[key], first.renderer[key], key);
       requireValue(/^[a-f0-9]{64}$/u.test(report.harnessSourceSha256 ?? "") && Object.keys(report.harnessFileSha256 ?? {}).length === rendererHarnessFiles.length, "renderer harness provenance is missing");
       requireValue(/^[a-f0-9]{64}$/u.test(report.buildArtifactSha256 ?? ""), "renderer build hash is missing");
+      same(report.execution?.electronVersion, runtime.electronVersion, "selected Electron version");
+      same(report.execution?.electronExecutable, runtime.executable, "selected Electron executable");
       for (const key of ["electronVersion", "parallelRuns"]) same(report.execution?.[key], first.renderer.execution[key], `execution.${key}`);
       same(gpuIdentity(report.execution?.gpu), gpuIdentity(first.renderer.execution.gpu), "GPU adapter/backend");
       requireValue(report.execution.parallelRuns === 1, "measurements must run sequentially");
@@ -114,6 +130,7 @@ export function comparePerformanceReports(runs, provenance) {
         requireValue(start.schemaVersion === 1 && start.measurement === "renderer-bundle-fixture", "unknown startup report");
         requireValue(start.execution?.profileMode === "fresh-per-process", "startup profile must be fresh for each process");
         same(start.execution?.electronVersion, report.execution.electronVersion, "startup Electron version");
+        same(start.execution?.electronExecutable, runtime.executable, "startup Electron executable");
         positive(start.firstPaintMs, "first paint");
         requireValue(Array.isArray(start.externalRequests) && start.externalRequests.length === 0, "startup external requests were not measured or were nonzero");
       }

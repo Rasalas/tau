@@ -57,7 +57,7 @@ it("picks a GitHub sender, shows its setup and saves the format and payload choi
   expect(within(dialog).getByText(/X-Hub-Signature-256/u)).toBeTruthy();
   fireEvent.change(within(dialog).getByLabelText(/^Webhook signature key/u), { target: { value: "github-secret-0123456789abcdefghij" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Save automation" }));
-  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("create", expect.objectContaining({ schedule: { kind: "webhook", format: "github", includePayload: true } })));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("create", expect.objectContaining({ schedule: { kind: "webhook", format: "github", includePayload: true, filters: [] } })));
   await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("set-webhook-secret", { id: "job-1", value: "github-secret-0123456789abcdefghij" }));
 });
 

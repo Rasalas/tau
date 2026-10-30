@@ -48,6 +48,14 @@ export interface CreatedProject {
 /** `workspace-info`; a private "No project" folder says so, being no repository and no project to open. */
 export type WorkspaceReport = WorkspaceInfo & { projectless?: boolean };
 
+export interface ProjectPromotionInfo {
+  workspace: WorkspaceRef;
+  title: string;
+  otherThreads: number;
+  promoted: boolean;
+}
+export interface ProjectPromotionResult { workspace: WorkspaceRef; name: string }
+
 /** Keep the default branch current by fast-forward; off by default. */
 export const AUTO_PULL_OPTION = "auto-pull-default-branch";
 
@@ -318,6 +326,10 @@ export interface UiFolderIndex {
   truncated: boolean;
 }
 
+/** Matches the existing authenticated browser-resource/native bridge response limit. */
+export const FILE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
+export interface WorkspaceFileDownload { path: string; name: string; size: number }
+
 /**
  * Workspace Kit's commands. A file inside a workspace travels as `relPath`, a
  * POSIX path relative to the workspace root; a workspace itself travels as the
@@ -329,6 +341,8 @@ export interface WorkspaceHostCommands {
   "create-scratch": { input: undefined; output: WorkspaceRef };
   /** With `github` the host also asks Review Kit to create and push the repository; a failure is a `warning`. */
   "create-project": { input: { name: string; parentPath?: string; github?: NewProjectGithub }; output: CreatedProject | undefined };
+  "promotion-info": { input: { workspace: string; sessionId: string }; output: ProjectPromotionInfo };
+  "promote-scratch": { input: { workspace: string; sessionId: string; name: string; git: boolean }; output: ProjectPromotionResult };
   "list-directories": { input: { path?: string } | undefined; output: UiDirectoryListing };
   /** Indexes the folders below `path` (the home folder without one) for the picker's finder. */
   "find-folders": { input: { path?: string } | undefined; output: UiFolderIndex };
@@ -354,6 +368,8 @@ export interface WorkspaceHostCommands {
   "stage-all": { input: { workspace?: string } | undefined; output: UiWorkspaceChanges };
   "revert-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
   "read-visualization": { input: { relPath: string; workspace: string }; output: { html: string } };
+  "publish-file-download": { input: { path: string; workspace: string }; output: WorkspaceFileDownload };
+  "release-file-download": { input: { path: string; workspace: string }; output: void };
   "publish-visualization": { input: { html: string; theme: "light" | "dark" }; output: { path: string } };
   "release-visualization": { input: { path: string }; output: void };
   "read-file": { input: { relPath: string; workspace?: string }; output: UiFileContent };
@@ -445,6 +461,8 @@ export type HostExtensionInvoke = (command: string, input?: unknown) => Promise<
 export interface WorkspaceHostClient {
   createScratch(): Promise<WorkspaceRef>;
   createProject(name: string, parentPath?: string, github?: NewProjectGithub): Promise<CreatedProject | undefined>;
+  promotionInfo(workspace: string, sessionId: string): Promise<ProjectPromotionInfo>;
+  promoteScratch(workspace: string, sessionId: string, name: string, git: boolean): Promise<ProjectPromotionResult>;
   listDirectories(path?: string): Promise<UiDirectoryListing>;
   findFolders(path?: string): Promise<UiFolderIndex>;
   pickFolder(): Promise<WorkspaceRef | undefined>;
@@ -460,6 +478,8 @@ export interface WorkspaceHostClient {
   stageAll(workspace?: string): Promise<UiWorkspaceChanges>;
   revertFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
   readVisualization(relPath: string, workspace: string): Promise<{ html: string }>;
+  publishFileDownload(path: string, workspace: string): Promise<WorkspaceFileDownload>;
+  releaseFileDownload(path: string, workspace: string): Promise<void>;
   publishVisualization(html: string, theme: "light" | "dark"): Promise<{ path: string }>;
   releaseVisualization(path: string): Promise<void>;
   readFile(relPath: string, workspace?: string): Promise<UiFileContent>;
@@ -507,6 +527,8 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
   return {
     createScratch: () => call("create-scratch", undefined),
     createProject: (name, parentPath, github) => call("create-project", { name, ...(parentPath ? { parentPath } : {}), ...(github ? { github } : {}) }),
+    promotionInfo: (workspace, sessionId) => call("promotion-info", { workspace, sessionId }),
+    promoteScratch: (workspace, sessionId, name, git) => call("promote-scratch", { workspace, sessionId, name, git }),
     listDirectories: (path) => call("list-directories", path === undefined ? undefined : { path }),
     findFolders: (path) => call("find-folders", path === undefined ? undefined : { path }),
     pickFolder: () => call("pick-folder", undefined),
@@ -524,6 +546,8 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     readVisualization: (relPath, workspace) => call("read-visualization", { relPath, workspace }),
     publishVisualization: (html, theme) => call("publish-visualization", { html, theme }),
     releaseVisualization: (path) => call("release-visualization", { path }),
+    publishFileDownload: (path, workspace) => call("publish-file-download", { path, workspace }),
+    releaseFileDownload: (path, workspace) => call("release-file-download", { path, workspace }),
     readFile: (relPath, workspace) => call("read-file", workspace ? { relPath, workspace } : { relPath }),
     readLinkedFile: (path, workspace) => call("read-linked-file", { path, workspace }),
     statFile: (relPath) => call("file-stat", { relPath }),
@@ -665,6 +689,7 @@ export interface WorkspaceKitState {
   railProjectGroups: readonly { id: string; name: string; projects: readonly string[] }[];
   /** The project whose settings dialog is open. */
   projectSettings?: UiProject;
+  projectPromotion?: UiSession;
   /** Each thread's last file-changing turn, for the row's `+N −N`. */
   turnStats: Readonly<Record<string, TurnStat>>;
 }
@@ -894,6 +919,8 @@ export interface ThreadWorktreeRequest {
 
 /** Opens a workspace file, by its path inside the workspace, where it can be edited. */
 export type WorkspaceFileEditor = (relPath: string, actions: WorkbenchActions) => void;
+/** An extension's passive reader for the tab's explicit project, including phones. */
+export type WorkspaceFilePreview = (path: string, from: { workspace: string }) => ReactNode | undefined;
 
 export type CommitMessageSuggester = (request: {
   changes: UiWorkspaceChanges;
@@ -934,6 +961,9 @@ export interface WorkspaceStoreApi {
   refresh(): Promise<void>;
   /** An extension offers to open a file for editing: a double-click in the Files panel asks it. The last one wins. */
   registerFileEditor(editor: WorkspaceFileEditor): () => void;
+  registerFilePreview(reader: WorkspaceFilePreview): () => void;
+  renderFilePreview(path: string, from: { workspace: string }): ReactNode | undefined;
+  downloadFile(path: string, from: { workspace: string }, signal: AbortSignal): Promise<{ blob: Blob; name: string }>;
   /** Brings the Files panel forward on All with a project folder (relative to its root) opened (API 1.75.0). */
   revealFolder?(relPath: string): void;
   /** A section drawn at the top of the Changes panel, clean worktree or not. */

@@ -58,7 +58,7 @@ describe("Cmd+J from chat with no stage tab", () => {
     expect(view.container.querySelector(".stage")).toBeNull();
     const target = focus === "composer"
       ? screen.getByRole("textbox")
-      : focus === "transcript" ? screen.getByRole("log", { name: "Thread transcript" })
+      : focus === "transcript" ? screen.getByRole("log", { name: "Conversation" })
         : (await screen.findByText("Assistant reply")).closest("p")!;
     if (focus === "assistant paragraph") target.tabIndex = -1;
     const messages = screen.getByRole("region", { name: "Transcript content" });

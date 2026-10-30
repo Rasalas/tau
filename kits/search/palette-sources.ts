@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { File } from "lucide-react";
 import { ProjectIcon, type PaletteItem, type PaletteSearchContext, type UiSession } from "tau";
 import type { FileMatch, ThreadMatch, ThreadRequestMatch } from "./protocol.js";
+import { threadRank } from "./relevance.js";
 
 /**
  * What the kit adds to the palette: threads by title, threads by what was said
@@ -31,7 +32,7 @@ export function threadAge(modifiedAt: number, now = Date.now()): string {
 
 /** Project, then "working", "waiting" or its age, then its branch: design 2b's line. */
 function threadItem(thread: UiSession, context: PaletteSearchContext, detail?: string): PaletteItem {
-  const project = context.index.projects.find((entry) => (thread.workspaceId && entry.workspaceId === thread.workspaceId) || entry.path === thread.projectPath)
+  const project = context.index.projects.find((entry) => thread.workspaceId ? entry.workspaceId === thread.workspaceId : entry.path === thread.projectPath)
     ?? { path: thread.projectPath, name: thread.projectName };
   const state = context.index.waiting?.includes(thread.id) ? "waiting" : context.index.running?.includes(thread.id) ? "working" : threadAge(thread.modifiedAt);
   return {
@@ -45,20 +46,25 @@ function threadItem(thread: UiSession, context: PaletteSearchContext, detail?: s
   };
 }
 
+/** `parentThreadId` denotes delegation, not a fork. Those threads belong in lineage, as in the rail. */
+export function paletteThreads(context: PaletteSearchContext): readonly UiSession[] {
+  return context.index.threads.filter((thread) => !thread.parentThreadId
+    && (thread.messageCount > 0 || context.index.running?.includes(thread.id) || context.index.waiting?.includes(thread.id)));
+}
+
 export function threadTitleItems(query: string, context: PaletteSearchContext): PaletteItem[] {
   const tokens = paletteTokens(query);
   if (tokens.length === 0 && !context.scope) return [];
   const waiting = new Set(tokens.length ? [] : context.index.waiting);
-  // As in the thread list: a thread nobody wrote in is not one yet, unless it is at work or asking.
-  const listed = (thread: UiSession) => thread.messageCount > 0 || context.index.running?.includes(thread.id) || context.index.waiting?.includes(thread.id);
-  const matching = context.index.threads
-    // Before anything is typed, agents stay in their panel as they do in the rail.
-    .filter((thread) => listed(thread) && (tokens.length || !thread.parentThreadId) && holdsAll(tokens, thread.title, thread.projectName, thread.projectLabel))
+  const archived = new Set(context.index.archivedThreadIds);
+  const matching = paletteThreads(context)
+    .map((thread) => ({ thread, rank: threadRank(tokens, thread.title, thread.projectLabel, thread.projectName) }))
+    .filter(({ rank }) => !tokens.length || rank > 0)
     // Before anything is typed, threads waiting on the user come first, however old.
-    .sort((a, b) => Number(waiting.has(b.id)) - Number(waiting.has(a.id)) || b.modifiedAt - a.modifiedAt);
-  const asking = matching.filter((thread) => waiting.has(thread.id)).length;
+    .sort((a, b) => Number(archived.has(a.thread.id)) - Number(archived.has(b.thread.id)) || Number(waiting.has(b.thread.id)) - Number(waiting.has(a.thread.id)) || b.rank - a.rank || b.thread.modifiedAt - a.thread.modifiedAt);
+  const asking = matching.filter(({ thread }) => waiting.has(thread.id)).length;
   const rows = context.scope === "threads" ? SCOPED_ROWS : tokens.length ? THREAD_ROWS : Math.max(RECENT_ROWS, asking);
-  return matching.slice(0, rows).map((thread) => threadItem(thread, context));
+  return matching.slice(0, rows).map(({ thread }) => threadItem(thread, context, archived.has(thread.id) ? "Archived" : undefined));
 }
 
 /** "#95 · acme/tau · open" ("!95" for a GitLab merge request) for a thread's first matching request, "+N" for more. */
@@ -70,9 +76,10 @@ function requestDetail(match: ThreadRequestMatch): string {
 
 /** Threads whose pull or merge request the query names, unless the title already put them on the list. */
 export function threadRequestItems(matches: readonly ThreadRequestMatch[], context: PaletteSearchContext, shown: ReadonlySet<string>): PaletteItem[] {
+  const threads = new Map(paletteThreads(context).map((thread) => [thread.id, thread]));
   return matches
     .flatMap((match) => {
-      const thread = context.index.threads.find((entry) => entry.id === match.sessionId);
+      const thread = threads.get(match.sessionId);
       return thread && !shown.has(thread.id) ? [{ thread, match }] : [];
     })
     .sort((a, b) => b.thread.modifiedAt - a.thread.modifiedAt)
@@ -98,14 +105,33 @@ export function projectItems(query: string, context: PaletteSearchContext): Pale
 }
 
 /** A thread the host found by its text, unless the title already put it on the list. */
-export function threadContentItems(matches: readonly ThreadMatch[], context: PaletteSearchContext, shown: ReadonlySet<string>): PaletteItem[] {
+export function threadContentItems(matches: readonly ThreadMatch[], context: PaletteSearchContext, shown: ReadonlySet<string>, query = ""): PaletteItem[] {
   const items: PaletteItem[] = [];
+  const threads = new Map(paletteThreads(context).map((thread) => [thread.id, thread]));
   for (const match of matches) {
-    const thread = context.index.threads.find((entry) => entry.id === match.sessionId || (match.path && entry.path === match.path));
+    // A path can name a different thread on another machine. Only the host's
+    // thread identity can join content to the workbench index.
+    const thread = threads.get(match.sessionId);
     if (!thread || shown.has(thread.id) || items.some((item) => item.id === thread.id)) continue;
-    items.push(threadItem(thread, context, match.snippet));
+    const archived = context.index.archivedThreadIds?.includes(thread.id);
+    const speaker = match.role === "user" ? "You" : "Agent";
+    const item = threadItem(thread, context, `${speaker}: ${match.snippet}${archived ? " · Archived" : ""}`);
+    item.ariaLabel = `${item.label}, ${speaker} said: ${match.snippet}${archived ? ", Archived" : ""}`;
+    item.detailContent = createElement("span", null, `${speaker}: `, highlightedSnippet(match.snippet, query), archived ? " · Archived" : "");
+    item.run = async actions => {
+      if (await actions.switchSession(thread.path)) actions.findInThread?.(query, { sessionId: thread.id, mode: "all-words" });
+    };
+    items.push(item);
   }
   return items;
+}
+
+/** React escapes all transcript text; only literal matched words become marks. */
+export function highlightedSnippet(snippet: string, query: string) {
+  const tokens = paletteTokens(query).sort((a, b) => b.length - a.length);
+  if (!tokens.length) return snippet;
+  const pattern = new RegExp(`(${tokens.map(token => token.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|")})`, "giu");
+  return snippet.split(pattern).map((part, at) => at % 2 ? createElement("mark", { key: at }, part) : part);
 }
 
 /** A file of the project on screen: its folder and, when Git has it changed, its status letter. */
@@ -129,7 +155,8 @@ export function fileItems(files: readonly FileMatch[], status: ReadonlyMap<strin
 export function settle(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (ms <= 0 || signal.aborted) { resolve(); return; }
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+    const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+    const timer = setTimeout(finish, ms);
+    signal.addEventListener("abort", finish, { once: true });
   });
 }

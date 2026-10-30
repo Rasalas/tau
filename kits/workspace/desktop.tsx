@@ -52,6 +52,7 @@ import { presentRead, presentWrite, READ_TOOLS, WRITE_TOOLS } from "./tool-cards
 import { createProjectApprovalDialog } from "./project-approval-dialog.js";
 import { EditorPlacement } from "./editor-placement.js";
 import { createEditorMachinesSection, EDITOR_MACHINES_ROWS } from "./editor-machines-section.js";
+import { createProjectPromotionRegion } from "./project-promotion-dialog.js";
 
 /** No need to poll every 30 s; a tick, a focus and a project switch are enough here. */
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
@@ -87,7 +88,7 @@ export const workspaceExtension: DesktopExtension = {
   name: "Workspace",
   activate(context) {
     const host = createWorkspaceHostClient((command, input) => context.host.invoke(command, input));
-    const store = new WorkspaceStore(context.preferences, host);
+    const store = new WorkspaceStore(context.preferences, host, context.host.resourceUrl ? (path) => context.host.resourceUrl!(path) : undefined, context.host.readResource ? (path) => context.host.readResource!(path) : undefined);
     // A desktop window opens another machine's project in its own editors over SSH (a browser or a phone has no window machine).
     const machines = context.environments;
     const placement = machines ? new EditorPlacement(host, (command, input) => context.host.invoke(command, input), machines) : undefined;
@@ -95,6 +96,7 @@ export const workspaceExtension: DesktopExtension = {
     const stopTopics = [WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC].map((topic) => context.host.watch?.(topic));
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
+    context.registerRegion({ id: "workspace.project-promotion", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createProjectPromotionRegion(context, store, host) });
     context.useService<UpdateCoordinator>(UPDATE_CENTER_SERVICE, (updates) => {
       store.update({ updateCoordinator: updates });
       return () => store.update({ updateCoordinator: undefined });
@@ -192,6 +194,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerDocumentSource({
       profiles: ["desktop", "web", "compact"],
       id: "workspace.documents",
+      renderPreview: (path, from) => store.renderFilePreview(path, from),
       // The stage names the project its tabs belong to; a caller that does not means the followed one.
       loadFile: (relPath, from) => host.readFile(relPath, from?.workspace ?? store.workspace()),
       loadVisualization: async (path, from, theme = "light") => {

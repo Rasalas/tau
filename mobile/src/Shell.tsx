@@ -260,16 +260,19 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
     else startPairing({ hostId: host.id, name: host.name, ...targetPins(host), endpoints: host.endpoints, ...(connect ? { connect } : {}) }, "hosts");
   }, [book, openWorkbench, startPairing]);
 
-  const scan = useCallback(async (from: "hosts" | "add") => {
+  const scan = useCallback(async (from: "hosts" | "add", text?: string) => {
+    const origin = viewRef.current;
     const result = await context.scan();
+    // A link or navigation that arrived during the native scanner owns the screen now.
+    if (viewRef.current !== origin) return;
     if ("text" in result) {
       const payload = parseMobilePairingPayload(result.text);
-      if (payload && payload.endpoints.length > 0) { startPairing(payloadTarget(payload), from); return; }
-      setView({ name: "add", error: "This is not a Tau QR code. Scan the one in Settings → Connections on your machine." });
+      if (payload && payload.endpoints.length > 0) { startPairing(payloadTarget(payload), from, result.text); return; }
+      setView({ name: "add", error: "This is not a Tau QR code. Scan the one in Settings → Connections on your machine.", ...(text ? { text } : {}) });
       return;
     }
     const problem = scanProblem[result.error];
-    if (problem) setView({ name: "add", error: problem });
+    if (problem) setView({ name: "add", error: problem, ...(text ? { text } : {}) });
   }, [context, startPairing]);
 
   // Where the app starts: the route in its address or the link that opened it.
@@ -361,7 +364,7 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       {...(view.error ? { error: view.error } : {})}
       {...(view.text ? { initialText: view.text } : {})}
       onBack={() => setView({ name: "hosts" })}
-      onScan={() => void scan("add")}
+      onScan={(text) => void scan("add", text)}
       onSubmit={(payload, text) => startPairing(payloadTarget(payload), "add", text)}
     />;
     case "hosts": {

@@ -25,6 +25,7 @@ import { createPushRegistrar, createRelayPort, sealedTapRoute, setPushRegistrar,
 import { PushKeys } from "./push-keys";
 import { nativePushPort } from "./push-native";
 import { nativeWakeSource } from "./wakes";
+import { nativeAppVisibility } from "./app-visibility";
 
 /** Outside a native shell (a browser during development) the plugin is missing. */
 const BROWSER_DEVICE: DeviceInfo = { name: "Browser", model: "browser", platform: "ios", virtual: true };
@@ -39,6 +40,8 @@ async function boot(): Promise<void> {
   const book = new HostBook(secureStore);
   const activityKeys = new PushKeys({ get: (key) => secureStore.get("activity:" + key), set: (key, value) => secureStore.set("activity:" + key, value), remove: (key) => secureStore.remove("activity:" + key) });
   const isNative = Capacitor.isNativePlatform();
+  const visibility = isNative ? await nativeAppVisibility(App).catch(() => undefined) : undefined;
+  if (visibility) window.addEventListener("pagehide", () => visibility.dispose(), { once: true });
   const resources = isNative ? await createNativeBrowserResources(device.platform) : undefined;
   const remoteControl = isNative && device.platform === "ios" ? remoteActivities(book, activityKeys, nativeRemoteActivities, device.virtual) : undefined;
   const activityPort = { ...nativeActivities, clear: async (hostId: string) => { await remoteControl?.revoke(hostId); await nativeActivities.clear(hostId); } };
@@ -56,6 +59,7 @@ async function boot(): Promise<void> {
     device,
     environment: { ...webClientEnvironment("compact"), ...(appInfo ? { mobileApp: { platform: device.platform, version: appInfo.version } } : {}), ...(isNative && device.platform === "android" ? { openDocument: openNativeDocument } : {}), ...(isNative && device.platform === "ios" ? { dictation: { port: nativeDictation, Control: NativeComposerDictation, Settings: DictationSettings } } : {}) },
     wakes: nativeWakeSource(App, Network),
+    ...(visibility ? { visibility } : {}),
     scan: scanQrCode,
     browse: (listener) => browseHosts(TAU_BONJOUR_TYPE, listener),
     navigate: (search) => window.location.replace(`${window.location.pathname}${search}`),

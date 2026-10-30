@@ -1,6 +1,6 @@
 import { gitEnvironment } from "tau/host-extension";
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -19,10 +19,30 @@ export function projectFolderName(value: string): string {
   return name;
 }
 
-export function isScratchWorkspace(stateDir: string, path: string): boolean {
+export function isScratchAllocation(stateDir: string, path: string): boolean {
   const canonical = (value: string) => { try { return realpathSync(value); } catch { return resolve(value); } };
   const leaf = relative(canonical(join(stateDir, "scratch")), canonical(path));
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(leaf);
+}
+
+export interface PromotedProject { version: 1; path: string; name: string }
+
+export function promotionFile(stateDir: string, path: string): string {
+  if (!isScratchAllocation(stateDir, path)) throw new Error("Only a private thread folder can become a project.");
+  return join(stateDir, "promoted-projects", relative(realpathSync(join(stateDir, "scratch")), realpathSync(path)) + ".json");
+}
+
+/** Kept in host state, outside files a thread edits or commits. No in-memory-only classification. */
+export function readPromotedProject(stateDir: string, path: string): PromotedProject | undefined {
+  try {
+    const stored = JSON.parse(readFileSync(promotionFile(stateDir, path), "utf8")) as Partial<PromotedProject>;
+    if (stored.version === 1 && stored.path === realpathSync(path) && typeof stored.name === "string" && stored.name.trim()) return stored as PromotedProject;
+  } catch { /* An unregistered allocation stays private. */ }
+  return undefined;
+}
+
+export function isScratchWorkspace(stateDir: string, path: string): boolean {
+  return isScratchAllocation(stateDir, path) && !readPromotedProject(stateDir, path);
 }
 
 export async function createScratchWorkspace(stateDir: string, git = "git"): Promise<string> {

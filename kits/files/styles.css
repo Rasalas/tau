@@ -61,9 +61,49 @@
 .files-table th, .files-table td { max-width: 320px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .files-table tbody tr:nth-child(even) { background: var(--wash); }
 
+.files-notebook { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.files-notebook-scroll { flex: 1; min-height: 0; overflow: auto; }
+.files-notebook-cells { max-width: 920px; margin: 0 auto; padding: 20px 24px 40px; }
+.files-notebook-cell { min-width: 0; margin-bottom: 20px; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.files-notebook-cell-header {
+  display: flex; justify-content: space-between; gap: 12px; padding: 7px 12px;
+  border-bottom: 1px solid var(--line-soft); background: var(--field); color: var(--muted); font: var(--text-xs) var(--mono);
+}
+.files-notebook-markdown { padding: 12px 16px; color: var(--ink-prose); }
+.files-notebook-source { max-height: 360px; overflow: auto; }
+.files-notebook-source .source-scroll { max-height: 360px; }
+.files-notebook-output {
+  margin: 0; padding: 12px 16px; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  border-top: 1px solid var(--line-soft); color: var(--ink-2); font: var(--text-sm)/1.5 var(--mono);
+}
+.files-notebook-output.files-error { color: var(--danger); }
+.files-notebook-empty, .files-notebook-image { color: var(--muted); }
+.files-notebook-more { min-height: 36px; }
+
 /* A tablet's editor: its header's buttons at a finger's size, the text at a size iOS does not zoom into. */
 body[data-profile="compact"] .files-crumbs { min-width: 48px; }
 body[data-profile="compact"] .files-open-in .chrome-button { height: 44px; }
 body[data-profile="compact"] .files-action { width: 44px; height: 44px; border-radius: 12px; }
 body[data-profile="compact"] .files-save, body[data-profile="compact"] .files-conflict .text-button { min-height: 44px; padding: 0 12px; }
 body[data-profile="compact"] .files-code > .cm-editor { font-size: max(16px, var(--text-input)); }
+body[data-profile="compact"] .files-notebook-cells { padding: 12px 12px 24px; }
+body[data-profile="compact"] .files-notebook-more { min-height: 44px; }
+
+/* Passive previews share the stage's text and table styles. */
+.files-passive-preview { flex: 1; min-width: 0; overflow: auto; padding: 16px; overflow-wrap: anywhere; }
+.files-passive-preview p { white-space: pre-wrap; }
+.files-passive-preview nav, .files-preview-segments { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.files-preview-segments [aria-pressed="true"], .files-preview-tables [aria-pressed="true"] { background: var(--raised); }
+.files-preview-compact { display: none; }
+.files-preview-database { display: grid; grid-template-columns: minmax(120px, 200px) minmax(0, 1fr); gap: 12px; }
+.files-preview-database .files-preview-tables { display: flex; flex-direction: column; align-content: start; }
+.files-notebook-output-image { display: block; border: 0; padding: 0; background: none; cursor: zoom-in; max-width: 100%; }
+.files-notebook-output-image img { display: block; max-width: 100%; max-height: 600px; object-fit: contain; }
+@media (max-width: 600px) {
+  .files-preview-compact { display: block; margin: 8px 0; }
+  .files-preview-segments, .files-preview-database .files-preview-tables { display: none; }
+  .files-preview-database { display: block; }
+}
+body[data-profile="compact"] .files-preview-compact { display: block; margin: 8px 0; }
+body[data-profile="compact"] .files-preview-segments, body[data-profile="compact"] .files-preview-database .files-preview-tables { display: none; }
+body[data-profile="compact"] .files-preview-database { display: block; }

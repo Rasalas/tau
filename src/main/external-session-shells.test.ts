@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadExternalSessionShells } from "./external-session-shells.js";
 import type { HostBackendThreadRecord, HostRuntimeBackendProvider } from "./host-extensions.js";
+import { mergeSessionIndexScan } from "./host-messages.js";
 
 function provider(records: HostBackendThreadRecord[], modelProvider?: string): HostRuntimeBackendProvider {
   return { kind: "antigravity", ...(modelProvider ? { modelProvider } : {}), listThreads: async () => records } as unknown as HostRuntimeBackendProvider;
@@ -15,6 +16,18 @@ const load = (providers: HostRuntimeBackendProvider[]) => loadExternalSessionShe
 });
 
 describe("loadExternalSessionShells", () => {
+  it("explicitly clears a remote thread's private-folder status after promotion", async () => {
+    const base = { threadId: "rex~thread", cwd: "/remote/private", updatedAt: 1, messages: [], machine: { id: "rex", name: "rex" } };
+    const [before] = await load([provider([{ ...base, project: { name: "No project", listed: false } }])]);
+    const [after] = await load([provider([{ ...base, project: { name: "Research", listed: true } }])]);
+    expect(before).toMatchObject({ projectless: true, projectName: "No project" });
+    expect(after).toMatchObject({ projectless: false, projectName: "Research" });
+    expect(after!.id).toBe(before!.id);
+    expect(after!.projectPath).toBe(before!.projectPath);
+    const [live] = mergeSessionIndexScan([after!], [before!], 100, new Set([base.threadId]));
+    expect(live).toMatchObject({ projectless: false, projectName: "Research" });
+  });
+
   it("bounds overlapping listings and keeps registration order", async () => {
     const releases: Array<() => void> = [];
     let active = 0;

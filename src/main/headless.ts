@@ -475,7 +475,9 @@ async function main(): Promise<void> {
   localMethods = methods;
 
   let externalMcp: ExternalMcpHttp | undefined;
-  let externalRoute: HostHttpRoute | undefined;
+  let mcpRoute: HostHttpRoute | undefined;
+  const externalRoute: HostHttpRoute = async (request, response, trust) =>
+    await networkContributions.serve(request, response, trust) || await mcpRoute?.(request, response, trust) || false;
   let mcpProxyUrl: string | undefined;
   const mcpLog = (label: string, detail?: string) => hostLog.warn(label, detail);
   // Local MCP clients need no public origin; the loopback listener stays closed until the owner opens it.
@@ -493,7 +495,7 @@ async function main(): Promise<void> {
         return mcpProxyUrl ?? (proxy ? `http://${proxy.host}:${proxy.port}` : undefined);
       },
     });
-    externalRoute = (request, response, trust) => externalMcp!.handle(request, response, trust);
+    mcpRoute = (request, response, trust) => externalMcp!.handle(request, response, trust);
     // An explicitly enabled HTTPS publication keeps its loopback proxy backend
     // for this host's lifetime, including a desktop-supervised host.
     if (!proxyListen) await networkContributions.services.holdProxy();

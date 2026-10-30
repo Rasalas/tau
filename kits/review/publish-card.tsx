@@ -73,6 +73,7 @@ function PublishRequestCard({ target, parts, store, actions, onClose }: { target
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [draft, setDraft] = useState(false);
+  const [maintainerCanModify, setMaintainerCanModify] = useState(true);
   const [generating, setGenerating] = useState<"message" | "description">();
   const [notes, setNotes] = useState<string[]>([]);
   const [progress, setProgress] = useState<PublishProgress>({ done: [] });
@@ -149,7 +150,7 @@ function PublishRequestCard({ target, parts, store, actions, onClose }: { target
         void store.refresh();
       },
       create: async () => {
-        const result = await parts.requests.create({ workspace: workspace ?? "", branch: branch ?? "", title: title.trim(), body, base: "", draft });
+        const result = await parts.requests.create({ workspace: workspace ?? "", branch: branch ?? "", title: title.trim(), body, base: "", draft, ...(status?.canChooseMaintainerEdits ? { maintainerCanModify } : {}) });
         if (workspace) parts.rows.set(workspace, result.status.request);
         void store.refresh();
         const created = result.status.request;
@@ -224,6 +225,10 @@ function PublishRequestCard({ target, parts, store, actions, onClose }: { target
           onChange={(event) => setBody(event.target.value)}
         />
       </label>
+      {status?.canChooseMaintainerEdits ? <label className="request-draft">
+        <input type="checkbox" checked={maintainerCanModify} disabled={locked} onChange={(event) => setMaintainerCanModify(event.target.checked)} /> Allow edits from maintainers
+        <small>Maintainers can push to this branch. If your fork has workflows, this can also give them access to its secrets.</small>
+      </label> : null}
       <div className="pr-publish-options">
         {capabilities.draft ? <label className="request-draft"><input type="checkbox" checked={draft} disabled={locked} onChange={(event) => setDraft(event.target.checked)} /> Draft</label> : null}
         <span className="spacer" />

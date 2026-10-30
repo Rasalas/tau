@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { comparePerformanceReports, comparisonPolicy, rendererHarnessFiles } from "./performance-comparison.mjs";
+import { join } from "node:path";
+import { benchmarkElectron, comparePerformanceReports, comparisonPolicy, rendererHarnessFiles } from "./performance-comparison.mjs";
 
 function fixture() {
-  const provenance = { baseCommit: "a".repeat(40), headCommit: "b".repeat(40), harnessSha256: "c".repeat(64), seriesId: "test-series" };
+  const provenance = { baseCommit: "a".repeat(40), headCommit: "b".repeat(40), harnessSha256: "c".repeat(64), seriesId: "test-series", measurementRuntime: { sourceCommit: "b".repeat(40), electronVersion: "44.4.4", executable: join(import.meta.dirname, "head electron"), binarySha256: "1".repeat(64) } };
   const runs = Array.from({ length: comparisonPolicy.pairs }, (_, round) => ["base", "head"].map((side) => ({
     round, side, harnessSha256: provenance.harnessSha256, seriesId: provenance.seriesId,
-    starts: Array.from({ length: 3 }, () => ({ schemaVersion: 1, measurement: "renderer-bundle-fixture", firstPaintMs: 100, externalRequests: [], execution: { profileMode: "fresh-per-process", electronVersion: "44.4.4" } })),
+    starts: Array.from({ length: 3 }, () => ({ schemaVersion: 1, measurement: "renderer-bundle-fixture", firstPaintMs: 100, externalRequests: [], execution: { profileMode: "fresh-per-process", electronVersion: "44.4.4", electronExecutable: provenance.measurementRuntime.executable } })),
     renderer: {
       schemaVersion: 2, commitSha: provenance[`${side}Commit`],
       machine: { chip: "test-cpu", platform: "linux", logicalCores: 4 },
       startConditions: { warmupRuns: 1, sampleRuns: 3, viewport: "1440x900", throttle: "none" },
       harnessSourceSha256: "d".repeat(64), harnessFileSha256: Object.fromEntries(rendererHarnessFiles.map((file) => [file, "e".repeat(64)])), buildArtifactSha256: "f".repeat(64),
-      execution: { electronVersion: "44.4.4", profileMode: "fresh-per-process", parallelRuns: 1, gpu: { mode: "default", featureStatus: { gpu_compositing: "disabled_software" }, info: { auxAttributes: { initializationTime: round + (side === "head" ? 0.5 : 0) } } } },
+      execution: { electronVersion: "44.4.4", electronExecutable: provenance.measurementRuntime.executable, profileMode: "fresh-per-process", parallelRuns: 1, gpu: { mode: "default", featureStatus: { gpu_compositing: "disabled_software" }, info: { auxAttributes: { initializationTime: round + (side === "head" ? 0.5 : 0) } } } },
       scenarios: comparisonPolicy.scenarios.map((id) => ({
         id, fixture: { id, bytes: 153600 }, sampleRuns: 3,
         ...Object.fromEntries(Object.keys(comparisonPolicy.rendererMetrics).map((metric) => [metric, { median: 20, p95: 20 }])),
@@ -23,6 +24,36 @@ function fixture() {
 }
 
 describe("paired performance comparison", () => {
+  it("selects one absolute Electron executable for both subjects", () => {
+    const baseRoot = join(import.meta.dirname, "base");
+    const headRoot = join(import.meta.dirname, "head");
+    const executable = join(headRoot, "Electron with spaces");
+    const env = { TAU_BENCHMARK_ELECTRON: executable };
+    expect(benchmarkElectron(baseRoot, env)).toBe(executable);
+    expect(benchmarkElectron(headRoot, env)).toBe(executable);
+    expect(benchmarkElectron(baseRoot, {})).toBe(join(baseRoot, "node_modules", ".bin", "electron"));
+    expect(() => benchmarkElectron(baseRoot, { TAU_BENCHMARK_ELECTRON: "relative/electron" })).toThrow(/absolute/u);
+  });
+
+  it("rejects a consistent but unexpected runtime instead of attributing it to product changes", () => {
+    const { runs, provenance } = fixture();
+    for (const run of runs) {
+      run.renderer.execution.electronVersion = "44.10.0";
+      for (const start of run.starts) start.execution.electronVersion = "44.10.0";
+    }
+    expect(() => comparePerformanceReports(runs, provenance)).toThrow("Invalid performance comparison:");
+  });
+
+  it.each([
+    ["missing runtime", (runtime, provenance) => { delete provenance.measurementRuntime; }],
+    ["wrong runtime source", (runtime) => { runtime.sourceCommit = "0".repeat(40); }],
+    ["missing runtime fingerprint", (runtime) => { delete runtime.binarySha256; }],
+  ])("rejects %s provenance", (_label, mutate) => {
+    const { runs, provenance } = fixture();
+    mutate(provenance.measurementRuntime, provenance);
+    expect(() => comparePerformanceReports(runs, provenance)).toThrow("Invalid performance comparison:");
+  });
+
   it("accepts unchanged timings despite volatile GPU initialization timings", () => {
     const { runs, provenance } = fixture();
     expect(comparePerformanceReports(runs, provenance).failures).toEqual([]);
@@ -68,6 +99,8 @@ describe("paired performance comparison", () => {
     ["different fixture", (runs) => { runs[1].renderer.scenarios[0].fixture.bytes++; }],
     ["different harness", (runs) => { runs[1].renderer.harnessSourceSha256 = "0".repeat(64); }],
     ["different Electron", (runs) => { runs[1].renderer.execution.electronVersion = "45.0.0"; }],
+    ["different Electron executable", (runs) => { runs[1].renderer.execution.electronExecutable += "-other"; }],
+    ["different startup executable", (runs) => { runs[1].starts[0].execution.electronExecutable += "-other"; }],
     ["different GPU backend", (runs) => { runs[1].renderer.execution.gpu.mode = "other"; }],
     ["different machine", (runs) => { runs[1].renderer.machine.chip = "other"; }],
     ["wrong subject", (runs) => { runs[1].renderer.commitSha = "0".repeat(40); }],

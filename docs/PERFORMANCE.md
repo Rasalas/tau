@@ -2186,6 +2186,15 @@ that commit explicitly, checks out both subjects as detached worktrees, installs
 each lockfile once, and builds each production renderer and benchmark renderer
 once. Product components, build configuration and dependencies come from their
 respective commits. No dependency tree or build output is shared across subjects.
+The measurement processes for both bundles use the same Electron binary from
+the head's locked installation. Its source commit, version, executable path and
+SHA-256 fingerprint are recorded in the comparison provenance. This holds the
+browser engine constant when a pull request upgrades Electron, while preserving
+each subject's product code and dependencies. An ambient
+`TAU_BENCHMARK_ELECTRON` override cannot change the runner's selected binary.
+Electron may download its binary on first resolution. The resolver writes the
+executable metadata to a separate JSON file, so download progress on stdout
+cannot become part of the executable path. A failed download still fails setup.
 
 Both builds receive identical copies of the gate checkout's benchmark sources,
 including `RendererBenchmark*.tsx`, the Electron fixtures and fixture JSON.
@@ -2214,10 +2223,12 @@ and scenarios outside the subset can pass. Existing full structural checks and
 local absolute timing checks remain in place. No timing or bundle budget rises.
 
 Missing samples, invalid timings, different fixtures, different harness hashes,
-different Electron versions, machine changes and GPU backend changes fail before
-comparison. A dependency upgrade that changes Electron requires a compatible
-measurement plan, because the gate cannot attribute that difference to product
-code. The report keeps raw paired values and policy, commit and dependency-lock
+different Electron versions or executables, machine changes and GPU backend
+changes fail before comparison. Every report must match the selected head
+runtime. This comparison measures product-code changes on the updated browser
+engine; it does not measure the performance effect of the Electron upgrade
+itself. Each subject's ordinary structural reports still use its own runtime.
+The report keeps raw paired values and policy, commit and dependency-lock
 hashes, benchmark build hashes and the frozen measurement sources. CI uploads
 these as the `timing-comparison` artifact, including an error report after a
 partial run. The runner script has a 24-minute deadline and the job a 30-minute
@@ -2426,3 +2437,79 @@ and CI builds. Desktop initial JavaScript remains 809,555 bytes under its
 810,000-byte cap; browser initial JavaScript remains 823,251 under 827,000.
 Initial, CSS, kit and timing budgets stay unchanged. Window dialogs remain
 outside the startup module graph, and release-note requests share the host cache.
+
+
+### 2026-10-29 T3 parity follow-up size baseline
+
+This feature round adds persistent full-message search and navigation, passive
+Office/archive/database previews, revocable guest sharing, private command-file
+leases, project promotion, webhook coalescing and provider controls. The final
+observed desktop assets contain 818,736 initial JavaScript bytes and about
+574.3 KB of total gzipped JavaScript; the 51 desktop kit halves total 3,519,994
+bytes. The browser has 832,423 initial bytes and 586,173 total gzip bytes.
+These are build artifact measurements, not startup or heap measurements.
+
+Size gates are recalibrated once for the implemented feature set, following the
+previous parity-round baselines in this document. Desktop initial JavaScript
+rises from 810,000 to 830,000 bytes, total JavaScript gzip from 571,000 to 580,000,
+and kit desktop code from 3,400,000 to 3,600,000. Browser initial JavaScript rises
+from 827,000 to 845,000 and total gzip from 583,000 to 592,000. The new limits
+leave about 1–2.3% above the measured artifacts. Initial gzip, total raw
+JavaScript, CSS, build-time, first-paint, heap, transport and frame budgets do
+not change. This is an explicit feature-size allowance, not an optimization or
+a claim that unchanged size gates passed.
+
+After integrating main's local MCP clients, runtime switching and editor/title
+changes on 2026-10-30, desktop initial JavaScript measures 820,524 bytes and
+252,873 gzip bytes; its kit halves total 3,568,945 bytes. The combined browser
+entry measures 834,225 bytes and 258,021 gzip bytes. The browser initial gzip
+cap moves from 258,000 to 259,000 bytes, leaving 979 bytes of headroom for this
+combined feature set. Other size caps and the paired renderer timing policy
+remain as defined above. Main's build-time caps are described separately.
+
+The separate investigation in
+`docs/research/t3-release-budgets-2026-10-29.md` found no large duplicate vendor
+bundle across kits. A map-preserving compression candidate still exceeded the
+old kit limit by 58 KB. It was not retained. Full identifier minification broke
+extension diagnostic/source-map contracts and was reverted. A real cold split
+of extension bundles requires a separate loading-format change; merely
+reclassifying static dependencies as lazy would not defer their cost.
+
+The final build compiled in 14,566 ms, including a 7,473 ms browser build on this
+machine. A separate browser run overlapping other verification took 21,443 ms
+and exceeded the unchanged 20-second timing cap. It is recorded as a loaded-run
+failure, not a stable timing regression or grounds to raise the time budget.
+
+
+The final combined verification passed 1,003 focused tests across 66 files, with
+172 overlapping slow-render cases in a separate run. The final `build:budget`
+passed with the explicit size baseline above. Its desktop build took 15,274 ms
+after the build runner automatically retried a 33,279 ms loaded sample; the
+separate browser gate took 12,935 ms. The final renderer-bundle fixture reported
+132 ms first paint and zero external requests. These remain fixture/build
+measurements, not a full application-start percentile.
+## Production host emission, 2026-10-30
+
+PR #479's Linux performance gate measured 30,962 ms at reference speed against
+the unchanged 30,000 ms cap. The production Electron emit still included 346
+test entrypoints that packaging already excludes. Its own build configuration
+now omits those roots, reducing the root set from 737 files to 391. The regular
+Electron typecheck and development watcher retain the original configuration,
+and CI still runs all tests. Smoke-support modules remain emitted because
+standalone clients use them. No timing or size limit changes accompany this
+build correction. Regression coverage checks both the removed test roots and
+the retained runtime, preload, worker and smoke-helper entries.
+
+A clean local output from the initial tsc-based correction contained no compiled
+test modules and retained the standalone smoke helper. All 395 runtime JavaScript
+modules were byte-identical to the prior output. The clean build passed the existing
+budgets, and the isolated host/runtime/browser webhook and sharing smoke
+passed without relying on stale output. The Linux CI rerun supplies the
+release-gate measurement; local timing is not substituted for it.
+
+After integration with main's esbuild emitter from PR #481, the emitter reads
+that production configuration's file list instead of keeping a separate list
+of source folders. Parsing the file list constructs no TypeScript program;
+esbuild still discovers imported modules and emits the host. The regression
+checks compare the emitter's actual roots with the production configuration.
+Main's desktop and web time caps remain 40,000 and 25,000 ms respectively.

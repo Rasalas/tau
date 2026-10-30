@@ -24,6 +24,7 @@ import {
   type MessageMappingOptions,
 } from "./host-messages.js";
 import type { HostThread } from "./host-extensions.js";
+import { publicThreadTools, type HostPublicToolOptions, type HostPublicTools } from "./public-thread-tools.js";
 import type { LiveTurnState } from "./live-turn-state.js";
 import { inStartOrder } from "./kit-message-order.js";
 import { isPiBackend, isThreadRuntime, type ThreadRuntime } from "./thread-runtime.js";
@@ -171,6 +172,22 @@ export class ThreadProjection {
       ...activity,
       tools: activity.tools.map((tool) => tool.status === "running" ? thread.tools.get(tool.id) ?? tool : tool),
     };
+  }
+
+  /** Reuses workbench activity, including the latest running preview, without result/file reads. */
+  publicTools(thread: ThreadRuntime, options: HostPublicToolOptions): HostPublicTools {
+    const history = isPiBackend(thread)
+      ? [...thread.backend.capabilities.conversation?.activity() ?? [], ...turnActivityHistoryFromMessages(this.branchMessages(thread).map((raw) => {
+        if (!raw || typeof raw !== "object" || (raw as { role?: unknown }).role !== "toolResult") return raw;
+        // A result cannot rename a private/custom call to an allowed text tool.
+        const { toolName: _name, ...result } = raw as Record<string, unknown>;
+        return result;
+      }))]
+      : thread.adapterActivity;
+    return publicThreadTools(history.flatMap((entry) => entry.tools.map((tool) => {
+      const live = tool.status === "running" ? thread.tools.get(tool.id) : undefined;
+      return live && live.name === tool.name ? live : tool;
+    })), options);
   }
 
   /** The running turn's tools of a backend without a journal, with their latest output. */

@@ -159,7 +159,7 @@ export async function readProjectGitState(
       run(["status", "--porcelain", "-z", "--untracked-files=all"]),
       // Porcelain diff refreshes the index even with optional locks disabled.
       run(["diff-index", "--find-renames", "--numstat", "-z", "HEAD", "--"]).catch(() => ""),
-      run(["worktree", "list", "--porcelain"]),
+      run(["worktree", "list", "--porcelain", "-z"]),
       run(["for-each-ref", "--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)%09%(committerdate:unix)", "--sort=-committerdate", "refs/heads"]),
     ]);
     const workspaceRoot = rootOut.trim() || cwd;

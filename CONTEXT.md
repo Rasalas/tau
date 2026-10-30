@@ -71,6 +71,10 @@ the ceiling applies to every turn on every runtime, also after a restart.
 
 A phone, tablet or browser paired with a machine, listed under Settings → Connections. A simulator or an emulator is not a device in this sense: Settings → Simulators lists the ones an agent may drive.
 
+## Guest
+
+A person invited to follow one shared thread in a browser until its link expires or is stopped. A guest is not a paired device and sees only the thread content the owner shares. A guest may suggest a message when the invitation allows it; a person with Full access decides whether to send it.
+
 ## Project
 
 A user-recognizable body of work that can contain threads. A project has a source and resolves to a workspace that a host can open. A local repository or folder is a project. Future project sources may resolve remote repositories or managed environments.
@@ -141,7 +145,7 @@ A thread's ongoing observation of a pull request. Changes to checks, comments, r
 
 ## Private secret request
 
-A request for a value needed by a specific host tool in a project. The user supplies it privately; the agent receives a reference to the tool's binding, never the value itself.
+A request for a value needed by a specific host tool or a command in a thread. The user supplies it privately. A host tool receives a binding; a command receives a temporary private file that expires or can be deleted by the user. The value stays out of the conversation unless a command prints or otherwise discloses it.
 
 ## App page
 

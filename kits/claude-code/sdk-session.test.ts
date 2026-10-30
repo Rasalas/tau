@@ -69,10 +69,10 @@ describe("ClaudeSdkSession", () => {
     expect(aborted()).toBe(true);
   });
 
-  it("uses a 401 result to identify an ambiguous assistant error as a login failure", async () => {
+  it.each([true, false])("uses a terminal 401 result with is_error=%s to identify an ambiguous assistant error as a login failure", async (is_error) => {
     const { query, aborted } = sessionQuery((message) => [
       frame({ type: "assistant", error: "authentication_failed", message: { content: [{ type: "text", text: "Could not complete this request." }] } }),
-      frame({ type: "result", subtype: "success", is_error: true, api_error_status: 401, num_turns: 1, result: "Request rejected.", user_message_uuids: [message.uuid] }),
+      frame({ type: "result", subtype: "success", is_error, terminal_reason: "api_error", api_error_status: 401, num_turns: 1, result: "Request rejected.", user_message_uuids: [message.uuid] }),
     ]);
     const { session, exits, seen } = open(query);
     await expect(session.send("hello", "next")).resolves.toMatchObject({ api_error_status: 401 });
@@ -80,6 +80,64 @@ describe("ClaudeSdkSession", () => {
     expect((exits[0] as Error).message).toContain("Sign in again");
     expect(session.closed).toBe(true);
     expect(aborted()).toBe(true);
+  });
+
+  it("stops queued sends on an unflagged terminal login failure without a numeric status", async () => {
+    const { query, aborted, received } = sessionQuery((message) => [
+      frame({ type: "result", subtype: "success", is_error: false, terminal_reason: "api_error", num_turns: 1, result: "API Error: 401 Credentials expired.", user_message_uuids: [message.uuid] }),
+    ]);
+    const { session, exits } = open(query);
+    const pending = session.send("hello", "next");
+    const queued = session.send("must not run", "later");
+    const queuedFailure = expect(queued).rejects.toThrow("claude auth login");
+    await expect(pending).resolves.toMatchObject({ terminal_reason: "api_error" });
+    await queuedFailure;
+    expect(received).toHaveLength(1);
+    expect(exits).toEqual([expect.objectContaining({ name: "ClaudeAuthenticationError" })]);
+    expect(aborted()).toBe(true);
+  });
+
+  it("reports an unflagged terminal 403 without ending the session or suggesting login", async () => {
+    let turns = 0;
+    const translator = new SdkTurnTranslator();
+    const { query, aborted } = sessionQuery((message) => ++turns === 1 ? [
+      frame({ type: "result", subtype: "success", is_error: false, terminal_reason: "api_error", api_error_status: 403, num_turns: 1, result: "API Error: 403 Your organization does not have access to this model.", user_message_uuids: [message.uuid] }),
+    ] : [result([message.uuid!])]);
+    const exits: unknown[] = [];
+    const session = new ClaudeSdkSession({ query, options: { cwd: "/repo" }, claudeSessionId: SESSION, onMessage: (message) => { translator.push(message); }, onExit: (error) => { exits.push(error); } });
+    session.start();
+    try {
+      await session.send("hello", "next");
+      expect(translator.outcome?.error).toBe("API Error: 403 Your organization does not have access to this model.");
+      expect(translator.outcome?.error).not.toContain("claude auth login");
+      expect(session.closed).toBe(false);
+      expect(aborted()).toBe(false);
+      expect(exits).toEqual([]);
+      await expect(session.send("try again", "next")).resolves.toMatchObject({ subtype: "success" });
+    } finally { await session.close(); }
+  });
+
+  it.each([
+    { status: 529, text: "I updated the login page." },
+    { status: 529, text: "API Error: Please sign in again." },
+    { status: undefined, text: "I updated the login page." },
+  ])("keeps a recoverable API failure available despite login words: $status $text", async ({ status, text }) => {
+    let turns = 0;
+    const translator = new SdkTurnTranslator();
+    const { query, aborted } = sessionQuery((message) => ++turns === 1 ? [
+      frame({ type: "result", subtype: "success", is_error: false, terminal_reason: "api_error", ...(status ? { api_error_status: status } : {}), num_turns: 1, result: text, user_message_uuids: [message.uuid] }),
+    ] : [result([message.uuid!])]);
+    const exits: unknown[] = [];
+    const session = new ClaudeSdkSession({ query, options: { cwd: "/repo" }, claudeSessionId: SESSION, onMessage: (message) => { translator.push(message); }, onExit: (error) => { exits.push(error); } });
+    session.start();
+    try {
+      await session.send("hello", "next");
+      expect(translator.outcome?.error).toBeTruthy();
+      expect(session.closed).toBe(false);
+      expect(aborted()).toBe(false);
+      expect(exits).toEqual([]);
+      await expect(session.send("try again", "next")).resolves.toMatchObject({ subtype: "success" });
+    } finally { await session.close(); }
   });
 
   it("reports a thrown authentication failure with a login hint and aborts the session", async () => {

@@ -159,16 +159,9 @@ export function ToastViewport({ store, touch = false }: { store: ToastStore; tou
 
   useEffect(() => {
     const onVisibility = () => store[document.visibilityState === "hidden" ? "hold" : "release"]("hidden");
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "F6" || !stack.current?.firstElementChild) return;
-      event.preventDefault();
-      (stack.current.firstElementChild as HTMLElement).focus();
-    };
     document.addEventListener("visibilitychange", onVisibility);
-    document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      document.removeEventListener("keydown", onKeyDown);
     };
   }, [store]);
 

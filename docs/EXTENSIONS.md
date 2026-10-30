@@ -680,6 +680,14 @@ the argument it reads the project it follows. A file or project that is gone
 shows "File not found" with the path and Close; a raw `ENOENT` or "not a known
 Tau project" from the source is enough for core to tell.
 
+In API 1.80.0, `renderPreview?(path, { workspace })` can supply an optional
+passive reader for a file tab or the compact Files sheet. Return a React node
+only for formats the extension can read; return `undefined` to retain the
+normal source/media reader. Core supplies the tab's explicit workspace only
+when its document-source identity matches. A passive reader owns its parser,
+loading/error states and resource cleanup. Core neither parses its format nor
+loads the same file through the text loader while the preview is shown.
+
 Since API 1.50.0, a document source can implement
 `loadLinkedFile(path, { workspace })` for transcript links. These paths may
 be absolute or contain `..`; the source resolves them on the thread's host,
@@ -1210,6 +1218,13 @@ caller, with the same threads it gives Workspace Kit's rail. Call it with `?.`:
 an older core has no such method.
 
 #### Rows in the command palette
+
+API 1.80.0 adds optional `status(query, context)` and
+`subscribeStatus(listener)` to a palette source. Status returns a string or
+`undefined`, not a selectable result. Core shows it below the results from
+three query characters in All and Threads, and unsubscribes on query change
+or closing. A status update does not restart the search. Throttle frequently
+changing progress before notifying an `aria-live` status.
 
 `registerCommand` puts a fixed row in the palette. `registerPaletteSource` is
 for rows that depend on what the user typed — threads, projects, anything a
@@ -3860,6 +3875,7 @@ optional; the host awaits them in registration order.
 | `beforeOpen(session)` | before a runtime is built for a session file. |
 | `afterFork(source, target)` | after a fork wrote its session file, before that file's runtime opens. |
 | `beforeActivate(thread)` | before a thread goes on screen; may answer with a `{ commit, rollback }` transaction (in-process only). |
+| `beforeRemove(sessionId, cwd)` (API 1.80.0, in-process) | after removal is admitted, before releasing and moving a thread into trash. A failed hook prevents removal. Revoke access that must not return with Restore here. |
 | `threadDeleted(sessionId, cwd)` | the thread is gone for good: the host's trash purged it, or its session file disappeared. A thread in the trash is not gone yet. Runtime eviction is **not** this — that is `HostTurnObserver.closed`. |
 | `sweep(sweep)` | a periodic pass over every persisted session the host indexes. |
 
@@ -4333,6 +4349,27 @@ Watch before asking for a snapshot of what the topic streams, so nothing
 written in between is lost. A host or client older than 1.13.0 ignores the
 topic and sends such events to everyone, which is why `watch` is optional on
 `HostExtensionClient`: call it as `host.watch?.(topic)`.
+
+### Namespaced HTTP routes and extension events (API 1.80.0)
+
+In-process extensions with `network` may use the optional
+`services.network.registerHttpRoute(name, handler)` on hosts that support it.
+The host binds the route to `/extensions/<extension-id>/<name>`; `name` is a
+lowercase route segment. Registration opens no listener and grants no caller
+access. Existing listeners dispatch matching requests to
+`async (request, response, trust) => boolean`; `true` claims the response.
+The extension must authenticate its own audience, bound request resources,
+and reauthorize after asynchronous reads. Return the disposer on shutdown.
+`services.network.publishedEndpoints()` lists endpoints already published by
+network extensions, including certificate and reachability information.
+Neither method turns an endpoint into an HTTP tunnel through a WebSocket relay.
+
+The optional `context.observeExtensionEvent(source, name, listener)` observes
+events from another host extension. The registry supplies the source identity;
+payload fields cannot impersonate a publisher. Registration is tied to the
+observer's activation and is removed on deactivation. An event remains a
+notification, not authorization to perform a host command. These in-process
+hooks are not serialized into isolated workers.
 
 ### Browser resources: `services.browserResources` (API 1.51.0)
 
@@ -6059,3 +6096,81 @@ subprocesses so repository discovery cannot trust an embedded bare repository.
 It preserves existing config entries and index overrides, normalizes config
 variable casing for Windows and rejects an invalid config count. Intentionally
 accessing a bare repository requires an explicit `--git-dir`.
+
+
+### Additional API 1.80.0 contracts
+
+`services.conversations` optionally reads canonical persisted histories after a
+conversation switches to Pi. `list()` returns durable thread ids, the latest Pi
+segment paths, opaque revisions and retained deletion tombstones. `page(id,
+version, cursor?)` returns an ordinary `TranscriptPage`, newest page first,
+covering both the inherited history and the current Pi segment without opening
+a runtime. Its status is `ok`, `changed`, `missing` or `invalid-cursor`; consumers
+must discard an export whose revision changes. The same methods cross the
+worker boundary. `sessions.list()` continues to describe physical session files.
+Search replaces obsolete session/provider aliases only after the complete
+canonical export commits. Conversations currently on another runtime keep their
+existing search sources until core can supply a complete replacement.
+
+`registerFocusArea({ id, order, label, root, target?, visible? })` contributes an
+optional desktop/web F6 stop. Core owns Threads, Conversation, Message,
+Notifications and Stage. Hidden roots, compact layouts and modal overlays are
+excluded. A panel usually belongs to Stage rather than adding another stop.
+
+A `PaletteMenu` opts into searching from the root palette with `searchable: true`.
+Its existing `items(query, context)` must honor `context.signal`. Direct results
+retain their submenu breadcrumb, access requirement, current marker and action.
+`PaletteItem.detailContent` optionally supplies rendered snippet content;
+`ariaLabel` supplies its full spoken name. Keep `detail` as the plain-text fallback.
+`Menu.keepOpenOnSelect(id)` optionally retains a toggle menu while a save is
+pending. Other choices and Escape keep their usual close behavior.
+
+`services.refreshProject(path)` refreshes the admitted project's facts after a
+workspace write. It does not create a thread or change a runtime's working
+folder. The Workspace extension owns durable project registration and promotion.
+
+`HostThread.publicTools({ includeOutput })` optionally returns a bounded public
+projection of visible tool names, statuses and explicitly allowed text output.
+It never grants raw transcript/session access or tool invocation. Guest sharing
+uses its own credentials and filters this projection again at persistence and
+HTTP boundaries. See [ADR 0047](adr/0047-guests-have-a-separate-http-audience.md). Secret-related tools are omitted even with output
+opted in. `sanitizePublicToolOutput` and its related public types are exported
+through `tau/host-extension` for the projection boundary.
+
+`thread-texts` supports opt-in `protocol: 2`, a metadata catalog with opaque
+versions, tombstones and bounded text pages. Page cursors bind the thread,
+version, message ordinal and text offset. Only `end: true` completes a message;
+`nextCursor: null` completes its export. Clients must reject changed versions,
+partial messages and malformed streams before publishing an index generation.
+Older requests retain their bounded legacy response. See the implementation
+contract in `docs/research/t3-runtime-search-paging-2026-10-29.md` for limits and
+compatibility behavior.
+
+The optional Workspace store contract now offers `registerFilePreview` and
+`renderFilePreview` for a file's explicit workspace. `downloadFile` publishes a
+short-lived, connection-bound browser resource only after a user action. It
+returns a bounded Blob and filename to the client. It does not add guest file
+access or a general file URL. Native clients and peer/relay connections without
+a supported resource transport receive an explicit unsupported message.
+
+
+`HostExtensionClient.readResource(path)` optionally reads an already published
+resource capability through this client's authenticated host connection, without
+HTTP/CORS or a second credential. It returns the existing bounded
+`BrowserResourceResponse` with status, headers and base64 body. The host checks
+that the publishing and reading connections match, limits the response to
+10 MiB, and ends reads on revocation or disconnect. The method does not publish
+resources or turn filesystem paths into capabilities. A client must validate
+status, encoded and decoded size, and content length before offering a Blob.
+
+`MessageIndexStatus.activation` identifies the host activation. Revisions order
+updates only within an activation; delayed updates from retired activations
+cannot replace its state. The optional in-process `sessions.send` callback
+`beforeAdmit` rechecks a revocable authorization after runtime reopening and
+again after asynchronous queue admission. It is never serialized into a queued
+message or exposed as a guest command.
+
+Files uses in-process extension activation to launch bounded disposable parser
+workers. A worker-isolated package cannot start nested workers outside its
+permission guards. Workspace's Files panel, the generic Stage reader and the
+phone sheet all use the same explicit-workspace preview offer.

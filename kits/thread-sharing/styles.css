@@ -1,0 +1,14 @@
+.guest-link-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; background: var(--raised); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+.guest-link-dialog h2 { margin: 0 0 16px; }
+.guest-link-dialog > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.guest-link-dialog .connection-link-box { display: flex; gap: 8px; align-items: center; }
+.guest-link-dialog code { overflow-wrap: anywhere; min-width: 0; }
+.guest-link-qr { display: block; margin: 16px auto; }
+.guest-links-note { padding: 0 16px; color: var(--muted); }
+.guest-links-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.guest-links-table th, .guest-links-table td { padding: 10px; overflow-wrap: anywhere; }
+.guest-suggestions { margin: 4px 0; }
+.guest-suggestions .queue-shelf-text { white-space: pre-wrap; max-height: 160px; overflow: auto; }
+.guest-suggestions footer { display: flex; gap: 8px; }
+.guest-suggestion-images { display: flex; gap: 8px; padding: 8px; }
+.guest-suggestion-images img { max-width: 100px; max-height: 100px; object-fit: contain; }

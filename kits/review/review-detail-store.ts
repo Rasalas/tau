@@ -33,6 +33,8 @@ export interface DetailState {
   files: readonly DetailFile[];
   /** Files the page knows of but cannot list (a host that names only some). */
   moreFiles: number;
+  /** Listed files deliberately hidden by a display filter. */
+  hiddenFiles?: number;
   /** A local review's turns, a remote one's commits. */
   turnsHeading: "Turns" | "Commits";
   turns: readonly string[];

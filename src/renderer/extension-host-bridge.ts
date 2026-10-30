@@ -18,6 +18,7 @@ export function hostExtensionBridge(client: HostClient | undefined): HostExtensi
     invoke: (extensionId, command, input) => client.invokeHostExtension(extensionId, command, input),
     inspect: (cwd) => client.inspectExtensions(cwd),
     ...(client.resourceUrl ? { resourceUrl: (path: string) => client.resourceUrl!(path) } : {}),
+    ...(client.readBrowserResource ? { readResource: (path: string) => client.readBrowserResource(path) } : {}),
     watch: (extensionId: string, topic: string) => client.watchHostTopic(extensionId, topic),
   };
 }

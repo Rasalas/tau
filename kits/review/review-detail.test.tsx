@@ -7,6 +7,7 @@ import type { ClientStorage, HostExtensionClient, PageProps, PreferencesStore, U
 import { TestPageActionSlot, TestProviders, TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
 import { reviewKey, type ConflictFile, type LocalReviewsAnswer, type NoteThread, type ThreadBranch } from "./local-reviews.js";
 import { LocalReviewsStore } from "./local-reviews-store.js";
+import { interactionFiles } from "./file-interaction-test-support.js";
 import { PendingReviewStore } from "./pending-review.js";
 import type { PullRequestFiles } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
@@ -420,8 +421,7 @@ function preferences(guides = false): PreferencesStore {
   return { subscribe: () => () => undefined, getSnapshot: () => snapshot, optionValue: (_extension: string, id: string, fallback: unknown) => id === GUIDE_ENABLED_OPTION && guides ? true : fallback, setOption: vi.fn() } as unknown as PreferencesStore;
 }
 
-function setupRemote(passing = true, extra: Record<string, unknown> = {}, guides?: FakeGuideClient) {
-  const client = fakeClient(passing);
+function setupRemote(passing = true, extra: Record<string, unknown> = {}, guides?: FakeGuideClient, client = fakeClient(passing)) {
   if (guides) client.guides = guides;
   const storage = memoryStorage();
   const sidebar = new ReviewDetailStore();
@@ -443,7 +443,7 @@ function setupRemote(passing = true, extra: Record<string, unknown> = {}, guides
       </TestThreadStore>
     </TestProviders>,
   );
-  return { client, navigate, shared, sidebar: () => screen.getByRole("navigation", { name: "Page sidebar" }) };
+  return { client, navigate, shared, actions, sidebar: () => screen.getByRole("navigation", { name: "Page sidebar" }) };
 }
 
 describe("a pull request's detail (1e)", () => {
@@ -586,5 +586,89 @@ describe("a pull request's detail (1e)", () => {
     expect(within(article).getByRole("tab", { name: "Guide" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(await within(article).findByRole("button", { name: "Open kits/package.json in Code" }));
     await waitFor(() => expect(within(article).getByRole("tab", { name: /^Changes/u }).getAttribute("aria-selected")).toBe("true"));
+  });
+});
+
+describe("stacked request file controls", () => {
+  it("filters the stack, sidebar and search, then applies Viewed only to a visible range", async () => {
+    const client = fakeClient(true);
+    client.files = vi.fn(async () => interactionFiles());
+    client.threads = vi.fn(async () => []);
+    const { sidebar } = setupRemote(true, {}, undefined, client);
+    const article = await screen.findByRole("article", { name: "PR #7" });
+    const test = await within(article).findByRole("region", { name: "src/a.test.ts" });
+    await within(test).findByRole("checkbox", { name: "Viewed" });
+    fireEvent.keyDown(article.querySelector(".rvd-find")!, { key: "f", metaKey: true });
+    fireEvent.change(await within(article).findByRole("textbox", { name: "Find in diff" }), { target: { value: "testOnlyNeedle" } });
+    await within(article).findByText("1 of 1");
+    fireEvent.click(within(article).getByRole("checkbox", { name: "Hide test files" }));
+    expect(within(article).queryByRole("region", { name: "src/a.test.ts" })).toBeNull();
+    await within(article).findByText("No results");
+    expect(within(article).getByRole("tab", { name: /^Changes/u }).textContent).toContain("3 of 4");
+    await within(sidebar()).findByText("Files · 3 of 4");
+    expect(within(sidebar()).queryByRole("button", { name: /a\.test\.ts/u })).toBeNull();
+    const first = await within(article).findByRole("region", { name: "src/a.ts" });
+    await act(async () => { fireEvent.click(await within(first).findByRole("checkbox", { name: "Viewed" })); });
+    const last = await within(article).findByRole("region", { name: "src/d.ts" });
+    await act(async () => { fireEvent.click(await within(last).findByRole("checkbox", { name: "Viewed" }), { shiftKey: true }); });
+    expect(client.viewed).toHaveBeenCalledTimes(3);
+    for (const path of ["src/a.ts", "src/c.ts", "src/d.ts"]) expect(client.viewed).toHaveBeenCalledWith(REF.url, path, true);
+    expect(within(article).getByText("3 / 4 viewed")).toBeTruthy();
+    expect((within(last).getByRole("checkbox", { name: "Viewed" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("keeps successful range writes and restores the failed file with its error", async () => {
+    const client = fakeClient(true);
+    client.files = vi.fn(async () => interactionFiles());
+    client.threads = vi.fn(async () => []);
+    client.viewed = vi.fn(async (_url: string, path: string, next: boolean) => {
+      if (path === "src/c.ts") throw new Error("permission denied");
+      return next ? "viewed" as const : "unviewed" as const;
+    });
+    const { actions } = setupRemote(true, {}, undefined, client);
+    const first = await screen.findByRole("region", { name: "src/a.ts" });
+    await act(async () => { fireEvent.click(await within(first).findByRole("checkbox", { name: "Viewed" })); });
+    const last = await screen.findByRole("region", { name: "src/d.ts" });
+    await act(async () => { fireEvent.click(await within(last).findByRole("checkbox", { name: "Viewed" }), { shiftKey: true }); });
+    const failed = screen.getByRole("region", { name: "src/c.ts" });
+    expect((within(first).getByRole("checkbox", { name: "Viewed" }) as HTMLInputElement).checked).toBe(true);
+    expect((within(last).getByRole("checkbox", { name: "Viewed" }) as HTMLInputElement).checked).toBe(true);
+    expect((within(failed).getByRole("checkbox", { name: "Viewed" }) as HTMLInputElement).checked).toBe(false);
+    expect(actions.notify).toHaveBeenCalledWith("Could not update viewed files (src/c.ts): permission denied", "error");
+    expect((within(last).getByRole("checkbox", { name: "Viewed" }) as HTMLInputElement).disabled).toBe(false);
+  });
+});
+
+describe("provider policy in the full review page", () => {
+  it("shows required and other checks with missing expectations in the checks tab", async () => {
+    const client = fakeClient(true);
+    const detail = { ...await client.view(REF.url), checks: [{ name: "build", status: "skipped" as const, required: true }, { name: "lint", status: "failed" as const, required: false }, { name: "deploy", status: "pending" as const, required: true, expected: true, description: 'Waiting for "deploy" to report' }] };
+    client.view = vi.fn(async () => detail);
+    client.checks = vi.fn(async () => detail.checks);
+    setupRemote(true, { focus: "checks" }, undefined, client);
+    expect(await screen.findByRole("heading", { name: "Required" })).toBeTruthy();
+    expect(screen.getByText('Waiting for "deploy" to report')).toBeTruthy();
+    expect(screen.getByText("Not required")).toBeTruthy();
+    expect(screen.getAllByText(/1 of 2 required checks passed/u).length).toBeGreaterThan(0);
+  });
+
+  it("saves maintainer access from the shared header and uses the returned authoritative state", async () => {
+    const client = fakeClient(true);
+    const detail = { ...await client.view(REF.url), headRepository: "octo/tau", maintainerCanModify: false, viewerCanUpdate: true, viewerCanAllowMaintainerEdits: true };
+    client.view = vi.fn(async () => detail);
+    client.update = vi.fn(async () => ({ ...detail, maintainerCanModify: true }));
+    setupRemote(true, {}, undefined, client);
+    fireEvent.click(await screen.findByRole("button", { name: "More pull request actions" }));
+    const toggle = await screen.findByRole("menuitemcheckbox", { name: /Allow edits from maintainers/ });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(client.update).toHaveBeenCalledWith(REF.url, { maintainerCanModify: true, expectedMaintainerCanModify: false }));
+    await waitFor(() => expect(screen.queryByText("Saving…")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("menuitemcheckbox", { name: /Allow edits from maintainers/ }).getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("hides maintainer access when the provider has no confirmed permission", async () => {
+    setupRemote();
+    fireEvent.click(await screen.findByRole("button", { name: "More pull request actions" }));
+    expect(screen.queryByRole("menuitemcheckbox", { name: /Allow edits from maintainers/ })).toBeNull();
   });
 });

@@ -1,7 +1,10 @@
 import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Ban, Check, ChevronsRight, Clock, ExternalLink, Pause, X } from "lucide-react";
-import { Sheet, tooltipProps, type WorkbenchActions } from "tau";
+import { Badge, Sheet, tooltipProps, type WorkbenchActions } from "tau";
+import { hasCheckPolicy } from "./required-checks.js";
+import { REQUIRED_CHECKS_UNKNOWN } from "./forgejo-required-checks.js";
+import { CheckIcon } from "./pull-request-parts.js";
 import { useCompactProfile } from "./compact-profile.js";
 import type { PullRequestCheck } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
@@ -208,6 +211,25 @@ export function PipelineMini({ pipelines, onOpen, nested = false, size = 18 }: {
 /** A request's checks as pipelines, with what the host knows of their workflows. */
 export function ChecksPipeline({ client, url, checks, actions }: { client: PullRequestClient | undefined; url: string; checks: readonly PullRequestCheck[]; actions: WorkbenchActions }) {
   const facts = usePipelineFacts(client, url, checks);
+  if (hasCheckPolicy(checks) || checks.some((check) => check.requirementUnknown)) {
+    const known = hasCheckPolicy(checks);
+    const groups = known ? [
+      { title: "Required", items: checks.filter((check) => check.required === true) },
+      { title: "Other", items: checks.filter((check) => check.required === false) },
+    ] : [{ title: "Checks", items: checks }];
+    return <div className="pr-check-policy">
+      {groups.filter((group) => group.items.length).map((group) => <section key={group.title} aria-label={group.title}>
+        <h3>{group.title}</h3>
+        <ul>{group.items.map((check, index) => <li key={`${check.workflow ?? ""}:${check.name}:${index}`}>
+          <CheckIcon status={check.status} /> <span>{check.workflow ? `${check.workflow} / ` : ""}{check.name}</span>
+          {check.required ? <Badge>Required</Badge> : check.required === false ? <small>Not required</small> : null}
+          {check.description ? <small>{check.description}</small> : null}
+          {check.url ? <button type="button" className="mini-button" aria-label={`Details for ${check.name}`} onClick={() => actions.openExternal(check.url!)}>Details</button> : null}
+        </li>)}</ul>
+      </section>)}
+      {!known ? <p className="pr-section-note">{REQUIRED_CHECKS_UNKNOWN}</p> : null}
+    </div>;
+  }
   return <PipelineGraph pipelines={checksPipelines(checks, facts)} actions={actions} />;
 }
 

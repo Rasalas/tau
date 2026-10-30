@@ -1,6 +1,9 @@
-import type { DesktopExtension, RegionProps } from "tau";
+import type { DesktopExtension, RegionProps, PaletteSearchContext } from "tau";
+import { ThreadSearchFeed } from "./thread-search-feed.js";
+import { MessageIndexFeed } from "./index-feed.js";
+import { createSearchSettings } from "./settings.js";
 import { SearchDialogs, SearchDialogsLayer, type SearchHost } from "./dialogs.js";
-import { fileItems, projectItems, settle, threadContentItems, threadRequestItems, threadTitleItems } from "./palette-sources.js";
+import { fileItems, paletteThreads, projectItems, settle, threadContentItems, threadRequestItems, threadTitleItems } from "./palette-sources.js";
 import { SEARCH_FILES_SERVICE, SEARCH_KIT_ID, WORKSPACE_STORE_SERVICE, type SearchFilesService, type WorkspaceStoreView } from "./protocol.js";
 
 /** Content search waits this long after a keystroke before it asks the host to read the threads. */
@@ -21,7 +24,24 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
     name: "Search",
     activate(context) {
       const host: SearchHost = (command, input) => context.host.invoke(command, input) as never;
+      const feed = new MessageIndexFeed(context.host);
+      const messages = new ThreadSearchFeed(host, feed);
       const dialogs = new SearchDialogs();
+      void feed.load();
+      context.registerSettingsSection({ id: "search.settings", page: "threads", card: "search", profiles: ["desktop", "web", "compact"],
+        rows: [{ id: "setting-index-message-text", label: "Index message text", keywords: ["search", "messages", "index"] }, { id: "setting-message-index", label: "Message index", keywords: ["search", "rebuild", "bytes"] }], Component: createSearchSettings(feed) });
+      const archived = new Set<string>();
+      let settlement: { get(id: string): { archivedAt?: number } | undefined } | undefined;
+      context.useService<{ get(id: string): { archivedAt?: number } | undefined; subscribe(listener: () => void): () => void }>("tau.thread-rail/settlement", store => {
+        settlement = store;
+        const stop = store.subscribe(() => { archived.clear(); });
+        return () => { stop(); if (settlement === store) settlement = undefined; };
+      });
+      const withArchives = (search: PaletteSearchContext): PaletteSearchContext => {
+        archived.clear();
+        for (const thread of search.index.threads) if (!thread.parentThreadId && settlement?.get(thread.id)?.archivedAt) archived.add(thread.id);
+        return { ...search, index: { ...search.index, archivedThreadIds: [...archived] } };
+      };
       // One window's searches cancel each other, never another window's.
       const channel = `window-${Math.random().toString(36).slice(2)}`;
 
@@ -38,30 +58,32 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
       context.registerTranscriptFinder({
         id: "search.transcript",
         profiles: ["desktop", "web", "compact"],
-        find: ({ sessionId, query }) => host("find-in-thread", { sessionId, query }),
+        find: ({ sessionId, query, mode }) => host("find-in-thread", { sessionId, query, ...(mode ? { mode } : {}) }),
       });
 
-      context.registerPaletteSource({ id: "search.threads", label: "Threads", order: 10, scope: "threads", search: threadTitleItems });
+      context.registerPaletteSource({ id: "search.threads", label: "Threads", order: 10, scope: "threads", search: (query, search) => { const scoped = withArchives(search); return threadTitleItems(query, scoped).filter(item => query.trim().length < 3 || !archived.has(item.id)); } });
       context.registerPaletteSource({
         id: "search.thread-content",
         label: "Threads",
         order: 20,
         scope: "threads",
-        search: async (query, search) => {
+        status: (query, search) => query.trim().length >= 3 && (!search.scope || search.scope === "all" || search.scope === "threads") ? messages.notice() : undefined,
+        subscribeStatus: messages.subscribe,
+        search: async (query, input) => {
+          const search = withArchives(input);
+          const hiddenArchived = new Set(search.index.archivedThreadIds);
           if (query.trim().length < 3) return [];
           await settle(delay, search.signal);
           if (search.signal.aborted) return [];
-          const cancel = () => { void host("threads", { query: "", channel }).catch(() => undefined); };
-          search.signal.addEventListener("abort", cancel, { once: true });
-          try {
-            const answer = await host("threads", { query, limit: 12, includeStatus: true, channel, ...(search.index.activeThreadId ? { activeSessionId: search.index.activeThreadId } : {}) });
-            if (search.signal.aborted || (!Array.isArray(answer) && answer.cancelled)) return [];
-            const result = Array.isArray(answer) ? { matches: answer, truncated: false } : answer;
-            const titled = new Set(threadTitleItems(query, search).map((item) => item.id));
-            const items = threadContentItems(result.matches, search, titled);
-            if (result.truncated || result.error) items.push({ id: "search.partial", label: "Partial thread search", detail: result.error ?? "Some thread content was not searched because search limits were reached.", access: "read" });
-            return items;
-          } finally { search.signal.removeEventListener("abort", cancel); }
+          const titled = new Set(threadTitleItems(query, search).map((item) => item.id));
+          const sessionIds = paletteThreads(search).filter((thread) => !titled.has(thread.id)).map((thread) => thread.id);
+          if (!sessionIds.length) return threadTitleItems(query, search).filter(item => hiddenArchived.has(item.id));
+          const request = { query, limit: 12, sessionIds, archivedSessionIds: [...hiddenArchived], channel: `${channel}-threads`, ...(search.index.activeThreadId ? { activeSessionId: search.index.activeThreadId } : {}) };
+          const matches = await messages.search(request, search);
+          const items = threadContentItems(matches, search, titled, query);
+          const partial = messages.partial();
+          if (partial) items.push({ id: "search.partial", label: "Partial thread search", detail: partial, access: "read" });
+          return [...items.filter(item => !hiddenArchived.has(item.id)), ...threadTitleItems(query, search).filter(item => hiddenArchived.has(item.id)), ...items.filter(item => hiddenArchived.has(item.id))];
         },
       });
       // `#95`, `acme/tau#95`, a request URL or a branch finds the threads that link that request.
@@ -74,8 +96,10 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
           if (query.trim().length < 2) return [];
           await settle(delay, search.signal);
           if (search.signal.aborted) return [];
-          const matches = await host("thread-requests", { query, limit: 12 });
           const titled = new Set(threadTitleItems(query, search).map((item) => item.id));
+          const sessionIds = paletteThreads(search).filter((thread) => !titled.has(thread.id)).map((thread) => thread.id);
+          if (!sessionIds.length) return [];
+          const matches = await host("thread-requests", { query, limit: 12, sessionIds });
           return threadRequestItems(matches, search, titled);
         },
       });
@@ -120,7 +144,7 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
         });
       });
       context.events.on("workspace-changed", () => { void host("invalidate", {}).catch(() => undefined); });
-      return () => { dialogs.close(); dropFiles?.(); };
+      return () => { dialogs.close(); dropFiles?.(); messages.dispose(); feed.dispose(); void host("thread-search-cancel", { channel: `${channel}-threads` }).catch(() => undefined); };
     },
   };
 }

@@ -11,11 +11,13 @@ const mcpServer = { name: "tau", url: "http://127.0.0.1:4100/mcp", token: TOKEN,
 type Answer = "answer" | "silent" | "fail" | "error";
 
 /** Stands in for the CLI behind the SDK's spawn hook: records its argv and what arrives on stdin, in order. */
-function fakeCli(setServers: Answer = "answer") {
+function fakeCli(setServers: Answer | Answer[] = "answer") {
   const spawns: SpawnOptions[] = [];
-  const stdin: Array<{ type: string; subtype?: string; request?: Record<string, unknown> }> = [];
+  const stdin: Array<{ type: string; subtype?: string; request?: Record<string, unknown>; attempt: number; content?: unknown }> = [];
   const spawn = (options: SpawnOptions): SpawnedProcess => {
     spawns.push(options);
+    const attempt = spawns.length;
+    const answer = Array.isArray(setServers) ? setServers[attempt - 1] : setServers;
     const input = new PassThrough();
     const output = new PassThrough();
     const child = Object.assign(new EventEmitter(), {
@@ -26,17 +28,20 @@ function fakeCli(setServers: Answer = "answer") {
     input.on("data", (chunk: Buffer) => {
       pending += chunk.toString("utf8");
       for (let end = pending.indexOf("\n"); end >= 0; end = pending.indexOf("\n")) {
-        const line = JSON.parse(pending.slice(0, end)) as { type: string; request_id?: string; request?: { subtype: string } };
+        const line = JSON.parse(pending.slice(0, end)) as { type: string; request_id?: string; request?: { subtype: string }; uuid?: string; message?: { content: unknown } };
         pending = pending.slice(end + 1);
-        stdin.push({ type: line.type, ...(line.request ? { subtype: line.request.subtype, request: line.request } : {}) });
+        stdin.push({ type: line.type, attempt, content: line.message?.content, ...(line.request ? { subtype: line.request.subtype, request: line.request } : {}) });
+        if (line.type === "user") {
+          output.write(`${JSON.stringify({ type: "result", subtype: "success", session_id: SESSION, uuid: `result-${line.uuid}`, is_error: false, num_turns: 1, result: "ok", user_message_uuids: [line.uuid] })}\n`);
+        }
         if (line.type !== "control_request") continue;
         const subtype = line.request!.subtype;
         let response: Record<string, unknown> = { subtype: "success", request_id: line.request_id, response: {} };
         if (subtype === "initialize") response = { ...response, response: { commands: [], agents: [], output_style: "default", available_output_styles: ["default"], models: [], account: {} } };
         if (subtype === "mcp_set_servers") {
-          if (setServers === "silent") continue;
-          if (setServers === "fail") response = { subtype: "error", request_id: line.request_id, error: `rejected ${TOKEN}` };
-          else response = { ...response, response: { added: [], removed: [], errors: setServers === "error" ? { tau: `refused ${TOKEN}` } : {} } };
+          if (answer === "silent") continue;
+          if (answer === "fail") response = { subtype: "error", request_id: line.request_id, error: `rejected ${TOKEN}` };
+          else response = { ...response, response: { added: [], removed: [], errors: answer === "error" ? { tau: `refused ${TOKEN}` } : {} } };
         }
         output.write(`${JSON.stringify({ type: "control_response", response })}\n`);
       }
@@ -155,6 +160,44 @@ describe("Tau's MCP server over the control channel", () => {
     expect(unavailable).toEqual([[["tau"], "timeout"]]);
     await expect.poll(() => cli.stdin.some((frame) => frame.type === "user")).toBe(true);
     await session.close();
+  });
+
+  it("reopens a stalled resumed CLI once, registering credentials on stdin before delivering each queued prompt once", async () => {
+    const cli = fakeCli(["silent", "answer"]);
+    const exits: unknown[] = [];
+    const { session, unavailable } = open(cli, { started: true, onExit: (error) => { exits.push(error); } }, 100);
+    const first = session.send("continue", "next");
+    const second = session.send("queued", "later");
+    try {
+      await Promise.all([first, second]);
+      expect(cli.spawns).toHaveLength(2);
+      for (const spawn of cli.spawns) {
+        expect(spawn.args).toContain(`--resume=${SESSION}`);
+        expect(spawn.args).not.toContain("--mcp-config");
+        expect(JSON.stringify({ args: spawn.args, env: spawn.env })).not.toContain(TOKEN);
+      }
+      const users = cli.stdin.filter((frame) => frame.type === "user");
+      expect(users.map(({ attempt, content }) => [attempt, content])).toEqual([[2, "continue"], [2, "queued"]]);
+      expect(requests(cli, "mcp_set_servers").map((frame) => frame.attempt)).toEqual([1, 2]);
+      expect(cli.stdin.findIndex((frame) => frame.attempt === 2 && frame.subtype === "mcp_set_servers")).toBeLessThan(cli.stdin.findIndex((frame) => frame.type === "user"));
+      expect(unavailable).toEqual([]);
+      expect(exits).toEqual([]);
+    } finally { await session.close(); }
+    expect(exits).toEqual([undefined]);
+  });
+
+  it("reports exhausted resumed registration through onExit without ever writing a user prompt", async () => {
+    const cli = fakeCli(["silent", "silent"]);
+    const exits: unknown[] = [];
+    const { session, unavailable } = open(cli, { started: true, onExit: (error) => { exits.push(error); } }, 100);
+    try {
+      await expect(session.send("continue", "next")).rejects.toThrow("Retry the turn");
+      expect(cli.spawns).toHaveLength(2);
+      expect(cli.stdin.filter((frame) => frame.type === "user")).toEqual([]);
+      expect(exits).toEqual([expect.objectContaining({ name: "ClaudeMcpRegistrationTimeoutError" })]);
+      expect(String(exits[0])).not.toContain(TOKEN);
+      expect(unavailable).toEqual([]);
+    } finally { await session.close(); }
   });
 
   it("does not report anything for a session closed while it waited", async () => {

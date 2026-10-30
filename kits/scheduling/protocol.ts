@@ -1,10 +1,17 @@
 export const SCHEDULING_ID = "tau.scheduling";
+/** Paths are relative to the JSON payload. Every rule must match. */
+export type WebhookFilter =
+  | { path: string; op: "equals"; value: string | number | boolean | null }
+  | { path: string; op: "exists" };
+export interface WebhookCoalescing { keyPath: string; waitSeconds: number }
+/** Public waiting metadata. Payloads and key digests stay on the machine. */
+export interface WebhookBurst { id: string; at: string; dueAt: string; count: number }
 export type Schedule =
   | { kind: "once"; at: string }
   | { kind: "daily"; time: string; timezone: "UTC" }
   /** Five-field cron in an IANA zone, the composer's "Repeat": `0 9 * * 1,3,5`, `Europe/Berlin`. */
   | { kind: "cron"; expression: string; timezone: string }
-  | { kind: "webhook"; format?: WebhookFormat; includePayload?: boolean };
+  | { kind: "webhook"; format?: WebhookFormat; includePayload?: boolean; filters?: WebhookFilter[]; coalescing?: WebhookCoalescing | null };
 /**
  * How a webhook proves its sender: Tau's own signed headers (default),
  * GitHub's `X-Hub-Signature-256`, Stripe's `Stripe-Signature`, or a shared
@@ -38,7 +45,8 @@ export interface Job {
   enabled: boolean;
   status: "ready" | "held" | "starting" | "running" | "completed" | "failed" | "uncertain";
   nextAt?: string;
-  lastRun?: { intentId: string; at: string; threadId?: string; outcome: string; detail?: string };
+  lastRun?: { intentId: string; at: string; threadId?: string; outcome: string; detail?: string; webhookBurstId?: string; deliveryCount?: number };
+  webhookBursts?: WebhookBurst[];
   /** A host-owned secret account; never the value. */
   secretRef?: string;
   /** Accepted webhook delivery IDs. Persisted before starting their threads. */

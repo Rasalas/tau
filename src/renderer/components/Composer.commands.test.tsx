@@ -74,6 +74,15 @@ function renderComposer(
 afterEach(cleanup);
 
 describe("Composer command menu", () => {
+  it("sends a dollar amount without opening or accepting a skill suggestion", async () => {
+    const onSubmit = renderComposer();
+    const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "$9.99", selectionStart: 5 } });
+    expect(screen.queryByRole("listbox", { name: "Skills" })).toBeNull();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("$9.99", []));
+  });
+
   it("grows and shrinks with multiline input", async () => {
     renderComposer();
     const textarea = screen.getByPlaceholderText(/Ask anything/u) as HTMLTextAreaElement;

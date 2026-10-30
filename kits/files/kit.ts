@@ -1,4 +1,5 @@
 import type { PreferencesStore, UiEditor, WorkbenchActions } from "tau";
+import type { ReactNode } from "react";
 import type { DocumentRegistry } from "./documents.js";
 import { FILES_KIT_ID } from "./protocol.js";
 
@@ -13,13 +14,16 @@ export interface WorkspaceStoreLike {
   subscribe(listener: () => void): () => void;
   activeEditor(): UiEditor | undefined;
   chooseEditor(id: string): void;
-  openInEditor(relPath?: string, editorOverride?: string, position?: { line?: number; column?: number }): Promise<void>;
+  openInEditor(relPath?: string, editorOverride?: string, position?: { line?: number; column?: number }, workspace?: string): Promise<void>;
   /** Whether its editors open anything from this client; absent from an older Workspace Kit, which offered the host's files only. */
   editorsHere?(): boolean;
+  /** Explicit origin, kept even if the followed project changes during the transfer. Older Workspace versions lack this. */
+  downloadFile?(path: string, from: { workspace: string }, signal: AbortSignal): Promise<{ blob: Blob; name: string }>;
   refresh(): Promise<void>;
   /** Shows a project folder, opened, in the Files panel; absent from an older Workspace Kit. */
   revealFolder?(relPath: string): void;
   registerFileEditor?(editor: (relPath: string, actions: WorkbenchActions) => void): () => void;
+  registerFilePreview?(reader: (path: string, from: { workspace: string }) => ReactNode | undefined): () => void;
 }
 
 /** What the kit holds while it is active; the tabs read it, the activation fills and clears it. */

@@ -36,6 +36,16 @@ afterEach(async () => {
 });
 
 describe("a spawned thread's worktree", () => {
+  it("reports the exact paths and counts of files with whitespace and quotes", async () => {
+    const parent = await repository();
+    const child = await createAgentWorktree({ parentCwd: parent, agentId: "unusual-paths" });
+    const paths = [" leading.txt", "trailing.txt ", "tab\t.txt", "line\n.txt", '"quoted".txt'];
+    for (const path of paths) await writeFile(join(child.path, path), "new content\n");
+    const changes = await readAgentWorktreeChanges(child);
+    expect(changes).toMatchObject({ files: paths.length, added: paths.length, removed: 0, uncommitted: paths.length });
+    expect(changes.paths.sort()).toEqual([...paths].sort());
+  });
+
   it("retains a clean child before an unforced discard", async () => {
     const parent = await repository();
     const child = await createAgentWorktree({ parentCwd: parent, agentId: "discard-clean" });

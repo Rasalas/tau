@@ -9,6 +9,7 @@ import { ensureWorktree } from "./workspace-worktrees.js";
 import { resolveDefaultBaseRef } from "./git-refs.js";
 import { type GitRunner } from "./git-command.js";
 import type { UiWorktreeRemoval } from "./protocol.js";
+import { parseWorktrees } from "./worktree-layout.js";
 import {
   EMPTY_POLICY,
   anyRule,
@@ -382,10 +383,8 @@ export class WorktreeStorage {
       const parents = entry.worktreeParent ? [entry.worktreeParent] : await this.worktreeParents(entry.repository);
       const insideWorktreesDir = parents.some((parent) => isInside(parent, real));
       const dotGit = await lstat(join(entry.path, ".git")).then((info) => info.isFile()).catch(() => false);
-      const listed = (await git(entry.repository, ["worktree", "list", "--porcelain"]))
-        .split("\n\n")
-        .map((block) => /^worktree (.+)$/mu.exec(block)?.[1])
-        .filter((path): path is string => Boolean(path));
+      const listed = parseWorktrees(await git(entry.repository, ["worktree", "list", "--porcelain", "-z"]), entry.repository)
+        .map((tree) => tree.path);
       const linkedPaths = await Promise.all(listed.slice(1).map(realOrSelf));
       const linked = dotGit && linkedPaths.includes(real);
       const hostWorkspace = await realOrSelf(this.options.hostCwd()) === real;
@@ -469,17 +468,14 @@ export class WorktreeStorage {
       try {
         const parents = [...await this.worktreeParents(repository), ...this.records
           .flatMap((entry) => entry.repository === repository && entry.worktreeParent ? [entry.worktreeParent] : [])];
-        const blocks = (await git(repository, ["worktree", "list", "--porcelain"])).split("\n\n").slice(1);
-        for (const block of blocks) {
-          const path = /^worktree (.+)$/mu.exec(block)?.[1];
-          if (!path) continue;
+        const worktrees = parseWorktrees(await git(repository, ["worktree", "list", "--porcelain", "-z"]), repository).slice(1);
+        for (const { path, branch } of worktrees) {
           const real = await realOrSelf(path);
           const worktreeParent = parents.find((parent) => isInside(parent, real));
           if (!worktreeParent || recorded.has(real) || real === host) continue;
           if ((await this.threadsIn(path, threads)).length > 0) continue;
           const modifiedAt = await fileModifiedAt(path);
           if (modifiedAt === undefined || this.now() - modifiedAt < UNTRACKED_GRACE_MS) continue;
-          const branch = /^branch refs\/heads\/(.+)$/mu.exec(block)?.[1];
           found.push({ path: resolve(path), repository, worktreeParent, ...(branch ? { branch } : {}), createdAt: modifiedAt });
         }
       } catch {

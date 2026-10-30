@@ -1,5 +1,5 @@
 import { AlarmClock, AlarmClockOff, Archive, ArchiveRestore, ArrowDown, ArrowRightLeft, ArrowUp, ArrowUpDown, Check, Copy, CopyPlus, CornerUpLeft, Folder, Funnel, FunnelX, GitBranch, GitFork, Hash, ListTree, MessageSquareDot, MessageSquareText, Pencil, Pin, PinOff, ScrollText, Settings, Sparkles, SquareArrowOutUpRight, SquarePen, Trash2, type LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useMemo, useSyncExternalStore } from "react";
 import { ConfirmDialog, CUSTOM_WHEN, Dialog, errorMessage, getClientStorage, hostIsReadOnly, READ_ONLY_REASON, readWhenPick, rememberWhenPick, useClientStorage, useThreadStore, useWorkbenchShell, WhenPicker, type MenuItem, type MenuSection, type ThreadMenuLookup, type ToastHandle, type UiSession, type WhenPick, type WhenPreset, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
@@ -212,8 +212,11 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   const notify = (actions: WorkbenchActions | undefined, message: string, level?: "info" | "warning" | "error") => { if (level) actions?.notify(message, level); else actions?.notify(message); };
 
   /** The presets, the one last used marked as the menu marks a current choice. */
+  const shownSnooze = new Map<string, number>();
   const snoozeSubmenu = (): MenuSection[] => {
-    const presets = snoozePresets(new Date(now()));
+    const presets = snoozePresets(new Date(now()), store.getState().settings);
+    shownSnooze.clear();
+    for (const preset of presets) shownSnooze.set(preset.id, preset.until);
     const storage = getClientStorage();
     const remembered = storage ? readWhenPick(storage, SNOOZE_REMEMBER_KEY) : undefined;
     const marked = presets.some((preset) => snoozePick(preset.id) === remembered);
@@ -378,6 +381,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         {question ? <RailConfirmation key={question.sessions.map((session) => session.id).join()} question={question} onDone={() => store.ask(undefined)} /> : null}
         {sessions && sessions.length > 0 ? (
           <SnoozeDialog
+            settings={store.getState().settings}
             key={sessions.map((session) => session.id).join()}
             sessions={sessions}
             now={now}
@@ -555,8 +559,10 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       else if (itemId === "copy-chat") void onThread(session, actions, () => actions.copyChat?.());
       else if (itemId.startsWith("command:")) void onThread(session, actions, () => actions.executeCommand?.(itemId.slice("command:".length)));
       else {
-        const preset = snoozePresets(new Date(now())).find((entry) => entry.id === itemId);
-        if (preset) { rememberSnooze(preset.id); snooze(session.id, preset.until, actions); }
+        const preset = snoozePresets(new Date(now()), store.getState().settings).find((entry) => entry.id === itemId);
+        const until = preset?.until ?? shownSnooze.get(itemId);
+        if (until !== undefined && until > now()) { rememberSnooze(itemId); snooze(session.id, until, actions); }
+        else notify(actions, "That snooze time has passed. Choose another time.", "warning");
       }
     },
     // The selection menu: what fits every selected thread, with how many it touches.
@@ -618,8 +624,10 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
           }
         })();
       } else {
-        const preset = snoozePresets(new Date(at)).find((entry) => entry.id === itemId);
-        if (preset) { rememberSnooze(preset.id); snoozeMany(sessions.map((session) => session.id), preset.until, actions); }
+        const preset = snoozePresets(new Date(at), store.getState().settings).find((entry) => entry.id === itemId);
+        const until = preset?.until ?? shownSnooze.get(itemId);
+        if (until !== undefined && until > now()) { rememberSnooze(itemId); snoozeMany(sessions.map((session) => session.id), until, actions); }
+        else notify(actions, "That snooze time has passed. Choose another time.", "warning");
       }
     },
     toggleSettled: (session) => toggleSettledById(session.id),
@@ -689,17 +697,19 @@ export const SNOOZE_REMEMBER_KEY = "thread-rail.snooze";
 const snoozePick = (presetId: string): WhenPick => presetId.replace(/^snooze:/, "");
 
 /** The list of times, as the composer's Plan sheet shows it; the picker opens on the last pick used. */
-export function SnoozeDialog({ sessions, now, onClose, onSnooze }: {
+export function SnoozeDialog({ sessions, now, settings, onClose, onSnooze }: {
   sessions: readonly UiSession[];
   now: () => number;
+  settings?: Pick<import("./protocol.js").RailSettings, "snoozePresets">;
   onClose(): void;
   onSnooze(until: number): void;
 }) {
   const storage = useClientStorage();
   // Fixed while the dialog is open: the picker reports a new time whenever a preset's changes.
-  const [presets] = useState<WhenPreset[]>(() => snoozePresets(new Date(now())).map(({ id, label, when, until }) => ({ id: snoozePick(id), label, when, at: until })));
+  const presets = useMemo<WhenPreset[]>(() => snoozePresets(new Date(now()), settings).map(({ id, label, when, until }) => ({ id: snoozePick(id), label, when, at: until })), [settings?.snoozePresets]);
   const [choice, setChoice] = useState<{ at: number | undefined; pick: WhenPick }>();
   const picker = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string>();
   const shown = choice !== undefined;
   // The dialog focuses its first control on opening, which may come before the list has loaded.
   useEffect(() => {
@@ -707,9 +717,11 @@ export function SnoozeDialog({ sessions, now, onClose, onSnooze }: {
   }, [shown]);
   const confirm = () => {
     if (!choice || choice.at === undefined) return;
-    rememberWhenPick(storage, SNOOZE_REMEMBER_KEY, choice.pick);
     // "In 1 hour" counts from the confirm, not from when the dialog opened.
-    const fresh = choice.pick === CUSTOM_WHEN ? undefined : snoozePresets(new Date(now())).find((preset) => snoozePick(preset.id) === choice.pick)?.until;
+    const fresh = choice.pick === CUSTOM_WHEN ? undefined : snoozePresets(new Date(now()), settings).find((preset) => snoozePick(preset.id) === choice.pick)?.until;
+    if ((fresh ?? choice.at) <= now()) { setError("That snooze time has passed. Choose another time."); return; }
+    setError(undefined);
+    rememberWhenPick(storage, SNOOZE_REMEMBER_KEY, choice.pick);
     onSnooze(fresh ?? choice.at);
   };
   return (
@@ -719,12 +731,14 @@ export function SnoozeDialog({ sessions, now, onClose, onSnooze }: {
         <WhenPicker
           presets={presets}
           rememberKey={SNOOZE_REMEMBER_KEY}
+          missingRemembered="none"
           label="Snooze until"
           now={now}
-          onChange={(at, pick) => setChoice({ at, pick })}
+          onChange={(at, pick) => { setError(undefined); setChoice({ at, pick }); }}
           onConfirm={confirm}
         />
       </div>
+      {error ? <p role="alert">{error}</p> : null}
       <footer>
         <button type="button" className="text-button" onClick={onClose}>Cancel</button>
         <button type="button" className="primary" disabled={choice?.at === undefined} onClick={confirm}>Snooze</button>

@@ -79,7 +79,7 @@ export function seedOnboarding(userData, wanted) {
 
 /** Parses dev-instance CLI flags. Throws `Error` with a usage-shaped message on a bad flag. */
 export function parseArgs(argv) {
-  const options = { build: false, safe: false, fresh: false, sharedSessions: false, realAgentDir: false, asInstalled: false, onboarding: false, port: undefined, workspace: undefined, agentDir: undefined };
+  const options = { build: false, safe: false, fresh: false, sharedSessions: false, realAgentDir: false, asInstalled: false, onboarding: false, mockKeychain: true, port: undefined, workspace: undefined, agentDir: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--build") options.build = true;
@@ -332,7 +332,8 @@ async function main() {
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.SSH_AGENT_PID;
 
-  // --mock-keychain: the window keeps another machine's key without the macOS keychain (pairing tests).
+  // Separate userData does not isolate macOS's "Tau Safe Storage" item.
+  // Every test instance uses Chromium's test key, including --as-installed.
   const child = spawn(electronBin, [options.asInstalled ? ROOT : ".", `--remote-debugging-port=${port}`, ...(options.mockKeychain ? ["--use-mock-keychain"] : [])], {
     cwd: options.asInstalled ? sep : ROOT,
     env,

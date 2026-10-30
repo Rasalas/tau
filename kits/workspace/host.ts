@@ -1,7 +1,8 @@
 import { createExternalPrompt } from "./external-prompt.js";
 import { publishedHead } from "./published-head.js";
-import { createNamedProject, createScratchWorkspace, isScratchWorkspace, publishNewProject } from "./project-starts.js";
+import { createNamedProject, createScratchWorkspace, isScratchAllocation, isScratchWorkspace, publishNewProject, readPromotedProject } from "./project-starts.js";
 import { readNewProjectGithub, type NewProjectGithub } from "./project-github.js";
+import { registerProjectPromotion } from "./project-promotion.js";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -58,6 +59,7 @@ import { WorkspaceCheckpointLeaseManager } from "./workspace-checkpoint-lease.js
 import { HeadWatch } from "./head-watch.js";
 import { readSetupFile, registerProjectApprovals } from "./project-approval-host.js";
 import { createFolderIndexCache, repositoryOf } from "./folder-index.js";
+import { prepareFileDownload } from "./workspace-download.js";
 
 const execFileAsync = promisify(execFile);
 /** Run by the window machine's host whatever thread is shown: its editors open on this device's screen. */
@@ -208,7 +210,8 @@ export function createWorkspaceHostExtension(): HostExtension {
       "machines",
     ],
     async activate(context: HostExtensionContext) {
-      context.registerMachineRouting({ localCommands: ["pick-folder", "create-scratch", "create-project", "publish-visualization", "release-visualization", ...REMOTE_EDITOR_COMMANDS] });
+      // Resource URLs belong to the directly connected machine, never to a routed peer.
+      context.registerMachineRouting({ localCommands: ["pick-folder", "create-scratch", "create-project", "publish-visualization", "release-visualization", "publish-file-download", "release-file-download", ...REMOTE_EDITOR_COMMANDS] });
       const { services } = context;
       const approvals = registerProjectApprovals(context);
       // The kit owns the Git cache; core only learns project facts from it.
@@ -311,12 +314,15 @@ export function createWorkspaceHostExtension(): HostExtension {
       registerAppOpen(context);
       // Persisted drafts may name an allocation before a session exists.
       const scratchRoot = join(services.stateDir, "scratch");
+      const promotedPaths: string[] = [];
       for (const entry of await readdir(scratchRoot, { withFileTypes: true }).catch(() => [])) {
         const path = join(scratchRoot, entry.name);
-        if (!entry.isDirectory() || !isScratchWorkspace(services.stateDir, path)) continue;
+        if (!entry.isDirectory() || !isScratchAllocation(services.stateDir, path)) continue;
         const canonical = await realpath(path);
         services.admitWorkspace(canonical);
-        services.rememberProjectName(canonical, "No project");
+        const promoted = readPromotedProject(services.stateDir, canonical);
+        services.rememberProjectName(canonical, promoted?.name ?? "No project");
+        if (promoted) promotedPaths.push(canonical);
       }
       context.registerCommand("is-projectless", async (input) => isScratchWorkspace(services.stateDir, await services.knownWorkspacePath(requiredString(input, "workspace"))), { access: "read", callers: ["tau.environments"] });
       context.registerCommand("create-scratch", async () => {
@@ -453,6 +459,25 @@ export function createWorkspaceHostExtension(): HostExtension {
       }, { access: "read" });
       context.registerCommand("release-visualization", (input) => {
         services.browserResources?.release(requiredString(input, "path"));
+      }, { access: "read" });
+      context.registerCommand("publish-file-download", async (input, call) => {
+        if (!services.browserResources) throw new HostCommandError("This machine does not support file downloads. Update Tau on it and try again.");
+        const workspace = optionalString(input, "workspace");
+        if (!workspace) throw new HostCommandError("A file download needs its originating workspace.");
+        const project = await services.knownWorkspacePath(workspace).catch(() => {
+          throw new HostCommandError("This connection cannot download files from that workspace. Connect directly to its machine and try again.");
+        });
+        try {
+          const download = await prepareFileDownload(project, requiredString(input, "path"), hasFullFileAccess(call));
+          return { path: services.browserResources.publish((request) => download.respond(request)), name: download.name, size: download.size };
+        } catch (error) { throw new HostCommandError(error instanceof Error ? error.message : String(error)); }
+      }, { access: "read" });
+      context.registerCommand("release-file-download", (input) => {
+        // Preserve the explicit origin for machine routing, even after switching projects.
+        if (!optionalString(input, "workspace")) throw new HostCommandError("A file download needs its originating workspace.");
+        const path = optionalString(input, "path");
+        if (!path || !/^\/resources\/[0-9a-f]{64}$/u.test(path)) throw new HostCommandError("Invalid file download resource.");
+        services.browserResources?.release(path);
       }, { access: "read" });
       // A clicked transcript link is a host filesystem read, not a Git/workspace operation.
       // Require its origin even for absolute paths; never substitute the active project.
@@ -880,15 +905,21 @@ export function createWorkspaceHostExtension(): HostExtension {
       const disposers = [
         services.describeProjects({
           projectless: async (project) => isScratchWorkspace(services.stateDir, project),
-          name: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve("No project") : workspaceWorktrees.repositoryDisplayName(project),
+          name: async (project) => {
+            if (isScratchWorkspace(services.stateDir, project)) return "No project";
+            const direct = readPromotedProject(services.stateDir, project);
+            if (direct) return direct.name;
+            const root = await workspaceWorktrees.mainCheckoutOf(project);
+            return root && readPromotedProject(services.stateDir, root)?.name || workspaceWorktrees.repositoryDisplayName(project);
+          },
           label: async (project) => {
             if (isScratchWorkspace(services.stateDir, project)) return undefined;
             const branch = await git.getHeadBranch(project);
             labels.set(project, branch);
             return branch;
           },
-          nested: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(true) : workspaceWorktrees.isNestedProject(project),
-          root: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(undefined) : workspaceWorktrees.mainCheckoutOf(project),
+          nested: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(true) : readPromotedProject(services.stateDir, project) ? Promise.resolve(false) : workspaceWorktrees.isNestedProject(project),
+          root: (project) => isScratchWorkspace(services.stateDir, project) ? Promise.resolve(undefined) : readPromotedProject(services.stateDir, project) ? Promise.resolve(project) : workspaceWorktrees.mainCheckoutOf(project),
         }),
         // Edits and Git commands run by the agent stale the cache.
         services.registerTurnObserver({ toolEnded: (_sessionId, tool, project) => invalidateAfterTool(git, tool, project) }),
@@ -906,6 +937,9 @@ export function createWorkspaceHostExtension(): HostExtension {
         () => turnStats.flush(),
         () => heads.close(),
       ];
+      registerProjectPromotion(context, { invalidate: (path) => git.invalidate(path), running: (path, asking) => checkoutTurns.running(path, asking) });
+      // The durable marker survives history eviction and the deletion of the last thread.
+      for (const path of promotedPaths) await services.refreshProject?.(path).catch(noteFailure("project-promotion.restore-failed"));
       const checkpointRef = (input: unknown) => ({ sessionId: requiredString(input, "sessionId"), checkpointId: requiredString(input, "checkpointId") });
       context.registerCommand("checkpoints", (input) => checkpoints.checkpoints(requiredString(input, "sessionId")), { access: "read" });
       context.registerCommand("can-restore", (input) => {

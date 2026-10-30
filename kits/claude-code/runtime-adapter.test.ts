@@ -238,6 +238,31 @@ describe("Claude Code runtime adapter", () => {
     await expect(collectTurnText(cut())).rejects.toThrow("ended without a result");
   });
 
+  it.each([0, 1])("rejects an unflagged terminal API failure with %s turns instead of returning prior text", async (num_turns) => {
+    async function* frames(): AsyncGenerator<SDKMessage> {
+      if (num_turns) yield assistant("Looking.");
+      yield frame({ type: "result", subtype: "success", is_error: false, num_turns, terminal_reason: "api_error", result: "  API Error: 400 Request rejected.\n" });
+    }
+    await expect(collectTurnText(frames())).rejects.toThrow("API Error: 400 Request rejected.");
+  });
+
+  it("does not return a falsely successful short completion", async () => {
+    const { query } = scripted(() => [assistant("Earlier reply"), frame({ type: "result", subtype: "success", is_error: false, num_turns: 1, terminal_reason: "api_error", result: "API Error: 400 Specific provider detail." })]);
+    const adapter = createClaudeCodeRuntimeAdapter({ storePath: "/unused", query });
+    await expect(adapter.complete!("/repo", "haiku", { system: "Title", prompt: "Task" })).rejects.toThrow("API Error: 400 Specific provider detail.");
+  });
+
+  it("gives the login hint for an unflagged terminal 401 and treats an explicit abort as interruption", async () => {
+    async function* unauthorized(): AsyncGenerator<SDKMessage> {
+      yield frame({ type: "result", subtype: "success", is_error: false, num_turns: 1, terminal_reason: "api_error", api_error_status: 401, result: "Request rejected." });
+    }
+    await expect(collectTurnText(unauthorized())).rejects.toThrow("claude auth login");
+    async function* interrupted(): AsyncGenerator<SDKMessage> {
+      yield frame({ type: "result", subtype: "success", is_error: false, num_turns: 1, terminal_reason: "aborted_tools", result: "" });
+    }
+    await expect(collectTurnText(interrupted())).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("creates the session on the first turn, resumes it afterwards, and keeps the prompt verbatim", async () => {
     const { query, calls } = scripted((call) => [init(), assistant(call.options.resume ? `resumed:${call.prompt}` : `created:${call.prompt}`), success()]);
     const adapter = createClaudeCodeRuntimeAdapter({ command: "claude", resolveCommand: () => "/opt/claude", storePath: store("transport"), query, env: {} });
@@ -275,10 +300,12 @@ describe("Claude Code runtime adapter", () => {
     const canUseTool = vi.fn();
     const session = adapter.openSession({ cwd: "/repo", claudeSessionId: SESSION, started: true, permissionLevel: "ask", model: "sonnet", effort: "xhigh", hooks: { canUseTool }, onMessage: (message) => { seen.push(message.type); }, onExit: (error) => { exits.push(error); } });
     expect(typeof params?.prompt).toBe("object");
-    expect(params?.options).toMatchObject({ cwd: "/repo", pathToClaudeCodeExecutable: "/opt/claude", resume: SESSION, permissionMode: "default", model: "sonnet", effort: "xhigh", canUseTool, includePartialMessages: true, env: { PATH: "/bin", CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
-    expect(params?.options?.abortController).toBe(session.abortController);
+    expect(params?.options).toMatchObject({ cwd: "/repo", pathToClaudeCodeExecutable: "/opt/claude", resume: SESSION, permissionMode: "default", model: "sonnet", effort: "xhigh", canUseTool: expect.any(Function), includePartialMessages: true, env: { PATH: "/bin", CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP } });
+    expect(params?.options?.abortController).toBeInstanceOf(AbortController);
+    expect(params?.options?.abortController).not.toBe(session.abortController);
     await session.close();
-    expect(seen).toEqual(["system"]);
+    expect(params?.options?.abortController?.signal.aborted).toBe(true);
+    expect(seen).toEqual([]);
     expect(exits).toEqual([undefined]);
   });
 

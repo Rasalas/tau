@@ -51,6 +51,14 @@ function threadInfo(id, cwd) {
 }
 
 async function play(name, ids) {
+  if (name === "ratelimits") {
+    const primary = { usedPercent: 100, windowDurationMins: 300, resetsAt: 1_790_000_000 };
+    const secondary = { usedPercent: 20, windowDurationMins: 10_080, resetsAt: 1_790_400_000 };
+    for (const rateLimits of [{ primary, secondary }, { primary, secondary }, { primary, secondary: { ...secondary, usedPercent: 21 } }]) {
+      send({ method: "account/rateLimits/updated", params: { rateLimits } });
+    }
+    name = "plain";
+  }
   if (name === "optionalform") {
     await ask("mcpServer/elicitation/request", { mode: "form", message: "Details", requestedSchema: { type: "object", properties: { first: { type: "string" }, second: { type: "string" } } } });
     return;

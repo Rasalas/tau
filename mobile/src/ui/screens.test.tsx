@@ -11,6 +11,7 @@ import { Shell, type AppContext } from "../Shell";
 import { AddHostScreen } from "./AddHostScreen";
 import { HostsScreen, hostMeta } from "./HostsScreen";
 import { PairingScreen } from "./PairingScreen";
+import type { AppRoute } from "../routes";
 
 afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); });
 
@@ -252,6 +253,40 @@ describe("Shell", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Scan a QR code/u }));
     expect(await screen.findByText(/no camera to scan with/u)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Add machine" })).toBeTruthy();
+  });
+
+  it.each(["camera-denied", "failed", "no-camera", "invalid", "cancelled"] as const)("keeps an edited incoming pairing link after a %s QR scan", async (outcome) => {
+    const original = `https://192.168.1.3:7788/#pair=old&fp=${FP}&host=h-2`;
+    render(<Shell context={context({ scan: async () => outcome === "invalid" ? { text: "not a Tau QR code" } : { error: outcome } })} initial={{ view: "add", text: original }} />);
+    const link = `https://192.168.1.2:7788/#pair=abc&fp=${FP}&host=h-1`;
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: link } });
+    fireEvent.click(screen.getByRole("button", { name: "Scan QR code" }));
+    if (outcome !== "cancelled") await screen.findByRole("alert");
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(link));
+    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("keeps a scanned pairing link for retry when the machine does not answer", async () => {
+    const link = `https://192.168.1.2:7788/#pair=abc&fp=${FP}&host=h-1`;
+    render(<Shell context={context({ scan: async () => ({ text: link }) })} initial={{ view: "add" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Scan QR code" }));
+    expect(await screen.findByText(/Your machine did not answer\./u)).toBeTruthy();
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(link));
+    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("keeps a newer pairing deep link when an older scan finishes", async () => {
+    let scanned!: (result: { text: string }) => void;
+    let openLink!: (route: AppRoute) => void;
+    const pending = new Promise<{ text: string }>((resolve) => { scanned = resolve; });
+    render(<Shell context={context({ scan: () => pending, subscribeToLinks: (listener) => { openLink = listener; return () => {}; } })} initial={{ view: "add" }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Scan QR code" }));
+    const link = `https://192.168.1.3:7788/#pair=new&fp=${FP}&host=h-2`;
+    act(() => openLink({ view: "add", text: link }));
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(link));
+    await act(async () => { scanned({ text: "not a Tau QR code" }); });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(link);
   });
 
   it("asks the owner again for a saved host whose access ended", async () => {

@@ -263,7 +263,7 @@ export interface CreateWorktreeOptions {
 async function addUniqueWorktree(cwd: string, suggested: string, parent: string, base: string, runGit: GitRunner): Promise<{ name: string; destination: string }> {
   const [branches, worktrees] = await Promise.all([
     runGit(cwd, ["for-each-ref", "--format=%(refname:strip=2)", "refs/heads"]),
-    runGit(cwd, ["worktree", "list", "--porcelain"]),
+    runGit(cwd, ["worktree", "list", "--porcelain", "-z"]),
   ]);
   const taken = new Set(branches.trim().split("\n"));
   const registered = new Set(parseWorktrees(worktrees, cwd).map((tree) => resolve(tree.path)));
@@ -350,8 +350,8 @@ export async function removeWorktree(
     await runGit(cwd, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]).catch(async (error: unknown) => {
       // A worktree whose directory is already gone is removed by pruning it.
       await runGit(cwd, ["worktree", "prune"]);
-      const still = await runGit(cwd, ["worktree", "list", "--porcelain"]);
-      if (still.includes(`worktree ${worktreePath}\n`)) throw error;
+      const still = await runGit(cwd, ["worktree", "list", "--porcelain", "-z"]);
+      if (parseWorktrees(still, cwd).some((tree) => tree.path === worktreePath)) throw error;
     });
     // Git keeps an unmerged branch when deletion was not explicitly forced.
     if (options.branch) await runGit(cwd, ["branch", options.forceBranch ? "-D" : "-d", "--", options.branch]).catch(() => "");

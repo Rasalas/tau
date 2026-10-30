@@ -111,6 +111,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-extensions.js",   "./host-idle-compaction.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
   // Connection-scoped browser resource transport and the host's OS TLS trust store.
   "./host-browser-resources.js", "./host-read-paths.js", "./host-system-certificates.js",
+  "./public-thread-tools.js", // Runtime-neutral, bounded tool activity for an explicitly public audience.
+  "./project-registration.js", // Refresh project facts and history without replacing a thread or its runtime.
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",   "./host-origin.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
   "./host-process-errors.js",   "./host-process-supervisor.js",   "./host-start.js",   "./host-shutdown.js",
@@ -168,6 +170,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
   "./agent-session-control.js",   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
   "./thread-runtimes.js",   "./runtime-switches.js",   "./prompt-image-files.js",   "./thread-trash.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
+  "./runtime-conversations.js", // Read persisted handoff history and Pi segments without opening a runtime.
   "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",   "./unavailable-thread-backend.js",
   "./queued-messages.js",   "./thread-stop.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
   "./user-themes.js",   "./workbench-build.js",

@@ -12,6 +12,8 @@ import type {
 } from "tau/host-extension";
 import type { GitRunner } from "./git-command.js";
 import { normalizeDiffLoadOptions } from "./turn-checkpoint-diff.js";
+import { parseNumstat } from "./git-output.js";
+export { parseNumstat } from "./git-output.js";
 
 const SNAPSHOT_GIT_BUFFER = 64 * 1024 * 1024;
 const DEFAULT_DIFF_CONTEXT_LINES = 3;
@@ -33,30 +35,6 @@ export const MAX_DIFF_HUNKS = 120;
 export function describe(path: string): Pick<UiChangedFile, "name" | "directory"> {
   const directory = dirname(path);
   return { name: basename(path), directory: directory === "." ? "" : directory };
-}
-
-/**
- * `git diff --numstat -z` emits `added\tremoved\tpath\0`; for renames the path
- * field is empty and the old and new paths follow as their own records.
- */
-export function parseNumstat(stdout: string): Map<string, { added: number; removed: number }> {
-  const counts = new Map<string, { added: number; removed: number }>();
-  const tokens = stdout.split("\0");
-  for (let index = 0; index < tokens.length; index += 1) {
-    const match = /^(\d+|-)\t(\d+|-)\t(.*)$/u.exec(tokens[index] ?? "");
-    if (!match) continue;
-    let path = match[3];
-    if (!path) {
-      index += 2;
-      path = tokens[index] ?? "";
-      if (!path) continue;
-    }
-    counts.set(path, {
-      added: match[1] === "-" ? 0 : Number(match[1]),
-      removed: match[2] === "-" ? 0 : Number(match[2]),
-    });
-  }
-  return counts;
 }
 
 /** A starting point for the commit box — the shape of the change, not a summary of it. */

@@ -159,3 +159,26 @@ describe("useAppKeybindings", () => {
     }
   });
 });
+
+it("dispatches F6, reverse F6 and the web modifier through the shared ring, and yields to dialogs", async () => {
+  const { runtimeControls } = await import("./settings/runtime-controls");
+  const registry = new ExtensionRegistry(undefined, { preferences: new (await import("./preferences")).PreferencesStore(), profile: "web" });
+  await registry.activate(runtimeControls);
+  const shell = document.body.appendChild(document.createElement("div"));
+  shell.innerHTML = '<section class="conversation-column"><div class="transcript" tabindex="-1"></div><div class="composer-surface"><textarea></textarea></div></section><section class="toast-stack"><div class="toast-item" tabindex="-1">Saved</div></section>';
+  const { unmount } = renderHook(() => useAppKeybindings(registry, {} as WorkbenchActions, vi.fn()));
+  const field = shell.querySelector("textarea")!;
+  const toast = shell.querySelector<HTMLElement>(".toast-item")!;
+  const isMac = /mac|iphone|ipad/iu.test(navigator.platform);
+  try {
+    field.focus(); field.dispatchEvent(new KeyboardEvent("keydown", { key: "F6", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(toast);
+    toast.dispatchEvent(new KeyboardEvent("keydown", { key: "F6", shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(field);
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "F6", metaKey: isMac, ctrlKey: !isMac, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(toast);
+    const dialog = document.body.appendChild(document.createElement("div")); dialog.setAttribute("role", "dialog");
+    toast.dispatchEvent(new KeyboardEvent("keydown", { key: "F6", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(toast); dialog.remove();
+  } finally { unmount(); shell.remove(); }
+});

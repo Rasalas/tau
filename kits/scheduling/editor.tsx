@@ -5,6 +5,9 @@ import type { SchedulingFeed } from "./feed.js";
 import { WEBHOOK_FORMATS, type Job, type JobConfig, type ManagementState, type Schedule, type WebhookFormat } from "./protocol.js";
 import { DEFAULT_REPEAT, localTimeZone, RepeatBuilder, repeatProblem } from "./repeat.js";
 import { FORMAT_LABELS, SECRET_PLACEHOLDERS, WebhookSetup } from "./webhook-setup.js";
+import WebhookBurstsEditor, { type WebhookBurstDraft } from "./webhook-bursts-editor.js";
+import { DEFAULT_WEBHOOK_WAIT_SECONDS, decodeWebhookCoalescing } from "./webhook-coalescing.js";
+import WebhookFilterEditor, { filtersFromDrafts, webhookFilterDrafts } from "./webhook-filter-editor.js";
 
 export function AutomationEditor({ job, actions, feed, state, projects, onClose }: { job?: Job; actions: WorkbenchActions; feed: SchedulingFeed; state: ManagementState; projects: readonly UiProject[]; onClose(): void }) {
   const active = actions.activeThread();
@@ -19,6 +22,8 @@ export function AutomationEditor({ job, actions, feed, state, projects, onClose 
   const [runtimes, setRuntimes] = useState<readonly UiRuntimeBackend[]>([]);
   const [kind, setKind] = useState<Schedule["kind"]>(job?.config.schedule.kind ?? "daily");
   const schedule = job?.config.schedule;
+  const [bursts, setBursts] = useState<WebhookBurstDraft>(() => ({ enabled: Boolean(schedule?.kind === "webhook" && schedule.coalescing), keyPath: schedule?.kind === "webhook" ? schedule.coalescing?.keyPath ?? "" : "", waitSeconds: schedule?.kind === "webhook" ? schedule.coalescing?.waitSeconds ?? DEFAULT_WEBHOOK_WAIT_SECONDS : DEFAULT_WEBHOOK_WAIT_SECONDS }));
+  const [filters, setFilters] = useState(() => webhookFilterDrafts(schedule?.kind === "webhook" ? schedule.filters : undefined));
   const [time, setTime] = useState(schedule?.kind === "daily" ? schedule.time : schedule?.kind === "once" ? schedule.at.slice(11, 16) : "09:00");
   const [expression, setExpression] = useState(schedule?.kind === "cron" ? schedule.expression : DEFAULT_REPEAT);
   // A saved job keeps its zone; a new one repeats in this device's.
@@ -56,7 +61,7 @@ export function AutomationEditor({ job, actions, feed, state, projects, onClose 
     try {
       const config: JobConfig = { name, prompt, workspace, backend, workspaceStrategy, ...(accessLevel === undefined ? {} : { accessLevel }), maxDurationMinutes,
         ...(runsIn === "thread" ? { target: { kind: "thread" as const, threadId } } : {}),
-        schedule: kind === "daily" ? { kind, time, timezone: "UTC" } : kind === "cron" ? { kind, expression: expression.trim(), timezone } : kind === "once" ? { kind, at: `${date}T${time}:00Z` } : { kind, ...(format === "tau" ? {} : { format }), ...(includePayload ? { includePayload } : {}) } };
+        schedule: kind === "daily" ? { kind, time, timezone: "UTC" } : kind === "cron" ? { kind, expression: expression.trim(), timezone } : kind === "once" ? { kind, at: `${date}T${time}:00Z` } : { kind, ...(format === "tau" ? {} : { format }), ...(includePayload ? { includePayload } : {}), filters: filtersFromDrafts(filters), ...(bursts.enabled ? { coalescing: decodeWebhookCoalescing({ keyPath: bursts.keyPath, waitSeconds: bursts.waitSeconds }) } : created?.config.schedule.kind === "webhook" && created.config.schedule.coalescing ? { coalescing: null } : {}) } };
       const current = created ? await feed.invoke("update", { id: created.id, config }) as Job : await feed.invoke("create", config) as Job;
       // Preserve the ID after a partial save so retry never creates a duplicate automation.
       setCreated(current);
@@ -65,11 +70,19 @@ export function AutomationEditor({ job, actions, feed, state, projects, onClose 
         const saved = feed.get().state?.jobs.find((entry) => entry.id === current.id);
         if (saved) setCreated(saved);
       }
-      if (enabled) await feed.invoke("enable", { id: current.id });
+      if (enabled && !current.enabled) await feed.invoke("enable", { id: current.id });
+      else if (!enabled && current.enabled) await feed.invoke("disable", { id: current.id });
       onClose();
     } catch (failure) { setError(errorMessage(failure)); }
     finally { setBusy(false); }
   };
+  let webhookProblem = false;
+  if (kind === "webhook") {
+    try {
+      filtersFromDrafts(filters);
+      if (bursts.enabled) decodeWebhookCoalescing({ keyPath: bursts.keyPath, waitSeconds: bursts.waitSeconds });
+    } catch { webhookProblem = true; }
+  }
   const localTime = new Date(`${date}T${time}:00Z`);
   const hasSavedKey = Boolean(created?.secretRef && created.config.workspace === workspace && created.config.schedule.kind === "webhook" && (created.config.schedule.format ?? "tau") === format);
   // Stripe generates its own long whsec_ secrets; every other key is chosen by a person.
@@ -93,10 +106,11 @@ export function AutomationEditor({ job, actions, feed, state, projects, onClose 
         <label className="scheduling-checkbox"><input type="checkbox" checked={includePayload} disabled={busy} onChange={(event) => setIncludePayload(event.target.checked)} />Give the agent the delivery's payload</label>
         <div className="scheduling-webhook-info"><WebhookSetup format={format} includePayload={includePayload} url={created && state.webhookUrl ? `${state.webhookUrl}/${created.id}` : undefined} /></div>
       </>}
+      {kind === "webhook" ? <><WebhookFilterEditor filters={filters} disabled={busy} onChange={setFilters} /><WebhookBurstsEditor value={bursts} disabled={busy} onChange={setBursts} /></> : null}
       <label className="scheduling-checkbox"><input type="checkbox" checked={enabled} disabled={busy} onChange={(event) => setEnabled(event.target.checked)} />Start {kind === "webhook" ? "on signed delivery" : "on schedule"}</label>
       {error ? <p className="scheduling-error" role="alert">{error}</p> : null}
       {created && !job && error ? <p className="scheduling-note">The automation was saved but remains off. Retry updates this automation.</p> : null}
-      <footer><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className="primary" disabled={busy || !state.canManage || selectedAccessLevel === undefined || (kind === "webhook" && (!state.secretStore || secretTooShort)) || (runsIn === "thread" && !threadId) || (kind === "cron" && Boolean(repeatProblem(expression, timezone, Date.now())))}>{busy ? "Saving…" : "Save automation"}</button></footer>
+      <footer><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className="primary" disabled={busy || webhookProblem || !state.canManage || selectedAccessLevel === undefined || (kind === "webhook" && (!state.secretStore || secretTooShort)) || (runsIn === "thread" && !threadId) || (kind === "cron" && Boolean(repeatProblem(expression, timezone, Date.now())))}>{busy ? "Saving…" : "Save automation"}</button></footer>
     </form>
   </Dialog>, document.body);
 }

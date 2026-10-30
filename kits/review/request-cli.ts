@@ -94,9 +94,9 @@ export function authArgs(): string[] {
   return ["auth", "status"];
 }
 
-export function createArgs(service: RequestService, input: { title: string; body: string; base: string; head: string; draft: boolean }): string[] {
+export function createArgs(service: RequestService, input: { title: string; body: string; base: string; head: string; draft: boolean; maintainerCanModify?: boolean }): string[] {
   return service === "github"
-    ? ["pr", "create", "--title", input.title, "--body", input.body, "--base", input.base, "--head", input.head, ...(input.draft ? ["--draft"] : [])]
+    ? ["pr", "create", "--title", input.title, "--body", input.body, "--base", input.base, "--head", input.head, ...(input.draft ? ["--draft"] : []), ...(input.maintainerCanModify === false ? ["--no-maintainer-edit"] : [])]
     : ["mr", "create", "--title", input.title, "--description", input.body, "--target-branch", input.base, "--source-branch", input.head, "--yes", ...(input.draft ? ["--draft"] : [])];
 }
 

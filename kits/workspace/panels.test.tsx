@@ -319,3 +319,17 @@ describe("FilesPanel", () => {
     expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
   });
 });
+
+it.each(["stage", "sheet"] as const)("uses the admitted passive file preview in the %s Files reader", async (placement) => {
+  const store = newStore();
+  kitState(store, { changes: NO_CHANGES, fileTree: [{ name: "report.docx", path: "report.docx", kind: "file" }] });
+  vi.spyOn(store, "refreshFiles").mockResolvedValue(undefined);
+  const read = vi.spyOn(store.host, "readFile");
+  const preview = vi.fn((_path: string, from: { workspace: string }) => <p>Passive report in {from.workspace}</p>);
+  store.registerFilePreview(preview);
+  render(withServices(store, <WorkbenchContext.Provider value={workbench()}><FilesPanel active placement={placement} extensionName="Workspace" actions={{} as never} /></WorkbenchContext.Provider>));
+  fireEvent.click(await screen.findByTitle("report.docx"));
+  expect(await screen.findByText(`Passive report in ${CWD}`)).toBeTruthy();
+  expect(preview).toHaveBeenCalledWith("report.docx", { workspace: CWD });
+  expect(read).not.toHaveBeenCalled();
+});

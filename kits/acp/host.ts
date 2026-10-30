@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import { readPersistedJson, writePersistedJson, TurnActivityStore, type AgentRuntimeAdapter, type HostBackendThreadRecord, type HostExtension, type HostRuntimeBackendProvider } from "tau/host-extension";
+import { readPersistedJson, writePersistedJson, THREAD_TEXTS_COMMAND, threadTextsCatalog, threadTextsDelta, TurnActivityStore, type AgentRuntimeAdapter, type HostBackendThreadRecord, type HostExtension, type HostRuntimeBackendProvider, type ThreadTextsAnswer, type ThreadTextsRequest } from "tau/host-extension";
 import { AcpSessionStore, type AcpSessionRecord } from "../_acp/session-store.js";
 import { registerSessionDatabases } from "../_shared/session-database.js";
 import { GenericAcpBackend } from "./thread-backend.js";
@@ -49,6 +49,32 @@ export function createAcpHostExtension(options: { fetch?: typeof globalThis.fetc
     };
     registerSessionDatabases(context, () => [...providers.values()].map(provider => provider.store.database));
     for (const config of configs.values()) register(config);
+    context.registerCommand(THREAD_TEXTS_COMMAND, async raw => {
+      const input = raw && typeof raw === "object" ? raw as ThreadTextsRequest : {};
+      let answer: ThreadTextsAnswer = threadTextsDelta([], input);
+      if (input.protocol === 2 && input.page) {
+        // Tau thread ids are global. Pass the owning store's version and cursor
+        // through unchanged; the other stores answer missing without reading text.
+        for (const { store } of providers.values()) {
+          answer = await store.threadTexts(input);
+          if (answer.page?.status !== "missing") return answer;
+        }
+        return answer;
+      }
+      let removed = new Set(answer.removed);
+      for (const { store } of providers.values()) {
+        const next = await store.threadTexts(input);
+        removed = new Set(next.removed.filter(id => removed.has(id)));
+        const more = answer.more || next.more;
+        // Keep only the global result limit after each store, including legacy
+        // text prefixes, so adding agents cannot accumulate all their payloads.
+        answer = input.protocol === 2
+          ? threadTextsCatalog([...(answer.catalog ?? []), ...(next.catalog ?? [])], { limit: input.limit })
+          : threadTextsDelta([...answer.threads, ...next.threads].map(thread => ({ tauThreadId: thread.threadId, updatedAt: thread.updatedAt, messages: thread.messages })), { limit: input.limit });
+        answer.more ||= more;
+      }
+      return { ...answer, removed: [...removed] };
+    }, { long: true, callers: ["tau.search"] });
     let registry: RegistryAgent[] | undefined;
     const report = () => ({ agents: [...configs.values()] });
     context.registerCommand("list", report, { access: "owner" });

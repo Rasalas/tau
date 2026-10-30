@@ -11,6 +11,25 @@ function recorder() {
 }
 
 describe("Workspace Kit client encoding", () => {
+  it("keeps download publication and release on their explicit originating workspace", async () => {
+    const { calls, client } = recorder();
+    await client.publishFileDownload("reports/a.docx", "ws1_origin");
+    await client.releaseFileDownload(`/resources/${"a".repeat(64)}`, "ws1_origin");
+    expect(calls).toEqual([
+      { command: "publish-file-download", input: { path: "reports/a.docx", workspace: "ws1_origin" } },
+      { command: "release-file-download", input: { path: `/resources/${"a".repeat(64)}`, workspace: "ws1_origin" } },
+    ]);
+  });
+  it("routes project promotion with the home workspace and thread, without a destination path", async () => {
+    const { calls, client } = recorder();
+    await client.promotionInfo("ws1_rex", "rex~thread");
+    await client.promoteScratch("ws1_rex", "rex~thread", "Research", false);
+    expect(calls).toEqual([
+      { command: "promotion-info", input: { workspace: "ws1_rex", sessionId: "rex~thread" } },
+      { command: "promote-scratch", input: { workspace: "ws1_rex", sessionId: "rex~thread", name: "Research", git: false } },
+    ]);
+  });
+
   it("sends worktree destruction confirmations separately and leaves them absent by default", async () => {
     const { calls, client } = recorder();
     await client.removeWorktree("/trees/manual", "manual", "ws1_project");

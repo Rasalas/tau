@@ -1,5 +1,7 @@
 // Type-only imports: both halves read this file, and so may another kit.
 import type { UiFileContent, UiFileStat, UiFileWriteResult } from "tau";
+import type { PassivePreview } from "./passive-preview.js";
+import type { NotebookPreview } from "./notebook.js";
 
 export const FILES_KIT_ID = "tau.files";
 /** The stage tab kind that edits one workspace file, or shows it when it is a PDF or media. */
@@ -21,6 +23,8 @@ export const UNKNOWN_PROJECT = "Tau does not know which project this file belong
 
 /** Every command names the project the file belongs to; none falls back to the one the host has open. */
 export interface FilesHostCommands {
+  notebook: { input: { workspace: string; relPath: string }; output: NotebookPreview };
+  preview: { input: { workspace: string; relPath: string; table?: string }; output: PassivePreview };
   read: { input: { workspace: string; relPath: string }; output: UiFileContent };
   stat: { input: { workspace: string; relPath: string }; output: UiFileStat };
   write: { input: { workspace: string; relPath: string; text: string; expectedMtimeMs?: number | null }; output: UiFileWriteResult };
@@ -28,6 +32,8 @@ export interface FilesHostCommands {
 
 /** `workspace` is the project's id where the host mints one, its path otherwise. */
 export interface FilesHost {
+  notebook(workspace: string, relPath: string): Promise<NotebookPreview>;
+  preview(workspace: string, relPath: string, table?: string): Promise<PassivePreview>;
   read(workspace: string, relPath: string): Promise<UiFileContent>;
   stat(workspace: string, relPath: string): Promise<UiFileStat>;
   write(workspace: string, relPath: string, text: string, expectedMtimeMs?: number | null): Promise<UiFileWriteResult>;
@@ -37,6 +43,8 @@ export function createFilesHost(invoke: (command: string, input?: unknown) => Pr
   const call = <K extends keyof FilesHostCommands>(command: K, input: FilesHostCommands[K]["input"]) =>
     invoke(command, input) as Promise<FilesHostCommands[K]["output"]>;
   return {
+    notebook: (workspace, relPath) => call("notebook", { workspace, relPath }),
+    preview: (workspace, relPath, table) => call("preview", { workspace, relPath, ...(table ? { table } : {}) }),
     read: (workspace, relPath) => call("read", { workspace, relPath }),
     stat: (workspace, relPath) => call("stat", { workspace, relPath }),
     write: (workspace, relPath, text, expectedMtimeMs) => call("write", expectedMtimeMs === undefined

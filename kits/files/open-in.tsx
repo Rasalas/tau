@@ -2,6 +2,7 @@ import { ChevronDown, ExternalLink } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
 import { hostHasLocalFiles, Menu, type UiEditor } from "tau";
 import type { WorkspaceStoreLike } from "./kit.js";
+import { DownloadFileButton } from "./download-file.js";
 
 const FILE_MANAGER_ID = "file-manager";
 const EMPTY = { editors: [] as Array<UiEditor & { unsupported?: string }> };
@@ -15,18 +16,18 @@ function menuLabel(editor: UiEditor): string {
  * chevron lists every editor this machine has, and the file manager reveals
  * the file rather than becoming the default.
  */
-export function OpenInPicker({ store, relPath, line }: { store: WorkspaceStoreLike; relPath: string; line?: () => number | undefined }) {
+export function OpenInPicker({ store, relPath, line, workspace, downloadFallback = false, onDownloadError }: { store: WorkspaceStoreLike; relPath: string; line?: () => number | undefined; workspace?: string; downloadFallback?: boolean; onDownloadError?(message: string | undefined): void }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot) ?? EMPTY;
   const [open, setOpen] = useState(false);
   const preferred = store.activeEditor();
   const primary = preferred && preferred.id !== FILE_MANAGER_ID ? preferred : state.editors.find((editor) => editor.id !== FILE_MANAGER_ID && !editor.unsupported) ?? preferred;
   const openWith = (editorId: string) => {
     const at = line?.();
-    void store.openInEditor(relPath, editorId, at ? { line: at } : undefined);
+    void store.openInEditor(relPath, editorId, at ? { line: at } : undefined, workspace);
   };
   // The host's editors open on the host's screen, not on a phone's or a tablet's;
   // a desktop window opens another machine's file in its own editor over SSH.
-  if (state.editors.length === 0 || !(store.editorsHere?.() ?? hostHasLocalFiles())) return null;
+  if (state.editors.length === 0 || !(store.editorsHere?.() ?? hostHasLocalFiles())) return downloadFallback && workspace ? <DownloadFileButton store={store} path={relPath} workspace={workspace} onError={onDownloadError} /> : null;
   return <div className="menu-anchor files-open-in">
     <div className="chrome-group" aria-label="Open in editor">
       <button

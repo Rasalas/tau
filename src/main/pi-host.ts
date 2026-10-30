@@ -253,6 +253,12 @@ export class PiHost {
       getCwd: () => this.cwd,
       setCwd: (value) => { this.cwd = value; },
       persistedTranscripts: this.persistedTranscripts,
+      readConversationSegment: (thread, cursor) => this.persistedTranscripts.page(thread, {
+        runtimeAdapter: this.piAdapter, skillCommands: this.runtimeCommands,
+        ...(this.projection.hasPinProviders ? {
+          pins: (file: HostThread) => this.projection.pinsFor(file), pinsRevision: this.projection.pinsRevision,
+        } : {}),
+      }, cursor),
       safeMode: this.safeMode,
       automaticPrewarm: this.automaticPrewarm,
       projectHistory: this.projectHistory,
@@ -298,7 +304,7 @@ export class PiHost {
       purgeThread: (sessionId) => this.purgeThread(sessionId),
       pendingHostExtensions: () => this.pendingHostExtensions,
       deliverQueued: (sessionId, message) => this.deliverQueued(sessionId, message),
-      sendToThread: (sessionId, text, delivery, from, attachments, wake, identity) => this.sendToThread(sessionId, text, delivery, from, attachments, wake, identity),
+      sendToThread: (sessionId, text, delivery, from, attachments, wake, identity, beforeAdmit) => this.sendToThread(sessionId, text, delivery, from, attachments, wake, identity, beforeAdmit),
     });
     this.agentDir = components.agentDir;
     this.sessionsDirOverride = components.sessionsDirOverride;
@@ -419,6 +425,7 @@ export class PiHost {
       isCurrent: () => this.threads.get(thread.threadId)?.runtime === thread,
       sessionName: () => thread.state.title,
       transcript: async () => this.projection.messages(thread),
+      publicTools: async (options) => this.projection.publicTools(thread, options),
       ...hostThreadCompletionServices(thread.backend),
       shortcuts: (userBindings) => thread.backend.capabilities.extensions?.shortcuts(userBindings) ?? [],
       runShortcut: async (keys, userBindings) => {
@@ -1038,6 +1045,7 @@ export class PiHost {
       const live = this.threadFor(sessionId);
       if (live?.state.streaming || live?.adapterStreaming) throw new Error("This thread is still running; stop it before deleting it.");
       if (live && this.ownedByPi(live)) throw new Error("Pi's terminal holds this thread; close it there first.");
+      await this.threadLifecycle.beforeRemove(sessionId, session.projectPath);
       if (live) await this.threads.release(sessionId);
       await this.trash.trash({ sessionId, cwd: session.projectPath, title: session.title, backendKind: session.backendKind ?? "pi", path: session.path });
       await this.index.refresh("changes");
@@ -1080,14 +1088,15 @@ export class PiHost {
     return this.sessionControl.recover(thread);
   }
 
-  async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = [], wake?: QueuedMessage["wake"], identity?: ClientTurnRequest): Promise<void> {
+  async sendToThread(sessionId: string, text: string, delivery: "prompt" | "steer" | "queue", from?: string, attachments: UiPromptAttachment[] = [], wake?: QueuedMessage["wake"], identity?: ClientTurnRequest, beforeAdmit?: () => void): Promise<void> {
     const thread = await this.runtimes.reopen(sessionId);
+    beforeAdmit?.();
     if (!thread.runtimeAdapter.capabilities.fileAttachments) {
       const files = promptFiles(attachments);
       if (files.length) text = `${text}\n\nAttached files:\n${files.map((file) => `- ${file.path}`).join("\n")}`;
       attachments = attachments.filter((attachment) => attachment.kind === "image");
     }
-    if (delivery === "queue") await this.queue.submit(thread.threadId, { ...markWake(text, wake), attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}), ...(identity ? { identity: clientIdentityForRequest(identity) } : {}) });
+    if (delivery === "queue") await this.queue.submit(thread.threadId, { ...markWake(text, wake), attachments: this.prompts.checked(thread, attachments), ...(from ? { fromThreadId: from } : {}), ...(identity ? { identity: clientIdentityForRequest(identity) } : {}) }, beforeAdmit);
     else await (delivery === "steer" ? this.steer(text, attachments, thread.threadId, identity) : this.prompt(text, attachments, thread.threadId, identity));
   }
 

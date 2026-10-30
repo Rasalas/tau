@@ -1,3 +1,4 @@
+import { moveFocusArea } from "../focus-areas";
 import { errorMessage } from "../../workbench/error-message";
 import { TRANSCRIPT_DETAIL_LEVELS, nextTranscriptDetail, type TranscriptDetail } from "../../workbench/transcript-folding";
 import type { DesktopExtension, WorkbenchActions } from "../extension-system";
@@ -61,7 +62,10 @@ function applyTheme(preferences: PreferencesStore, app: WorkbenchActions, theme:
 
 /** A level whose rows come from the lazily loaded module. */
 function lazyLevel(title: string, rows: (loaded: Awaited<ReturnType<typeof runs>>, actions: WorkbenchActions) => PaletteItem[] | Promise<PaletteItem[]>): PaletteMenu {
-  return { title, items: async (_query, { actions }) => rows(await runs(), actions) };
+  return { title, searchable: true, items: async (_query, { actions, signal }) => {
+    const loaded = await runs();
+    return signal.aborted ? [] : rows(loaded, actions);
+  } };
 }
 
 /**
@@ -131,6 +135,12 @@ export const runtimeControls: DesktopExtension = {
     plugin.registerCommand({ id: "runtime.reload", label: "Apply changes and reload Tau", group: "Runtime", access: "write", run: async (app) => { await app.reloadWorkbench(); } });
     plugin.registerCommand({ id: "runtime.open-source", label: "Open Tau source", group: "Runtime", access: "write", run: async (app) => { await app.openWorkbenchSource(); } });
     plugin.registerCommand({ id: "thread.find", label: "Find in thread", group: "Thread", access: "read", run: (app) => app.findInThread?.() });
+    plugin.registerCommand({ id: "workbench.focus-next-area", label: "Focus next area", group: "View", access: "read", run: () => moveFocusArea(1) });
+    plugin.registerCommand({ id: "workbench.focus-previous-area", label: "Focus previous area", group: "View", access: "read", run: () => moveFocusArea(-1) });
+    plugin.registerKeybinding({ keys: "f6", commandId: "workbench.focus-next-area" });
+    plugin.registerKeybinding({ keys: "shift+f6", commandId: "workbench.focus-previous-area" });
+    plugin.registerKeybinding({ keys: "mod+f6", commandId: "workbench.focus-next-area", when: "!isDesktop" });
+    plugin.registerKeybinding({ keys: "mod+shift+f6", commandId: "workbench.focus-previous-area", when: "!isDesktop" });
     plugin.registerCommand({ id: "workbench.focus-composer", label: "Focus composer", group: "Workbench", access: "read", run: (app) => app.focusComposer() });
     plugin.registerCommand({ id: "workbench.focus-transcript", label: "Focus transcript", group: "Workbench", access: "read", run: (app) => app.focusTranscript() });
     plugin.registerCommand({ id: "workbench.focus-stage", label: "Focus stage", group: "Workbench", access: "read", run: (app) => app.focusStage() });
@@ -164,7 +174,7 @@ export const runtimeControls: DesktopExtension = {
       group: "Thread",
       access: "write",
       unavailable: titleRenameRefusal,
-      run: openTitleRename,
+      run: (_app, target) => openTitleRename(target?.threadId),
     });
     plugin.registerCommand({ id: "runtime.cycle-model", label: "Cycle model forward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(1); } });
     plugin.registerCommand({ id: "runtime.cycle-model-backward", label: "Cycle model backward", group: "Runtime", access: "write", run: async (app) => { await app.cycleModel?.(-1); } });

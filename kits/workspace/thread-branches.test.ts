@@ -45,6 +45,30 @@ async function repository() {
 }
 
 describe("a thread's worktree branch", () => {
+  it("preserves committed and pending review paths containing whitespace and quotes", async () => {
+    const repo = await repository();
+    const original = repo.worktree("tau/unusual-paths");
+    const dir = join(repo.root, 'review\t"tree"');
+    repo.run(repo.cwd, "worktree", "move", original, dir);
+    const committed = "committed\nname.txt";
+    const edited = "edited\tname.txt ";
+    const untracked = ' "untracked".txt ';
+    await writeFile(join(dir, committed), "committed\n");
+    await writeFile(join(dir, edited), "before\n");
+    repo.run(dir, "add", "-A");
+    repo.run(dir, "commit", "-qm", "add files");
+    await writeFile(join(dir, edited), "after\n");
+    await writeFile(join(dir, untracked), "pending\nsecond line\n");
+
+    const branch = await readThreadBranch(dir);
+    expect(branch).toMatchObject({ files: 3, added: 4, removed: 0, uncommitted: 2 });
+    expect(branch?.paths).toEqual(expect.arrayContaining([
+      { path: committed, added: 1, removed: 0 },
+      { path: edited, added: 1, removed: 0 },
+      { path: untracked, added: 2, removed: 0, uncommitted: true },
+    ]));
+  });
+
   it("completes reviews published on origin while the local target stays behind", async () => {
     const repo = await repository();
     const dir = repo.worktree("tau/published");

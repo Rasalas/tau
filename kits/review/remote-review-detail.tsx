@@ -5,7 +5,7 @@ import { DiffUnavailable } from "./diff-unavailable.js";
 import { githubHtml } from "./github-html.js";
 import { RequestMarkdown as Markdown, RequestMediaProvider } from "./request-markdown.js";
 import { LinkedThreadsControl, ThreadPicker, useLinkedThreads } from "./linked-threads.js";
-import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestComment, type PullRequestDetail, type PullRequestFile, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
+import { providerInfo, REVIEW_HOST_EXTENSION_ID, type ComposerContextChips, type PullRequestComment, type PullRequestDetail, type PullRequestReviewEvent, type PullRequestThread } from "./protocol.js";
 import type { PullRequestClient, PullRequestCommentInput } from "./pull-request-client.js";
 import { hideWhitespace } from "./pull-request-diff.js";
 import { PullRequestHeaderActions, type HeaderMenuStep } from "./pull-request-header-actions.js";
@@ -30,6 +30,8 @@ import { LayoutToggle, ReviewDetailFrame, useBackKeys, type FrameTab } from "./r
 import type { DetailNote, DetailState, ReviewDetailStore } from "./review-detail-store.js";
 import { ReviewDiffStack, type StackFile } from "./review-diff-stack.js";
 import { baseName } from "./review-lines.js";
+import { isReviewTestFile } from "./review-file-interactions.js";
+import { useHideReviewTests, useViewedFileRanges } from "./use-review-files.js";
 import { plural } from "./review-words.js";
 
 type Tab = "changes" | "timeline" | "checks" | "guide";
@@ -129,16 +131,20 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
     void loadThreads(true);
   }, [client, loadThreads, params.url, setData, shared.pending]);
 
+  const [hideTests, setHideTests] = useHideReviewTests();
   const ordered = useMemo(() => orderFiles(data.files?.files ?? []), [data.files]);
+  const visible = useMemo(() => hideTests ? ordered.filter((file) => !isReviewTestFile(file.path)) : ordered, [hideTests, ordered]);
+  const viewed = useViewedFileRanges({ request: params.url, files: visible, allowed: writes.viewed,
+    save: async (path, next) => markViewed(path, await client.viewed(params.url, path, next)), notify: actions.notify });
   const diffs = useMemo(() => ignoreWhitespace ? (data.files?.diffs ?? []).map(hideWhitespace) : data.files?.diffs ?? [], [data.files, ignoreWhitespace]);
   const context = usePullRequestContext(client, detail, ordered);
   const diffByPath = useMemo(() => new Map(diffs.map((diff) => [diff.path, diff])), [diffs]);
-  const stackFiles = useMemo<StackFile[]>(() => ordered.map((file) => ({ path: file.path, added: file.added, removed: file.removed, ...(file.previousPath ? { previousPath: file.previousPath } : {}) })), [ordered]);
-  // Every file is searched, expanded lines included; the match's file is brought into view the way a click in the sidebar does.
-  const findDiffs = useMemo(() => ordered.flatMap((file) => {
+  const stackFiles = useMemo<StackFile[]>(() => visible.map((file) => ({ path: file.path, added: file.added, removed: file.removed, ...(file.previousPath ? { previousPath: file.previousPath } : {}) })), [visible]);
+  // Every visible file is searched, expanded lines included; the match's file is brought into view the way a click in the sidebar does.
+  const findDiffs = useMemo(() => visible.flatMap((file) => {
     const diff = diffByPath.get(file.path);
     return diff ? [context.can(diff.path) ? context.apply(diff).diff : diff] : [];
-  }), [context, diffByPath, ordered]);
+  }), [context, diffByPath, visible]);
   const found = useRef<string | undefined>(undefined);
   const find = useDiffFind({ diffs: findDiffs, onReveal: (match) => {
     // Within a file the stream scrolls to the line itself.
@@ -165,15 +171,16 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   const state = useMemo<DetailState>(() => ({
     key: params.url,
     kind: "remote",
-    files: ordered.map((file) => ({ path: file.path, added: file.added, removed: file.removed })),
+    files: visible.map((file) => ({ path: file.path, added: file.added, removed: file.removed })),
+    hiddenFiles: ordered.length - visible.length,
     moreFiles: data.files ? Math.max(0, totals.files - ordered.length) : 0,
     turnsHeading: "Commits",
     turns: detail.commits.map((commit) => commit.headline || "Untitled commit"),
     notes,
     sendLabel: "Submit review",
     ...(!writes.review && !writes.comment ? { sendDisabled: writes.reason ?? READ_ONLY_REASON } : {}),
-    ...(active ? { active } : {}),
-  }), [active, data.files, detail.commits, notes, ordered, params.url, totals.files, writes.comment, writes.review]);
+    ...(active && visible.some((file) => file.path === active) ? { active } : {}),
+  }), [active, data.files, detail.commits, notes, ordered, visible, params.url, totals.files, writes.comment, writes.review]);
   useEffect(() => {
     side.publish(state, {
       jump: (path) => { setTab("changes"); setJump({ path, at: ++jumps.current }); },
@@ -182,10 +189,6 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
     });
   }, [params.url, shared.pending, side, state]);
   useEffect(() => () => side.retire(params.url), [params.url, side]);
-
-  const toggleViewed = async (file: PullRequestFile) => {
-    try { markViewed(file.path, await client.viewed(params.url, file.path, file.viewed !== "viewed")); } catch (error) { actions.notify(`Could not update viewed files: ${errorMessage(error)}`, "error"); }
-  };
 
   const shownState = detail.state === "open" && detail.draft ? "draft" : detail.state;
   const rollup = checksRollup(checks);
@@ -204,9 +207,9 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
   // The beta switch and a provider that can write a guide both have to say yes; the tab needs the diff for its excerpts.
   const guides = capabilities.guides && capabilities.files && client.guides !== undefined && shared.preferences.optionValue(REVIEW_HOST_EXTENSION_ID, GUIDE_ENABLED_OPTION, false) === true ? client.guides : undefined;
   const tabs: FrameTab<Tab>[] = [
-    ...(capabilities.files ? [{ id: "changes" as const, label: "Changes", aside: String(totals.files) }] : []),
+    ...(capabilities.files ? [{ id: "changes" as const, label: "Changes", aside: hideTests && data.files ? `${visible.length} of ${totals.files}` : String(totals.files) }] : []),
     { id: "timeline", label: "Timeline" },
-    ...(capabilities.checks ? [{ id: "checks" as const, label: "Checks", aside: <>· {rollup ? <RollupIcon rollup={rollup} /> : null}{checksSummary(checks)}</> }] : []),
+    ...(capabilities.checks ? [{ id: "checks" as const, label: "Checks", aside: <>· {rollup ? <RollupIcon rollup={rollup} required={checks.some((check) => check.required === true)} /> : null}{checksSummary(checks)}</> }] : []),
     ...(guides ? [{ id: "guide" as const, label: "Guide" }] : []),
   ];
   const shownTab: Tab = tabs.some((entry) => entry.id === tab) ? tab : "timeline";
@@ -230,13 +233,17 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
       {detail.state === "open" && (writes.comment || writes.review) ? (
         <button type="button" className="rvd-ghost" onClick={() => setComposing(true)}><MessageSquare size={12} aria-hidden="true" /> Request changes</button>
       ) : null}
-      <PullRequestHeaderActions detail={detail} checks={checks} client={client} actions={actions} preferences={shared.preferences} threadId={threadId} writes={writes} extra={menuSteps} intoBase
+      <PullRequestHeaderActions key={detail.ref.url} detail={detail} checks={checks} client={client} actions={actions} preferences={shared.preferences} threadId={threadId} writes={writes} extra={menuSteps} intoBase
         onDetail={(next) => { setData({ detail: next }); void loadChecks(); }} onPickThread={() => setPicking(true)} />
     </>
   );
 
   const toolbar = shownTab === "changes" ? (
     <>
+      {data.files ? <span className="pr-viewed-count">{ordered.filter(viewed.isViewed).length} / {ordered.length} viewed{data.files.viewedOn === "local" ? " in Tau" : ""}</span> : null}
+      <label className="rvd-whitespace" title="Hide test files, fixtures, mocks and snapshots">
+        <input type="checkbox" checked={hideTests} onChange={(event) => { setHideTests(event.target.checked); found.current = undefined; }} /> Hide test files
+      </label>
       <label className="rvd-whitespace" title="Show lines that changed only in whitespace as unchanged">
         <input type="checkbox" checked={ignoreWhitespace} onChange={(event) => shared.preferences.setOption(REVIEW_HOST_EXTENSION_ID, WHITESPACE_OPTION_ID, event.target.checked)} /> Hide whitespace
       </label>
@@ -273,6 +280,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
           : (
             <div className="rvd-find" onKeyDown={find.onKeyDown}>
             <div className="rvd-find-anchor"><DiffFindBar controller={find} /></div>
+            {visible.length === 0 ? <p className="rvd-empty">All changed files are hidden by the test file filter.</p> : null}
             <ReviewDiffStack
               files={stackFiles}
               layout={layout}
@@ -285,9 +293,9 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
                 const entry = ordered.find((candidate) => candidate.path === file.path);
                 if (!entry) return null;
                 return (
-                  <label className={`rvd-viewed${entry.viewed === "dismissed" ? " dismissed" : ""}`} {...tooltipProps(!writes.viewed ? writes.reason ?? READ_ONLY_REASON : entry.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : undefined)}>
-                    <input type="checkbox" checked={entry.viewed === "viewed"} disabled={!writes.viewed} onChange={() => void toggleViewed(entry)} />
-                    {entry.viewed === "dismissed" ? "Changed" : "Viewed"}
+                  <label className={`rvd-viewed${entry.viewed === "dismissed" && !viewed.pending?.has(entry.path) ? " dismissed" : ""}`} {...tooltipProps(!writes.viewed ? writes.reason ?? READ_ONLY_REASON : entry.viewed === "dismissed" ? "This file has been pushed to since you marked it viewed." : "Shift-click to apply Viewed to a range of visible files.")}>
+                    <input type="checkbox" checked={viewed.isViewed(entry)} disabled={!writes.viewed || viewed.busy} onClick={(event) => void viewed.toggle(entry, event.shiftKey)} onChange={() => undefined} />
+                    {entry.viewed === "dismissed" && !viewed.pending?.has(entry.path) ? "Changed" : "Viewed"}
                   </label>
                 );
               }}
@@ -312,7 +320,7 @@ function RemoteBody({ params, actions, client, chips, rows, shared, sidebar: sid
             filesError={data.filesError}
             loadFiles={loadFiles}
             active
-            onOpenFile={(path) => { setTab("changes"); setJump({ path, at: ++jumps.current }); }}
+            onOpenFile={(path) => { if (isReviewTestFile(path)) setHideTests(false); setTab("changes"); setJump({ path, at: ++jumps.current }); }}
             onFinish={writes.comment || writes.review ? () => setComposing(true) : null}
           />
         ) : (

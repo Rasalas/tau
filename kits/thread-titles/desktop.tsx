@@ -1,6 +1,7 @@
 import { errorMessage, type DesktopExtension, type HostExtensionClient, type PreferencesStore, type PromptSubmittedEvent, type WorkbenchActions } from "tau";
 import { textChoice, textChoiceInput } from "../_shared/text-generation.js";
 import { THREAD_TITLES_HOST_EXTENSION_ID, THREAD_TITLES_SERVICE, TITLE_FAILED_EVENT, type ThreadTitlesService } from "./protocol.js";
+import { TitleInstructionsRow } from "./settings.js";
 
 function automatic(preferences: PreferencesStore): boolean {
   return preferences.optionValue(THREAD_TITLES_HOST_EXTENSION_ID, "automatic", true);
@@ -69,6 +70,15 @@ export const titleGeneratorExtension: DesktopExtension = {
     context.registerOptions([
       { id: "automatic", kind: "toggle", label: "Name a thread after its first prompt", defaultValue: true },
     ]);
+    context.registerSettingsSection({
+      id: "thread-titles.instructions",
+      page: "threads",
+      card: "new-threads",
+      order: 50,
+      profiles: ["desktop", "web", "compact"],
+      Component: TitleInstructionsRow,
+      rows: [{ id: "setting-thread-title-instructions", label: "Thread title instructions", keywords: ["naming", "generated", "regenerate", "custom", "prompt", "language"] }],
+    });
     context.provideService<ThreadTitlesService>(THREAD_TITLES_SERVICE, {
       regenerate: (actions) => generate(context.host, actions, context.preferences, actions.activeThread(), true),
       // The host knows each thread's own model, so only the settings' choice goes along.

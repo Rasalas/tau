@@ -16,6 +16,7 @@ import { useHostCapabilities } from "../use-host-capabilities";
 import { useThreadStore } from "../workbench-context";
 import { Sheet } from "../deferred-surfaces";
 import { TouchThreadList, type TouchThreadListProps } from "./TouchThreadList";
+import { useMessageSearch } from "./use-message-search";
 import { useThreadListSources } from "./thread-list-sources";
 
 export { compactListOrder } from "./compact-list-order";
@@ -71,7 +72,7 @@ export function TouchThreadBrowser({ variant, nav, onNewThread, onOpenSettings, 
     {readOnly ? null : <button type="button" className="touch-icon-button" aria-label="New thread" {...tooltipProps("New thread", { side: "bottom" })} onClick={onNewThread}><Plus size={20} /></button>}
   </header>;
 
-  const searchContent = <ThreadSearch registry={list.registry} onOpen={(row, entry) => { setPopover(undefined); if (entry) entry.open(list.actions); else list.onOpen(row); }} />;
+  const searchContent = <ThreadSearch actions={list.actions} registry={list.registry} onPick={() => setPopover(undefined)} onOpen={(row, entry) => { setPopover(undefined); if (entry) entry.open(list.actions); else list.onOpen(row); }} />;
   const popovers = <>
     {popover === "search" ? screen ? <Sheet title="Search threads" className="touch-search" fullHeight onClose={() => setPopover(undefined)}>
       {searchContent}
@@ -198,7 +199,7 @@ function ProjectFilter({ projects, project, onChange, alwaysShown = false }: {
 }
 
 /** A focused search field and threads matching title, project or label, other machines' too. */
-function ThreadSearch({ registry, onOpen }: { registry: ExtensionRegistry; onOpen(row: ThreadSupervisionRow, entry?: ThreadListEntry): void }) {
+function ThreadSearch({ registry, actions, onPick, onOpen }: { registry: ExtensionRegistry; actions: WorkbenchActions; onPick(): void; onOpen(row: ThreadSupervisionRow, entry?: ThreadListEntry): void }) {
   const store = useThreadStore();
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const activity = useSyncExternalStore(store.subscribeToActivity, store.getActivity);
@@ -206,6 +207,7 @@ function ThreadSearch({ registry, onOpen }: { registry: ExtensionRegistry; onOpe
   const marks = useSyncExternalStore(registry.subscribeMarks, registry.getThreadRowMarks);
   const [query, setQuery] = useState("");
   const field = useRef<HTMLInputElement>(null);
+  const messages = useMessageSearch(registry, actions, snapshot, query);
   useEffect(() => { field.current?.focus(); }, []);
   const results = useMemo(() => query.trim()
     ? threadListGroups(snapshot.threads, activity, { query, extra: outside.rows, marks, shown: { active: SEARCH_RESULTS, settled: SEARCH_RESULTS } }).flatMap((group) => group.rows).slice(0, SEARCH_RESULTS)
@@ -213,10 +215,10 @@ function ThreadSearch({ registry, onOpen }: { registry: ExtensionRegistry; onOpe
   return <>
     <label className="touch-search-field">
       <Search size={16} aria-hidden="true" />
-      <input ref={field} type="search" value={query} placeholder="Title, project or branch" aria-label="Search threads" enterKeyHint="search" onChange={(event) => setQuery(event.target.value)} />
+      <input ref={field} type="search" value={query} placeholder="Title, project, branch or message" aria-label="Search threads" enterKeyHint="search" onChange={(event) => setQuery(event.target.value)} />
       {query ? <button type="button" className="touch-icon-button" aria-label="Clear search" onClick={() => { setQuery(""); field.current?.focus(); }}><X size={16} /></button> : null}
     </label>
-    {query.trim() ? results.length > 0 ? <ul className="touch-search-results" aria-label="Search results">
+    {query.trim() ? results.length > 0 || messages.items.length > 0 ? <ul className="touch-search-results" aria-label="Search results">
       {results.map((row) => {
         const entry = outside.byKey.get(row.id);
         const machine = entry?.machine;
@@ -227,9 +229,15 @@ function ThreadSearch({ registry, onOpen }: { registry: ExtensionRegistry; onOpe
           </button>
         </li>;
       })}
+      {messages.items.filter(item => !results.some(row => row.id === item.id)).map(item => <li key={`message-${item.id}`}>
+        <button type="button" aria-label={item.ariaLabel} onClick={() => { onPick(); void item.run?.(actions); }}>
+          <strong>{item.label}</strong><small>{item.detailContent ?? item.detail}</small>
+        </button>
+      </li>)}
     </ul> : <p className="touch-search-empty" role="status">
       No thread matches “{query.trim()}”.
       <button type="button" onClick={() => { setQuery(""); field.current?.focus(); }}>Clear search</button>
     </p> : <p className="touch-search-empty">Searches every thread, settled ones too.</p>}
+    {messages.status ? <p className="palette-index-status" role="status" aria-live="polite">{messages.status}</p> : null}
   </>;
 }

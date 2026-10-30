@@ -1,4 +1,4 @@
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import type { ThreadRuntimeEvent } from "tau/host-extension";
 import { addUsage, boundedToolOutput, MAX_TOOL_OUTPUT_BYTES, SdkTurnTranslator } from "./sdk-events.js";
@@ -24,6 +24,74 @@ function run(frames: SDKMessage[], translator = new SdkTurnTranslator(() => 42, 
 }
 
 describe("SdkTurnTranslator", () => {
+  it.each([false, true])("preserves a final API failure in a success envelope with is_error=%s", (is_error) => {
+    const { translator } = run([
+      assistant([{ type: "text", text: "Looking." }]),
+      success({ is_error, terminal_reason: "api_error", api_error_status: 400, result: "  API Error: 400 Request rejected by a safeguard.\n" }),
+    ]);
+    expect(translator.outcome).toMatchObject({ error: "API Error: 400 Request rejected by a safeguard.", texts: ["Looking."], usage: { costUsd: 0.25 } });
+    expect(translator.outcome?.interrupted).toBeUndefined();
+  });
+
+  it("does not confuse a zero-turn terminal failure with a resume handshake", () => {
+    const { translator } = run([success({ num_turns: 0, terminal_reason: "api_error", result: "API Error: 500 Could not start." })]);
+    expect(translator.outcome?.error).toBe("API Error: 500 Could not start.");
+  });
+
+  it("uses a failure message when the final result repeats an ordinary reply", () => {
+    const { translator } = run([success({ terminal_reason: "api_error", result: "I found three files." })]);
+    expect(translator.outcome?.error).toBe("Claude gave up after repeated API errors.");
+    expect(translator.outcome?.texts).toEqual([]);
+  });
+
+  it.each([
+    "api_error", "blocking_limit", "rapid_refill_breaker", "prompt_too_long", "image_error", "model_error",
+    "malformed_tool_use_exhausted", "max_turns", "budget_exhausted", "structured_output_retry_exhausted",
+    "tool_deferred_unavailable", "turn_setup_failed",
+  ] satisfies Array<NonNullable<SDKResultMessage["terminal_reason"]>>)("fails an unflagged terminal %s", (terminal_reason) => {
+    const { translator } = run([success({ terminal_reason, result: "" })]);
+    expect(translator.outcome?.error).toBeTruthy();
+    expect(translator.outcome?.interrupted).toBeUndefined();
+  });
+
+  it.each(["completed", "stop_hook_prevented", "hook_stopped", "tool_deferred", "background_requested"] satisfies Array<NonNullable<SDKResultMessage["terminal_reason"]>>)("preserves the non-failure terminal reason %s", (terminal_reason) => {
+    const { translator } = run([success({ terminal_reason })]);
+    expect(translator.outcome?.texts).toEqual(["Done."]);
+    expect(translator.outcome?.error).toBeUndefined();
+  });
+
+  it.each(["aborted_streaming", "aborted_tools"])("interrupts an unflagged success envelope with %s", (terminal_reason) => {
+    const { translator } = run([success({ terminal_reason })]);
+    expect(translator.outcome).toMatchObject({ interrupted: true });
+    expect(translator.outcome?.error).toBeUndefined();
+  });
+
+  it("keeps diagnostic-only terminal API failures as errors and hides internal diagnostics", () => {
+    const failed = (errors: string[]) => frame({ type: "result", subtype: "error_during_execution", is_error: true, terminal_reason: "api_error", num_turns: 1, errors, usage: {} });
+    const diagnostic = "[ede_diagnostic] result_type=user last_content_type=n/a";
+    const { translator } = run([failed([diagnostic])]);
+    expect(translator.outcome?.error).toBe("Claude gave up after repeated API errors.");
+    expect(translator.outcome?.interrupted).toBeUndefined();
+    const mixed = run([failed([diagnostic, "Tool execution failed: EACCES"])]);
+    expect(mixed.translator.outcome?.error).toBe("Tool execution failed: EACCES");
+  });
+
+  it("preserves rejected-window resets for an unflagged API error and recognizes HTTP 429 without a window", () => {
+    const end = success({ terminal_reason: "api_error", api_error_status: 429, result: "API Error: 429 Too many requests." });
+    const limited = run([frame({ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 3600 } }), end]);
+    expect(limited.translator.outcome).toMatchObject({ error: "API Error: 429 Too many requests.", limit: { resetsAt: 3_600_000 } });
+    expect(run([end]).translator.outcome).toMatchObject({ limit: {} });
+    const overloaded = run([success({ api_error_status: 529, result: "API Error: 529 Overloaded." })]);
+    expect(overloaded.translator.outcome?.error).toBe("API Error: 529 Overloaded.");
+    expect(overloaded.translator.outcome?.limit).toBeUndefined();
+  });
+
+  it("keeps context exhaustion distinct from a usage window for unflagged terminal results", () => {
+    const { translator } = run([success({ terminal_reason: "prompt_too_long", result: "Prompt is too long" })]);
+    expect(translator.outcome?.error).toContain("The context window is full.");
+    expect(translator.outcome?.limit).toBeUndefined();
+  });
+
   it("reports compaction while the CLI summarizes context, and clears it when the status ends", () => {
     const translator = new SdkTurnTranslator(() => 42);
     expect(translator.push(frame({ type: "system", subtype: "status", status: "compacting" }))).toEqual([
