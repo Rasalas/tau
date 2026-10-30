@@ -2469,3 +2469,21 @@ after the build runner automatically retried a 33,279 ms loaded sample; the
 separate browser gate took 12,935 ms. The final renderer-bundle fixture reported
 132 ms first paint and zero external requests. These remain fixture/build
 measurements, not a full application-start percentile.
+## Production host emission, 2026-10-30
+
+PR #479's Linux performance gate measured 30,962 ms at reference speed against
+the unchanged 30,000 ms cap. The production Electron emit still included 346
+test entrypoints that packaging already excludes. Its own build configuration
+now omits those roots, reducing the root set from 737 files to 391. The regular
+Electron typecheck and development watcher retain the original configuration,
+and CI still runs all tests. Smoke-support modules remain emitted because
+standalone clients use them. No timing or size limit changes accompany this
+build correction. Regression coverage checks both the removed test roots and
+the retained runtime, preload, worker and smoke-helper entries.
+
+A clean local output contained no compiled test modules and retained the
+standalone smoke helper. All 395 emitted runtime JavaScript modules were
+byte-identical to the prior output. The clean build passed the existing
+budgets, and the isolated host/runtime/browser webhook and sharing smoke
+passed without relying on stale output. The Linux CI rerun supplies the
+release-gate measurement; local timing is not substituted for it.

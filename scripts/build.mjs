@@ -29,6 +29,8 @@ const measureBuild = async () => {
   const started = performance.now();
   // `npm run typecheck` checks every target separately, including in CI. Build emits
   // the host file by file with esbuild, without repeating that check.
+  // Its emit config omits test entrypoints, which packaging already excludes.
+  // Typechecks and the development watcher keep the full Electron config.
   // The renderer reads source files only. Start it alongside the host, while kits
   // still wait for the compiled host modules they import.
   await parallel([
