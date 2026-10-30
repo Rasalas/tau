@@ -271,7 +271,8 @@ describe("Shell", () => {
     render(<Shell context={context({ scan: async () => ({ text: link }) })} initial={{ view: "add" }} />);
     fireEvent.click(await screen.findByRole("button", { name: "Scan QR code" }));
     expect(await screen.findByText(/Your machine did not answer\./u)).toBeTruthy();
-    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(link);
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(link));
+    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("keeps a newer pairing deep link when an older scan finishes", async () => {

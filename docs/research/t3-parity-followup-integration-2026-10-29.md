@@ -184,3 +184,10 @@ enthielt keine kompilierten Testmodule. Der echte isolierte Host-/Runtime-/
 Browser-Smoke bestand alle fünf Schritte; seine Signatur-Fixture verwendet
 einen zufälligen 32-Byte-Schlüssel entsprechend der neuen Validierung in Main.
 Alle eigenen Testprozesse und Listener wurden beendet.
+
+Der nachfolgende CI-Abgleich ergänzte die Distributions-Mindestversion in
+`kits/package.json` auf API 1.80.0. Der QR-Wiederholungsfall wartet unmittelbar
+auf den erhaltenen Eingabewert und prüft den verfügbaren Connect-Button;
+die vorherige Prüfung wartete nur auf die früher gerenderte Fehlermeldung.
+Alle 51 fokussierten Fälle bestanden mit `TAU_TEST_SLOW_RENDERS=30`, ebenso
+Mobile-Typprüfung und Lint.
