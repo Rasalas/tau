@@ -2426,3 +2426,46 @@ and CI builds. Desktop initial JavaScript remains 809,555 bytes under its
 810,000-byte cap; browser initial JavaScript remains 823,251 under 827,000.
 Initial, CSS, kit and timing budgets stay unchanged. Window dialogs remain
 outside the startup module graph, and release-note requests share the host cache.
+
+
+### 2026-10-29 T3 parity follow-up size baseline
+
+This feature round adds persistent full-message search and navigation, passive
+Office/archive/database previews, revocable guest sharing, private command-file
+leases, project promotion, webhook coalescing and provider controls. The final
+observed desktop assets contain 818,736 initial JavaScript bytes and about
+574.3 KB of total gzipped JavaScript; the 51 desktop kit halves total 3,519,994
+bytes. The browser has 832,423 initial bytes and 586,173 total gzip bytes.
+These are build artifact measurements, not startup or heap measurements.
+
+Size gates are recalibrated once for the implemented feature set, following the
+previous parity-round baselines in this document. Desktop initial JavaScript
+rises from 810,000 to 830,000 bytes, total JavaScript gzip from 571,000 to 580,000,
+and kit desktop code from 3,400,000 to 3,600,000. Browser initial JavaScript rises
+from 827,000 to 845,000 and total gzip from 583,000 to 592,000. The new limits
+leave about 1–2.3% above the measured artifacts. Initial gzip, total raw
+JavaScript, CSS, build-time, first-paint, heap, transport and frame budgets do
+not change. This is an explicit feature-size allowance, not an optimization or
+a claim that unchanged size gates passed.
+
+The separate investigation in
+`docs/research/t3-release-budgets-2026-10-29.md` found no large duplicate vendor
+bundle across kits. A map-preserving compression candidate still exceeded the
+old kit limit by 58 KB. It was not retained. Full identifier minification broke
+extension diagnostic/source-map contracts and was reverted. A real cold split
+of extension bundles requires a separate loading-format change; merely
+reclassifying static dependencies as lazy would not defer their cost.
+
+The final build compiled in 14,566 ms, including a 7,473 ms browser build on this
+machine. A separate browser run overlapping other verification took 21,443 ms
+and exceeded the unchanged 20-second timing cap. It is recorded as a loaded-run
+failure, not a stable timing regression or grounds to raise the time budget.
+
+
+The final combined verification passed 1,003 focused tests across 66 files, with
+172 overlapping slow-render cases in a separate run. The final `build:budget`
+passed with the explicit size baseline above. Its desktop build took 15,274 ms
+after the build runner automatically retried a 33,279 ms loaded sample; the
+separate browser gate took 12,935 ms. The final renderer-bundle fixture reported
+132 ms first paint and zero external requests. These remain fixture/build
+measurements, not a full application-start percentile.

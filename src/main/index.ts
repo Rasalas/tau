@@ -780,8 +780,11 @@ function createWindowPlatform(): ClientHostPlatform {
     copyImage: copyImageToClipboard,
     readImagePreview: rendererImagePreview,
     shareFile: (path) => sharedFiles.share(path),
-    loadDesktopExtensions: async (cwd, sharedExports, only) =>
-      (shownHost ?? windowHost!).loadDesktopExtensions(cwd, sharedExports, only, (result) => serveBundles(result, only)),
+    loadDesktopExtensions: async (cwd, sharedExports, only) => {
+      // The cached workbench can request extensions before its host exists.
+      await hostReady;
+      return (shownHost ?? windowHost!).loadDesktopExtensions(cwd, sharedExports, only, (result) => serveBundles(result, only));
+    },
     rebuildWorkbench: async (context) => runRebuild(context, windowHost?.activeWorkspace ?? requestedWorkspace ?? ""),
     workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
     relaunchWorkbench: () => workbenchReloader.relaunch(),

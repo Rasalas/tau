@@ -16,6 +16,9 @@ import {
 } from "./protocol.js";
 import type { LineCommentInput, ProviderTools, RepositoryTarget, SourceControlProvider } from "./provider.js";
 import { FILE_BUFFER, missingCli } from "./provider-github.js";
+import { markRequiredForgejoChecks, unknownForgejoChecks } from "./forgejo-required-checks.js";
+import { forgejoWatchSnapshot } from "./forgejo-watch.js";
+import { gatingChecks } from "./required-checks.js";
 import { readFileText } from "./provider-file.js";
 import { parseRequestUrl, parseUnifiedDiff } from "./pull-request-json.js";
 
@@ -141,17 +144,40 @@ function resolveUrl(target: string, base: string): string | undefined {
   } catch { return undefined; }
 }
 
-/** `GET /repos/:o/:r/commits/:sha/status`: one check per status context. */
+/** Historical `/statuses/:sha` pages, or the legacy combined status: one row per workflow/context. */
 export function parseForgejoChecks(output: string, requestUrl: string): PullRequestCheck[] {
-  return list(record(JSON.parse(output)).statuses).flatMap((status) => {
+  const parsed = JSON.parse(output) as unknown;
+  const rows = Array.isArray(parsed) ? list(parsed) : list(record(parsed).statuses);
+  // /statuses is historical. Collapse updates of one job URL first, then keep
+  // concurrently running jobs ahead of finished duplicates of the same context.
+  const time = (row: Json) => Date.parse(String(row.updated_at ?? row.created_at ?? "")) || 0;
+  const newerThan = (left: Json, right: Json) => time(left) > time(right) || (time(left) === time(right) && count(left.id) > count(right.id));
+  const jobs = new Map<string, Json>();
+  for (const status of rows) {
+    const key = `${text(status.context) ?? ""}\0${text(status.workflow) ?? ""}\0${text(status.target_url) ?? ""}`;
+    const old = jobs.get(key);
+    const newer = !old || newerThan(status, old);
+    if (newer) jobs.set(key, status);
+  }
+  const checks = new Map<string, PullRequestCheck>();
+  const chosen = new Map<string, Json>();
+  for (const status of jobs.values()) {
     const name = text(status.context);
-    if (!name) return [];
+    if (!name) continue;
     // Forgejo often sends a path; resolve it against the request's page, and drop what does not parse.
     const target = text(status.target_url);
     const url = target ? resolveUrl(target, requestUrl) : undefined;
     const description = text(status.description);
-    return [{ name, status: STATUSES[text(status.status) ?? text(status.state) ?? ""] ?? "pending", ...(url ? { url } : {}), ...(description ? { description } : {}) }];
-  });
+    const workflow = text(status.workflow);
+    const key = `${workflow ?? ""}\0${name}`;
+    const check: PullRequestCheck = { name, status: STATUSES[text(status.status) ?? text(status.state) ?? ""] ?? "pending", ...(workflow ? { workflow } : {}), ...(url ? { url } : {}), ...(description ? { description } : {}) };
+    const old = checks.get(key);
+    if (!old || (old.status !== "pending" && (check.status === "pending" || newerThan(status, chosen.get(key)!)))) {
+      checks.set(key, check);
+      chosen.set(key, status);
+    }
+  }
+  return [...checks.values()];
 }
 
 const VERDICTS: Record<string, PullRequestVerdict> = { APPROVED: "approved", REQUEST_CHANGES: "changes-requested", COMMENT: "commented", PENDING: "pending", REQUEST_REVIEW: "pending" };
@@ -308,7 +334,7 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
   };
 
   /** One call of the server's API, signed by tea; a status of 400 or more rejects. */
-  const api = async (host: string, path: string, action: string, init: { method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; body?: unknown; maxBuffer?: number } = {}): Promise<string> => {
+  const api = async (host: string, path: string, action: string, init: { method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; body?: unknown; maxBuffer?: number; headers?(stderr: string): void } = {}): Promise<string> => {
     const account = await login(host);
     const method = init.method ?? "GET";
     return tools.cli(kind, {
@@ -318,6 +344,7 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
       host,
       ...(init.maxBuffer ? { maxBuffer: init.maxBuffer } : {}),
       inspect: (stdout, stderr) => {
+        init.headers?.(stderr);
         const status = Number(/^HTTP\/\S+ (\d{3})/mu.exec(stderr)?.[1]);
         if (!status) throw new Error("tea reported no HTTP status; update tea to a release with `tea api --include`.");
         if (status >= 400) {
@@ -335,9 +362,36 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
   const noun = (ref: PullRequestRef) => `PR #${ref.number}`;
   const json = async (host: string, path: string, action: string): Promise<unknown> => JSON.parse(await api(host, path, action));
 
-  const readChecks = async (ref: PullRequestRef, sha: string | undefined): Promise<PullRequestCheck[]> => {
-    if (!sha) return [];
-    return parseForgejoChecks(await api(ref.host, `${repoPath(ref.repo)}/commits/${encodeURIComponent(sha)}/status`, `Reading the checks of ${noun(ref)}`), ref.url);
+  const readChecks = async (ref: PullRequestRef, pull: Json): Promise<PullRequestCheck[]> => {
+    const sha = text(record(pull.head).sha);
+    const base = text(record(pull.base).ref);
+    if (!sha) return unknownForgejoChecks([], "The request's head commit is unknown.");
+    const statuses = async () => {
+      const rows: unknown[] = [];
+      for (let page = 1; page <= 30; page++) {
+        let links: string | undefined;
+        const output = await api(ref.host, `${repoPath(ref.repo)}/statuses/${encodeURIComponent(sha)}?sort=recentupdate&limit=${PAGE}&page=${page}`, `Reading the checks of ${noun(ref)}`, {
+          headers: (stderr) => { links = /^link:\s*(.*)$/imu.exec(stderr)?.[1]; },
+        });
+        const batch: unknown = JSON.parse(output);
+        if (!Array.isArray(batch)) throw new HostCommandError("Forgejo did not return a readable status page.");
+        rows.push(...batch);
+        if (!batch.length && links && /rel="?next"?/iu.test(links)) throw new HostCommandError("Forgejo returned incomplete status pagination.");
+        // A server may cap the requested limit. Without Link, read to empty.
+        if (!batch.length || (links !== undefined && !/rel="?next"?/iu.test(links))) return parseForgejoChecks(JSON.stringify(rows), ref.url);
+      }
+      throw new HostCommandError("Forgejo status coverage exceeds 30 pages; checks are incomplete.");
+    };
+    const branch = async () => {
+      if (!base) return {};
+      try { return record(await json(ref.host, `${repoPath(ref.repo)}/branches/${encodeURIComponent(base)}`, `Reading the protection of ${base}`)); }
+      catch (error) {
+        if (/\bHTTP (?:403|404)\b/u.test(error instanceof Error ? error.message : String(error))) return {};
+        throw error;
+      }
+    };
+    const [checks, policy] = await Promise.all([statuses(), branch()]);
+    return markRequiredForgejoChecks(checks, policy);
   };
 
   const reviews = (ref: PullRequestRef, fresh: boolean) => tools.cached("reviews", ref, fresh, () => api(ref.host, `${pullPath(ref)}/reviews?limit=${PAGE}`, `Reading the reviews of ${noun(ref)}`));
@@ -377,10 +431,12 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
       const raw = mine.find((row) => state(row) === "open") ?? mine[0];
       const request = raw ? asRequest(raw) : undefined;
       if (!request || !raw) return undefined;
-      const checks = await readChecks({ service: kind, host, repo, number: request.number, url: request.url }, text(record(raw.head).sha)).catch(() => []);
-      const failed = checks.filter((check) => check.status === "failed" || check.status === "cancelled").length;
-      const pending = checks.filter((check) => check.status === "pending").length;
-      return checks.length > 0 ? { ...request, checks: { passed: checks.length - failed - pending, failed, pending, total: checks.length } } : request;
+      const checks = await readChecks({ service: kind, host, repo, number: request.number, url: request.url }, raw)
+        .catch(() => unknownForgejoChecks([], "Status checks could not be read; refresh before proceeding."));
+      const gating = gatingChecks(checks);
+      const failed = gating.filter((check) => check.status === "failed" || check.status === "cancelled").length;
+      const pending = gating.filter((check) => check.status === "pending" || check.status === "action-required").length;
+      return gating.length > 0 ? { ...request, checks: { passed: gating.length - failed - pending, failed, pending, total: gating.length } } : request;
     },
     create: async ({ host, repo }, input) => {
       const created = record(JSON.parse(await api(host, `${repoPath(repo)}/pulls`, "Creating the pull request", {
@@ -419,18 +475,41 @@ export function createForgejoProvider(tools: ProviderTools): SourceControlProvid
 
     detail: async (ref, fresh) => {
       const pull = await api(ref.host, pullPath(ref), `Reading ${noun(ref)}`);
-      const sha = text(record(record(JSON.parse(pull)).head).sha);
+      const raw = record(JSON.parse(pull));
       const [comments, reviewList, commits, checks] = await Promise.all([
         api(ref.host, `${issuePath(ref)}/comments`, `Reading the comments of ${noun(ref)}`),
         reviews(ref, fresh),
         api(ref.host, `${pullPath(ref)}/commits?limit=${PAGE}&files=false&verification=false`, `Reading the commits of ${noun(ref)}`),
-        readChecks(ref, sha).catch(() => []),
+        readChecks(ref, raw),
       ]);
       return parseForgejoDetail(ref, pull, comments, reviewList, commits, checks);
     },
+    watchSnapshot: async (ref) => {
+      const pull = record(await json(ref.host, pullPath(ref), `Watching ${noun(ref)}`));
+      let budget = 100;
+      const complete = async (path: string): Promise<Json[]> => {
+        const rows: Json[] = [];
+        for (let page = 1; page <= 30; page++) {
+          if (--budget < 0) throw new HostCommandError("Forgejo watch coverage exceeds 100 remark pages.");
+          let links: string | undefined;
+          const answer: unknown = JSON.parse(await api(ref.host, `${path}?limit=${PAGE}&page=${page}`, `Watching ${noun(ref)}`, { headers: (stderr) => { links = /^link:\s*(.*)$/imu.exec(stderr)?.[1]; } }));
+          if (!Array.isArray(answer) || answer.some((row) => !["string", "number"].includes(typeof record(row).id))) throw new HostCommandError("Forgejo did not return a readable remark page.");
+          if (!answer.length && links && /rel="?next"?/iu.test(links)) throw new HostCommandError("Forgejo returned incomplete remark pagination.");
+          rows.push(...list(answer));
+          if (!answer.length || (links !== undefined && !/rel="?next"?/iu.test(links))) return rows;
+        }
+        throw new HostCommandError("Forgejo watch coverage exceeds 30 pages per connection.");
+      };
+      const checks = await readChecks(ref, pull);
+      const comments = await complete(`${issuePath(ref)}/comments`);
+      const watchReviews = await complete(`${pullPath(ref)}/reviews`);
+      const remarks = [...comments, ...watchReviews.map((row) => ({ ...row, id: `review:${String(row.id)}` }))];
+      for (const review of watchReviews) if (count(review.comments_count) > 0) remarks.push(...(await complete(`${pullPath(ref)}/reviews/${String(review.id)}/comments`)).map((row) => ({ ...row, id: `line:${String(row.id)}` })));
+      return forgejoWatchSnapshot(pull, checks, remarks);
+    },
     checks: async (ref) => {
       const pull = record(await json(ref.host, pullPath(ref), `Reading ${noun(ref)}`));
-      return readChecks(ref, text(record(pull.head).sha));
+      return readChecks(ref, pull);
     },
     threads: async (ref, fresh) => {
       const withComments = list(JSON.parse(await reviews(ref, fresh))).filter((review) => count(review.comments_count) > 0).slice(0, MAX_REVIEWS);

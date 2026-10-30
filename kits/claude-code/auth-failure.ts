@@ -1,4 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { interruptedResult, isSuccessfulResult, resultErrorText } from "./result-error.js";
 
 export class ClaudeAuthenticationError extends Error {
   constructor(detail: string) {
@@ -23,11 +24,13 @@ export function authenticationFailure(message: SDKMessage): ClaudeAuthentication
     if (PERMISSION_DENIED.test(text) || (!FAILED_AUTH.test(text) && !LOGIN_REQUIRED.test(text))) return undefined;
     return new ClaudeAuthenticationError(text);
   }
-  if (message.type === "result" && (message.is_error || message.subtype !== "success")) {
-    const candidate = message as { errors?: string[]; result?: string; api_error_status?: number | null };
-    const text = [...candidate.errors ?? [], candidate.result ?? ""].filter(Boolean).join("\n");
-    if (candidate.api_error_status === 403 || PERMISSION_DENIED.test(text)) return undefined;
-    if (candidate.api_error_status === 401 || FAILED_AUTH.test(text)) return new ClaudeAuthenticationError(text);
+  if (message.type === "result" && !isSuccessfulResult(message) && !interruptedResult(message)) {
+    const text = resultErrorText(message);
+    const status = message.subtype === "success" ? message.api_error_status : undefined;
+    // An explicit provider status outranks words in a final reply about login.
+    if (status != null && status >= 400) return status === 401 ? new ClaudeAuthenticationError(text) : undefined;
+    if (PERMISSION_DENIED.test(text)) return undefined;
+    if (FAILED_AUTH.test(text) || (message.terminal_reason === "api_error" && LOGIN_REQUIRED.test(text))) return new ClaudeAuthenticationError(text);
   }
   return undefined;
 }

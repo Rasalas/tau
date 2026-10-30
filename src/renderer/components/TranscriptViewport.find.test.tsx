@@ -39,6 +39,14 @@ describe("find in the transcript", () => {
     await waitFor(() => expect(document.activeElement).toBe(input));
   });
 
+  it("seeds the find from a palette hit and selects the matching message", async () => {
+    const view = render(<Fixture />);
+    act(() => requestFind(view.getByRole("log"), "answer"));
+    const input = await view.findByPlaceholderText("Find in transcript…") as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe("answer"));
+    expect(view.getByText("1 of 1")).toBeTruthy();
+  });
+
   it("opens on / in the transcript, and leaves the find chord to the command", async () => {
     const view = render(<Fixture />);
     const log = view.getByRole("log");

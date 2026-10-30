@@ -80,6 +80,59 @@ async function client(cwd: string, overrides: Partial<HostExtensionServices> = {
 }
 
 describe("Workspace Kit host extension", () => {
+  it("publishes Read-only downloads only from the explicit admitted workspace and rechecks before transfer", async () => {
+    const origin = await workspace(); const current = await workspace(); const outside = await workspace();
+    await writeFile(join(origin, "report.docx"), "origin");
+    await writeFile(join(current, "report.docx"), "current");
+    await writeFile(join(outside, "secret"), "secret");
+    const handlers: Array<(request: Request) => Promise<Response>> = [];
+    const resource = `/resources/${"a".repeat(64)}`;
+    const release = vi.fn();
+    const registry = await activated(current, {
+      knownWorkspacePath: async (id) => { if (id === "ws1_origin") return origin; throw new Error("Unknown workspace"); },
+      browserResources: {
+        publish: (handler) => { handlers.push(handler); return resource; }, release,
+        publishVisualization: () => { throw new Error("unused"); }, publishFrame: () => { throw new Error("unused"); },
+      },
+    });
+    const readOnly = { kind: "workbench-client", connection: "phone", pairedClient: "device", readOnly: true } as const;
+    const input = { path: "report.docx", workspace: "ws1_origin" };
+    try {
+      await expect(registry.invoke("tau.workspace", "publish-file-download", input, readOnly)).resolves.toEqual({ path: resource, name: "report.docx", size: 6 });
+      expect(await (await handlers[0]!(new Request("http://resource.invalid"))).text()).toBe("origin");
+      await expect(registry.invoke("tau.workspace", "publish-file-download", { ...input, workspace: "unknown" }, readOnly)).rejects.toMatchObject({ code: "forbidden" });
+      await expect(registry.invoke("tau.workspace", "publish-file-download", { path: join(outside, "secret"), workspace: "ws1_origin" }, readOnly)).rejects.toMatchObject({ code: "forbidden" });
+      await expect(registry.invoke("tau.workspace", "publish-file-download", { path: join(outside, "secret"), workspace: "ws1_origin" })).rejects.toThrow(/workspace/u);
+      await expect(registry.invoke("tau.workspace", "publish-file-download", { path: "report.docx" })).rejects.toThrow(/workspace/u);
+      await rm(join(origin, "report.docx")); await symlink(join(outside, "secret"), join(origin, "report.docx"));
+      await expect(handlers[0]!(new Request("http://resource.invalid"))).rejects.toThrow(/workspace/u);
+      await registry.invoke("tau.workspace", "release-file-download", { path: resource, workspace: "ws1_origin" });
+      expect(release).toHaveBeenCalledWith(resource);
+      const policy = registry.machineRoutingFor("tau.workspace")?.policy;
+      expect(policy?.localCommands).toEqual(expect.arrayContaining(["publish-file-download", "release-file-download"]));
+    } finally { await registry.dispose(); }
+  });
+  it("restores a promoted private folder as a named project on startup even without a session", async () => {
+    const stateDir = await workspace();
+    const kitState = join(stateDir, "tau.workspace");
+    const path = join(kitState, "scratch", "4dc4b790-02ab-42da-a130-a4f972df1d30");
+    await mkdir(path, { recursive: true });
+    await mkdir(join(kitState, "promoted-projects"));
+    await writeFile(join(kitState, "promoted-projects", "4dc4b790-02ab-42da-a130-a4f972df1d30.json"), JSON.stringify({ version: 1, path, name: "Research" }));
+    const refreshProject = vi.fn(async () => undefined);
+    const admitWorkspace = vi.fn((projectPath: string) => ({ workspaceId: "ws1_private", displayPath: projectPath }));
+    let facts!: Parameters<HostExtensionServices["describeProjects"]>[0];
+    const registry = await activated(path, { stateDir, refreshProject, admitWorkspace, describeProjects: (value) => { facts = value; return () => undefined; } });
+    try {
+      expect(admitWorkspace).toHaveBeenCalledWith(path);
+      expect(refreshProject).toHaveBeenCalledWith(path);
+      await expect(facts.projectless!(path)).resolves.toBe(false);
+      await expect(facts.nested!(path)).resolves.toBe(false);
+      await expect(facts.name!(path)).resolves.toBe("Research");
+      await expect(registry.invoke("tau.workspace", "workspace-info", { workspace: path })).resolves.not.toHaveProperty("projectless");
+    } finally { await registry.dispose(); }
+  });
+
   it.each([false, true])("commits the named workspace after another client moves the host, with push=%s", async (push) => {
     const shown = await workspace();
     const other = await workspace();

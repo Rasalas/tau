@@ -1,3 +1,5 @@
+export type { TranscriptFindMode, TranscriptFindOptions } from "../workbench/transcript-find";
+export { registerThreadRenameHandler } from "./thread-rename";
 /**
  * The `tau` module a runtime desktop extension imports. It is the same surface
  * the bundled extensions use, published to extension code through
@@ -237,6 +239,7 @@ export type {
   CommandSurface,
   CommandContext,
   PaletteItem,
+  FocusAreaContribution,
   PaletteMenu,
   PaletteSearchContext,
   PaletteSourceContribution,
@@ -252,6 +255,7 @@ export type {
   MessageActionContribution,
   MessageBlockContribution,
   TranscriptFinderContribution,
+  TranscriptFindResult,
   MessageBlockProps,
   PromptRendererContribution,
   PromptRendererProps,
@@ -324,3 +328,5 @@ export { findProjectForSession } from "../shared/session-project";
 
 export { BOUNDED_LINES } from "./components/diff-stack-constants";
 export type { StackFile } from "./components/DiffStack";
+
+export type { BrowserResourceResponse } from "../shared/browser-resource";

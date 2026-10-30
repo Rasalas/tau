@@ -24,7 +24,7 @@ export const EDITOR_LANGUAGES: readonly LanguageDescription[] = [
     load: () => import("@codemirror/lang-javascript").then((m) => m.javascript({ jsx: true })),
   }),
   LanguageDescription.of({
-    name: "JSON", alias: ["jsonc", "json5"], extensions: ["json", "jsonc", "json5", "webmanifest"], filename: /^\.(babelrc|eslintrc|prettierrc)$/u,
+    name: "JSON", alias: ["jsonc", "json5"], extensions: ["json", "jsonc", "json5", "webmanifest", "ipynb"], filename: /^\.(babelrc|eslintrc|prettierrc)$/u,
     load: () => import("@codemirror/lang-json").then((m) => m.json()),
   }),
   LanguageDescription.of({

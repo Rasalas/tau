@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { HostThread, HostTurnObserver } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createThreadTitlesHostExtension } from "./host.js";
-import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_FAILED_EVENT, TITLE_SYSTEM_PROMPT, TITLE_USER_PROMPT } from "./protocol.js";
+import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_FAILED_EVENT, TITLE_SYSTEM_PROMPT, TITLE_USER_PROMPT, TITLE_INSTRUCTIONS_LIMIT, titleSystemPrompt } from "./protocol.js";
 
 describe("Thread Title Generator host extension", () => {
   it("generates a title with the thread model on a custom endpoint and preserves an explicit choice", async () => {
@@ -27,6 +27,7 @@ describe("Thread Title Generator host extension", () => {
   const piThread = (overrides: Partial<Record<string, unknown>> = {}) => ({
     sessionId: "s1",
     backendKind: "pi",
+    cwd: "/thread-project",
     isStreaming: () => false,
     isCurrent: () => true,
     sessionName: () => undefined,
@@ -314,48 +315,185 @@ describe("Thread Title Generator host extension", () => {
     const harness = piThread({ backendKind: "claude-code", model: { provider: "anthropic", id: "sonnet" }, completionModels: async () => [{ provider: "anthropic", id: "haiku", name: "Haiku" }], complete: own });
     const registry = await activateHostKit(createThreadTitlesHostExtension(), {
       runtimeOwner: () => "tau", thread: () => harness, complete, setThreadTitle: async () => undefined,
+      settings: async () => ({ options: {}, values: { instructions: "Use German." } }),
     });
     // Automatic: the harness offers the chosen model, so its login writes the title.
     await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { sessionId: "s1", provider: "anthropic", modelId: "haiku", thinkingLevel: "low" });
     expect(own).toHaveBeenLastCalledWith("anthropic", "haiku", expect.not.objectContaining({ thinkingLevel: expect.anything() }));
+    expect(own).toHaveBeenLastCalledWith("anthropic", "haiku", expect.objectContaining({ system: titleSystemPrompt("Use German.") }));
     await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { sessionId: "s1", provider: "anthropic", modelId: "haiku", thinkingLevel: "low", runtime: "pi" });
-    expect(complete).toHaveBeenLastCalledWith(expect.objectContaining({ thinkingLevel: "low", maxTokens: 16_384 }), { provider: "anthropic", id: "haiku" });
+    expect(complete).toHaveBeenLastCalledWith(expect.objectContaining({ system: titleSystemPrompt("Use German."), thinkingLevel: "low", maxTokens: 16_384 }), { provider: "anthropic", id: "haiku" });
     await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { sessionId: "s1", runtime: "thread" });
-    expect(own).toHaveBeenLastCalledWith("anthropic", "sonnet", expect.objectContaining({ maxTokens: 256 }));
+    expect(own).toHaveBeenLastCalledWith("anthropic", "sonnet", expect.objectContaining({ system: titleSystemPrompt("Use German."), maxTokens: 256 }));
     expect(complete).toHaveBeenCalledOnce();
   });
 
   it("hands the attached Pi a small model, else the thread's own", async () => {
     const invoke = vi.fn(async () => ({ title: "Attached title" }));
     const registry = await activateHostKit(createThreadTitlesHostExtension(), {
-      runtimeOwner: () => "pi",
+      runtimeOwner: () => "pi", thread: () => undefined,
       attachedRuntime: () => ({ sessionId: "session", invoke } as never),
       completionModels: async () => [{ provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku" }],
     });
     await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { prefer: { provider: "anthropic", id: "claude-opus-4-1" } });
-    expect(invoke).toHaveBeenLastCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { provider: "anthropic", modelId: "claude-haiku-4-5", force: false });
+    expect(invoke).toHaveBeenCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "generate", expect.objectContaining({ provider: "anthropic", modelId: "claude-haiku-4-5", force: false, instructions: "", deferApply: true }));
 
     const bare = await activateHostKit(createThreadTitlesHostExtension(), {
-      runtimeOwner: () => "pi",
+      runtimeOwner: () => "pi", thread: () => undefined,
       attachedRuntime: () => ({ sessionId: "session", invoke } as never),
       completionModels: async () => [],
     });
     await bare.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { prefer: { provider: "anthropic", id: "claude-opus-4-1" } });
-    expect(invoke).toHaveBeenLastCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { provider: "anthropic", modelId: "claude-opus-4-1", force: false });
+    expect(invoke).toHaveBeenCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "generate", expect.objectContaining({ provider: "anthropic", modelId: "claude-opus-4-1", force: false, instructions: "", deferApply: true }));
   });
 
   it("forwards to the attached Pi terminal when it owns the runtime", async () => {
     const invoke = vi.fn(async () => ({ title: "Attached title" }));
     const registry = await activateHostKit(createThreadTitlesHostExtension(), {
-      runtimeOwner: () => "pi",
+      runtimeOwner: () => "pi", thread: () => undefined,
       attachedRuntime: () => ({ sessionId: "session", invoke } as never),
     });
     await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", {
       provider: "provider", modelId: "model", force: false, sessionId: "session",
     })).resolves.toEqual({ title: "Attached title" });
-    expect(invoke).toHaveBeenCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "generate", {
-      provider: "provider", modelId: "model", force: false,
+    expect(invoke).toHaveBeenCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "generate", expect.objectContaining({
+      provider: "provider", modelId: "model", force: false, instructions: "", deferApply: true, requestId: expect.any(String),
+    }));
+    expect(invoke).toHaveBeenCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "apply", { requestId: expect.any(String) });
+  });
+
+  it("reads instructions for the thread's project and uses the shared prompt on the runtime's own login", async () => {
+    const complete = vi.fn(async () => "TAU-42 Warteschlange");
+    const settings = vi.fn(async () => ({ options: {}, values: { instructions: "  Begin with TAU-42.\r\nUse German.  " } }));
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => piThread({ complete,
+        completionModels: async () => [{ provider: "anthropic", id: "haiku", name: "Haiku" }] }),
+      settings, setThreadTitle: async () => undefined,
     });
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { instructions: "Ignore stored settings" });
+    expect(settings).toHaveBeenCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "/thread-project");
+    expect(complete).toHaveBeenCalledWith("anthropic", "haiku", expect.objectContaining({
+      system: titleSystemPrompt("Begin with TAU-42.\nUse German."),
+    }));
+  });
+
+  it("keeps native titles ahead of custom instructions and uses the instructions when regenerating", async () => {
+    const complete = vi.fn(async () => "TAU-42 Warteschlange");
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => piThread({ nativeTitle: async () => "Native title" }), complete,
+      settings: async () => ({ options: {}, values: { instructions: "Begin with TAU-42." } }),
+      setThreadTitle: async () => undefined,
+    });
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", {})).resolves.toEqual({ title: "Native title" });
+    expect(complete).not.toHaveBeenCalled();
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", {});
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ system: titleSystemPrompt("Begin with TAU-42.") }), undefined);
+  });
+
+  it("reads changed instructions when a deferred job settles and keeps its original thread", async () => {
+    let streaming = true;
+    let instructions = "Use English.";
+    let observer!: HostTurnObserver;
+    const complete = vi.fn(async () => "Warteschlange");
+    const thread = piThread({ isStreaming: () => streaming, nativeTitle: async () => undefined });
+    const threadLookup = vi.fn((sessionId?: string) => sessionId === "s1" || !sessionId && streaming ? thread : undefined);
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: threadLookup, complete,
+      settings: async () => ({ options: {}, values: { instructions } }), setThreadTitle: async () => undefined,
+      registerTurnObserver: (value) => { observer = value; return () => undefined; },
+    });
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", {});
+    instructions = "Use German.";
+    streaming = false;
+    await observer.ended!("s1", "turn", "completed");
+    expect(threadLookup).toHaveBeenLastCalledWith("s1");
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ system: titleSystemPrompt("Use German.") }), undefined);
+  });
+
+  it("discards an in-flight title when instructions change", async () => {
+    let instructions = "Use English.";
+    const setThreadTitle = vi.fn();
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => piThread(), setThreadTitle,
+      settings: async () => ({ options: {}, values: { instructions } }),
+      complete: async () => { instructions = "Use German."; return "Old title"; },
+    });
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", {})).resolves.toBeUndefined();
+    expect(setThreadTitle).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized stored instructions before inference", async () => {
+    const complete = vi.fn();
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => piThread(), complete,
+      settings: async () => ({ options: {}, values: { instructions: "x".repeat(TITLE_INSTRUCTIONS_LIMIT + 1) } }),
+    });
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", {})).rejects.toThrow("at most 2,000");
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("keeps a manual rename even during explicit regeneration", async () => {
+    let name = "Original title";
+    const setThreadTitle = vi.fn();
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => piThread({ sessionName: () => name }), setThreadTitle,
+      complete: async () => { name = "Manual rename"; return "Generated title"; },
+    });
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", {});
+    expect(setThreadTitle).not.toHaveBeenCalled();
+  });
+
+  it("lets the newest regeneration win when completions return out of order", async () => {
+    let finishFirst!: (title: string) => void;
+    let started!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { started = resolve; });
+    const complete = vi.fn(async () => "Newest title").mockImplementationOnce(() => {
+      started();
+      return new Promise<string>((resolve) => { finishFirst = resolve; });
+    });
+    const setThreadTitle = vi.fn(async () => undefined);
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => piThread(), complete, setThreadTitle,
+    });
+    const first = registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", {});
+    await firstStarted;
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", {});
+    finishFirst("Obsolete title");
+    await expect(first).resolves.toBeUndefined();
+    expect(setThreadTitle).toHaveBeenCalledExactlyOnceWith("s1", "Newest title", "generated");
+  });
+
+  it.each(["close", "deactivate"])("discards an in-flight job on %s", async (action) => {
+    let observer!: HostTurnObserver;
+    const setThreadTitle = vi.fn();
+    let registry!: Awaited<ReturnType<typeof activateHostKit>>;
+    registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => piThread(), setThreadTitle,
+      registerTurnObserver: (value) => { observer = value; return () => undefined; },
+      complete: async () => {
+        if (action === "close") await observer.closed!("s1");
+        else await registry.deactivate(THREAD_TITLES_HOST_EXTENSION_ID);
+        return "Obsolete title";
+      },
+    });
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", {})).resolves.toBeUndefined();
+    expect(setThreadTitle).not.toHaveBeenCalled();
+  });
+
+  it("passes saved instructions to attached Pi and discards the result if they changed before application", async () => {
+    let instructions = "Use English.";
+    const invoke = vi.fn(async (_id: string, command: string) => {
+      if (command === "generate") { instructions = "Use German."; return { title: "Obsolete title" }; }
+      return undefined;
+    });
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "pi", attachedRuntime: () => ({ sessionId: "session", invoke }),
+      thread: () => piThread(), settings: async () => ({ options: {}, values: { instructions } }),
+    });
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { provider: "p", modelId: "m" })).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "generate", expect.objectContaining({ instructions: "Use English.", deferApply: true }));
+    expect(invoke.mock.calls.some((call) => call[1] === "apply")).toBe(false);
+    expect(invoke).toHaveBeenCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "cancel", { requestId: expect.any(String) });
   });
 
   it("refuses the permission it did not declare", async () => {

@@ -1,5 +1,7 @@
 /** Public desktop extension contracts. Imports here are types only; runtime registration lives separately. */
 import type { ComponentType, ReactNode } from "react";
+import type { BrowserResourceResponse } from "../shared/browser-resource";
+import type { TranscriptFindMode, TranscriptFindOptions } from "../workbench/transcript-find";
 import type { SettingScope } from "../shared/config-layers";
 import type {
   ExtensionInspection,
@@ -37,8 +39,11 @@ import type { MenuSection } from "./components/Menu";
 import type { PanelIconComponent } from "./components/PanelIcon";
 import type { CustomizablePart, CustomizationLayer } from "./customization";
 import type { KeybindingContribution, UserKeymapContribution } from "./extension-keybindings";
+import type { FocusAreaContribution } from "./focus-areas";
 import type { PreferencesStore } from "./preferences";
 import type { SettingsNavGroup, SettingsNavGroupAlias } from "./settings/settings-nav";
+export type { BrowserResourceResponse } from "../shared/browser-resource";
+export type { FocusAreaContribution } from "./focus-areas";
 /**
  * Desktop-side extension seam. The workbench owns placement and lifecycle;
  * extensions own panels, sidebar modules, project sources, commands and tool presentation.
@@ -105,9 +110,11 @@ export interface WorkbenchActions {
   revealMessage?(messageId: string): Promise<boolean>;
   /**
    * Opens the find bar over the transcript of the thread on screen, or takes the keyboard back
-   * into it when it is open; nothing happens without a transcript (API 1.61.0).
+   * into it when it is open (API 1.61.0). API 1.79.0 optionally targets a sessionId,
+   * retaining the request until its transcript mounts, and selects all-words for global message hits.
+   * Without options the find remains literal and needs a mounted transcript.
    */
-  findInThread?(): void;
+  findInThread?(query?: string, options?: TranscriptFindOptions): void;
   focusStage(): void;
   toggleDock(): void;
   /** Hides or shows the sidebar (the thread sheet on a compact client). */
@@ -1134,11 +1141,11 @@ export type SettingsSectionPage = CoreSettingsSectionPage | (string & Record<nev
  * long-threads (and threads, drawn only where a package fills it), Connections'
  * this-machine. Such a section draws `SettingRow`s only; the card draws the
  * frame and the heading. `transcript`, `privacy`, `rail`, `ask-first`,
- * `running` and `long-threads` are new in API 1.61.0.
+ * `running` and `long-threads` are new in API 1.61.0. `search` is new in API 1.79.0.
  */
 export type SettingsCardId =
   | "appearance" | "notify" | "transcript" | "privacy"
-  | "new-threads" | "threads" | "rail" | "ask-first" | "running" | "long-threads"
+  | "new-threads" | "threads" | "search" | "rail" | "snooze" | "ask-first" | "running" | "long-threads"
   | "this-machine";
 
 export interface SettingsSectionProps {
@@ -1184,11 +1191,16 @@ export interface SettingsSectionContribution extends ProfileScoped {
 
 /** One row a palette source or a palette menu answers with. */
 export interface PaletteItem {
+  /** A reason to disable this row, as on a command. */
+  unavailable?(): string | undefined;
   /** Unique within its source or menu. */
   id: string;
   label: string;
   /** Context after the label: a project, a path, the line that matched. */
   detail?: string;
+  /** Optional rich detail and spoken name for search snippets. */
+  detailContent?: ReactNode;
+  ariaLabel?: string;
   /** A mark before the label; one that carries meaning names it with `aria-label` (API 1.12.0). */
   icon?: ReactNode;
   /** Words a menu's search also matches and never shows, such as a runtime drawn only as its icon (API 1.12.0). */
@@ -1210,6 +1222,8 @@ export interface PaletteItem {
  * search, a breadcrumb and a way back (API 1.12.0).
  */
 export interface PaletteMenu {
+  /** Opt in to bounded, cancellable top-level search. `items` must only read, never run actions. */
+  searchable?: true; // API 1.79.0
   /** The level's name in the breadcrumb. */
   title: string;
   /** The search field's placeholder on this level. */
@@ -1234,7 +1248,7 @@ export interface PaletteSearchContext {
    * The thread index as this window holds it; `running` are the threads with a turn going,
    * `waiting` the ones asking the user something (API 1.59.0).
    */
-  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string; running?: readonly string[]; waiting?: readonly string[] };
+  index: { projects: readonly UiProject[]; threads: readonly UiSession[]; activeThreadId?: string; archivedThreadIds?: readonly string[]; running?: readonly string[]; waiting?: readonly string[] };
   /** The tab or prefix the palette is narrowed to; "all" when none is. */
   scope?: "all" | "threads" | "files";
   /** Aborted when the query changes or the palette closes; a late answer is dropped either way. */
@@ -1247,6 +1261,10 @@ export interface PaletteSearchContext {
  * it has a `scope`: then also for an empty one, in All and in its own tab.
  */
 export interface PaletteSourceContribution {
+  /** Optional non-interactive status below the results. Return nothing when ready. */
+  status?(query: string, context: PaletteSearchContext): string | undefined;
+  /** Notifies the palette when status changes without a new query. */
+  subscribeStatus?(listener: () => void): () => void;
   id: string;
   /** The section heading its rows stand under; sources with one label share a section. */
   label: string;
@@ -1466,8 +1484,12 @@ export type TranscriptFindResult = readonly string[] | { messageIds: readonly st
 
 export interface TranscriptFinderContribution extends ProfileScoped {
   id: string;
-  /** The ids of the thread's messages that hold `query`, oldest first, over its whole history. */
-  find(request: { sessionId: string; query: string }): Promise<TranscriptFindResult>;
+  /**
+   * The ids of the thread's messages that hold `query`, oldest first, over its whole history.
+   * Optional API 1.79.0 mode: all-words resolves the global hit's best text-only message;
+   * an omitted mode keeps literal text/reasoning find. The shipped finder returns one id for all-words.
+   */
+  find(request: { sessionId: string; query: string; mode?: TranscriptFindMode }): Promise<TranscriptFindResult>;
 }
 
 /**
@@ -1526,6 +1548,8 @@ export interface DocumentOrigin {
 /** Who loads the stage's documents and knows which are changed. One at a time. */
 export interface DocumentSourceContribution extends ProfileScoped {
   id: string;
+  /** An optional passive reader for an explicitly originating workspace. API 1.79.0. */
+  renderPreview?(path: string, from: DocumentOrigin & { workspace: string }): ReactNode | undefined;
   /** The stage names the project its tabs were stored for, which a draft's may be. */
   loadFile(path: string, from?: DocumentOrigin): Promise<UiFileContent>;
   /** Stream media of an explicit originating workspace. Release when its viewer closes. API 1.52.0. */
@@ -1617,6 +1641,8 @@ export interface HostExtensionClient {
   invoke(command: string, input?: unknown): Promise<unknown>;
   /** A browser resource path resolved against the connected host. API 1.51.0. */
   resourceUrl?(path: string): string;
+  /** Bounded, connection-bound capability read over the authenticated socket. API 1.79.0. */
+  readResource?(path: string): Promise<BrowserResourceResponse>;
   /** Events the host entry publishes with `emit`. */
   onEvent(name: string, listener: (payload: unknown) => void): () => void;
   /**
@@ -1632,6 +1658,8 @@ export interface HostExtensionClient {
 export interface HostExtensionBridge {
   invoke(extensionId: string, command: string, input?: unknown): Promise<unknown>;
   resourceUrl?(path: string): string;
+  /** Bounded, connection-bound capability read over the authenticated socket. API 1.79.0. */
+  readResource?(path: string): Promise<BrowserResourceResponse>;
   /** Core's own scan of the package folders and the shipped kits; absent without a host. */
   inspect?(cwd: string): Promise<ExtensionInspection>;
   /** Asks the host for a topic's events; absent without a host. */
@@ -1754,6 +1782,8 @@ export interface DesktopExtensionContext {
   registerCommand(command: CommandContribution): () => void;
   /** Rows the command palette asks for as the user types, beside the commands. */
   registerPaletteSource(source: PaletteSourceContribution): () => void;
+  /** Adds a visible keyboard area to the F6 ring. Stage panels normally stay inside Stage. */
+  registerFocusArea(area: FocusAreaContribution): () => void; // API 1.79.0
   /** Slash commands show in the composer's `/` menu next to the runtime's own. */
   registerSlashCommand(command: SlashCommandContribution): () => void;
   /** Binds a chord to a command of any extension; core dispatches window keydown. */

@@ -180,7 +180,13 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     };
     return { current, git, provider, target: target ?? { host: "", repo: "", cwd: git.root } };
   };
-  const status = async (fresh: boolean) => (await inspect(fresh)).current;
+  const status = async (fresh: boolean) => {
+    const { current, provider, target } = await inspect(fresh);
+    if (!current.problem && current.request?.state !== "open" && provider.canChooseMaintainerEdits) {
+      current.canChooseMaintainerEdits = await provider.canChooseMaintainerEdits(target).catch(() => false);
+    }
+    return current;
+  };
 
   /** Status for a step that needs everything in place; refuses with what is missing. */
   const ready = async (): Promise<Inspected> => {
@@ -287,6 +293,8 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const base = text(fields.base)?.trim() || git.base;
     if (base === git.branch) throw new HostCommandError(`The ${info.noun} would merge ${base} into itself; choose another base branch.`);
     const draft = fields.draft === true && info.capabilities.draft;
+    const access = fields.maintainerCanModify;
+    if (access !== undefined && (typeof access !== "boolean" || !provider.canChooseMaintainerEdits || !await provider.canChooseMaintainerEdits(target))) throw new HostCommandError("Refresh an eligible GitHub fork before choosing maintainer access.");
     // Pictures named in the body go up first; a failed upload creates nothing.
     const written = text(fields.body) ?? "";
     if (findEvidenceTokens(written).length > 0 && fields.uploadConfirmed !== true) throw new HostCommandError("Confirm what is uploaded first.");
@@ -294,7 +302,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const beforePush = await workspace<ReviewRequestContext>("review-request-context");
     if (beforePush.branch !== git.branch || beforePush.remote?.url !== git.remote?.url) throw new HostCommandError("The branch or remote changed; refresh before creating the request.");
     await workspace("push");
-    const created = await provider.create(target, { title, body: embedded.body, base, head: git.branch!, draft });
+    const created = await provider.create(target, { title, body: embedded.body, base, head: git.branch!, draft, ...(typeof access === "boolean" ? { maintainerCanModify: access } : {}) });
     services.log("request.created", created ?? title);
     const next = await status(true);
     const url = created ?? next.request?.url;

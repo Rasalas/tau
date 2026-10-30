@@ -273,6 +273,8 @@ describe("runtime controls keybindings", () => {
       "runtime.transcript-detail": ["mod+alt+t"],
       "workbench.close-stage-tab": ["mod+w"],
       "workbench.reopen-stage-tab": ["mod+shift+t"],
+      "workbench.focus-next-area": ["f6"],
+      "workbench.focus-previous-area": ["shift+f6"],
       "workbench.focus-composer": ["mod+alt+1"],
       "workbench.focus-stage": ["mod+alt+3"],
       "workbench.focus-transcript": ["mod+alt+2"],
@@ -416,4 +418,14 @@ describe("the way back to this machine", () => {
     await command!.run({ notify: vi.fn() } as unknown as WorkbenchActions);
     expect(showLocal).toHaveBeenCalledOnce();
   });
+});
+
+it.each(["desktop", "web"] as const)("opts the model, theme and runtime menus into direct search and lists the focus chords on %s", async (profile) => {
+  const registry = new ExtensionRegistry(undefined, { preferences: new PreferencesStore(), profile });
+  await registry.activate(runtimeControls);
+  for (const id of ["runtime.model", "runtime.theme-menu", "runtime.new-thread-on"]) expect(registry.getCommand(id)?.submenu?.searchable).toBe(true);
+  const chords = registry.getDefaultKeybindings("workbench.focus-next-area").map((binding) => binding.keys);
+  expect(chords).toContain("f6");
+  expect(chords.includes("mod+f6")).toBe(profile === "web");
+  expect(registry.getCommand("workbench.focus-next-area")).toMatchObject({ group: "View", access: "read" });
 });

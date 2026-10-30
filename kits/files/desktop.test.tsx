@@ -2,12 +2,14 @@
 import { language } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StageTab, StageTabHandle, UiEditor, UiFileContent, UiFileWriteResult, WorkbenchActions } from "tau";
 import { createKitHarness, createMemoryStorage, setClientStorage, setHostClient } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 import { useAppKeybindings } from "../../src/renderer/test-support/kit-harness.js";
 import filesExtension from "./desktop.js";
+import { parseNotebook } from "./notebook.js";
 import type { WorkspaceStoreLike } from "./kit.js";
 import { FILE_EDITOR_TAB, FILES_KIT_ID, WORKSPACE_STORE_SERVICE } from "./protocol.js";
 
@@ -51,6 +53,8 @@ function fakeHost(files: Record<string, string>, others: Record<string, Record<s
     const { workspace, relPath, text, expectedMtimeMs } = input as { workspace: string; relPath: string; text?: string; expectedMtimeMs?: number | null };
     const project = projects[workspace];
     if (!project) throw new Error("Workspace is not a known Tau project.");
+    if (command === "notebook") return parseNotebook(project[relPath]!);
+    if (command === "preview") return { ok: true, notices: [], content: { kind: "document", blocks: [{ kind: "paragraph", text: project[relPath] }] } };
     if (command === "read") {
       const body = project[relPath];
       if (body === undefined) throw new Error("Not a file.");
@@ -78,8 +82,9 @@ function fakeHost(files: Record<string, string>, others: Record<string, Record<s
 function workspaceStore(editors: UiEditor[] = [{ id: "code", name: "VS Code" }, { id: "file-manager", name: "Finder" }]) {
   const opened: Array<[string | undefined, string | undefined, unknown]> = [];
   let fileEditor: ((relPath: string, actions: WorkbenchActions) => void) | undefined;
+  let filePreview: ((path: string, from: { workspace: string }) => ReactNode | undefined) | undefined;
   const snapshot = { cwd: "/repo", editors };
-  const store: WorkspaceStoreLike & { opened: typeof opened; edit(relPath: string, actions: WorkbenchActions): void } = {
+  const store: WorkspaceStoreLike & { opened: typeof opened; edit(relPath: string, actions: WorkbenchActions): void; preview(path: string, workspace: string): ReactNode | undefined } = {
     opened,
     getSnapshot: () => snapshot,
     subscribe: () => () => undefined,
@@ -89,6 +94,8 @@ function workspaceStore(editors: UiEditor[] = [{ id: "code", name: "VS Code" }, 
     refresh: vi.fn(async () => undefined),
     revealFolder: vi.fn(),
     registerFileEditor: (editor) => { fileEditor = editor; return () => { fileEditor = undefined; }; },
+    registerFilePreview: (reader) => { filePreview = reader; return () => { filePreview = undefined; }; },
+    preview: (path, workspace) => filePreview?.(path, { workspace }),
     edit: (relPath, actions) => fileEditor?.(relPath, actions),
   };
   return store;
@@ -123,6 +130,63 @@ function setup(files: Record<string, string>, actionsPatch: Partial<WorkbenchAct
 }
 
 describe("Files Kit", () => {
+  it("offers passive and notebook readers to the source/phone reader and withdraws them on deactivation", async () => {
+    const h = setup({}, {}, { "other-workspace": {
+      "book.epub": "Saved chapter",
+      "notebook.ipynb": JSON.stringify({ nbformat: 4, cells: [{ cell_type: "markdown", source: "# Notebook title" }] }),
+    } });
+    expect(h.store.preview("source.ts", "other-workspace")).toBeUndefined();
+    const view = render(<>{h.store.preview("book.epub", "other-workspace")}</>);
+    expect(await screen.findByText("Saved chapter")).toBeTruthy();
+    expect(h.host.invoke).toHaveBeenCalledWith(FILES_KIT_ID, "preview", { workspace: "other-workspace", relPath: "book.epub" });
+    view.rerender(<>{h.store.preview("notebook.ipynb", "other-workspace")}</>);
+    expect(await screen.findByText("Notebook title")).toBeTruthy();
+    h.registry.deactivate(FILES_KIT_ID);
+    expect(h.store.preview("book.epub", "other-workspace")).toBeUndefined();
+  });
+  it("offers the remote download fallback in both the file tab and the registered source preview without preloading", async () => {
+    setHostClient(createFakeHostClient({ hasCapability: () => false }));
+    const h = setup({}, {}, { "ws1_origin": { "report.docx": "Saved document" } });
+    const download = vi.fn(async () => { throw new Error("Transfer failed"); });
+    h.store.downloadFile = download;
+    const view = render(<>{h.kind.render({ path: "report.docx" }, handle(), h.actions, { workspace: "ws1_origin" })}</>);
+    expect(await screen.findByText("Saved document")).toBeTruthy();
+    expect(download).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Transfer failed");
+    expect(download).toHaveBeenCalledWith("report.docx", { workspace: "ws1_origin" }, expect.any(AbortSignal));
+    view.rerender(<>{h.store.preview("report.docx", "ws1_origin")}</>);
+    expect(await screen.findByText("Saved document")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
+    expect(download).toHaveBeenCalledTimes(1);
+    h.registry.deactivate(FILES_KIT_ID);
+  });
+  it("opens a passive document from its own workspace through the client's remote editor", async () => {
+    setHostClient(createFakeHostClient({ hasCapability: () => false }));
+    const h = setup({}, {}, { "ws1_origin": { "report.docx": "Saved document" } });
+    h.store.editorsHere = () => true;
+    const openInEditor = vi.fn(async () => undefined);
+    const download = vi.fn(async () => ({ blob: new Blob(), name: "report.docx" }));
+    h.store.openInEditor = openInEditor;
+    h.store.downloadFile = download;
+    render(<>{h.kind.render({ path: "report.docx" }, handle(), h.actions, { workspace: "ws1_origin" })}</>);
+    expect(await screen.findByText("Saved document")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Download" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
+    expect(openInEditor).toHaveBeenCalledWith("report.docx", "code", undefined, "ws1_origin");
+    expect(download).not.toHaveBeenCalled();
+    h.registry.deactivate(FILES_KIT_ID);
+  });
+  it("offers a passive document download when the client cannot open an editor despite local-file capability", async () => {
+    setHostClient(createFakeHostClient({ hasCapability: () => true }));
+    const h = setup({ "report.docx": "Saved document" });
+    h.store.editorsHere = () => false;
+    render(<>{h.kind.render({ path: "report.docx" }, handle(), h.actions, REPO)}</>);
+    expect(await screen.findByText("Saved document")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Choose editor" })).toBeNull();
+    h.registry.deactivate(FILES_KIT_ID);
+  });
   it("edits a file, marks the tab dirty and saves on mod+s before the stash binding hears it", async () => {
     const tab = handle();
     const shown: StageTab = { kind: "extension", id: tab.id, preview: false, tabKind: FILE_EDITOR_TAB, params: { path: "notes.md" }, title: "notes.md" };
@@ -264,6 +328,85 @@ describe("Files Kit", () => {
     expect(await screen.findByRole("heading", { name: "Title" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Show markdown source" }));
     expect(await screen.findByLabelText("Contents of README.md")).toBeTruthy();
+  });
+
+  it("hides Markdown metadata in the preview and keeps it in the editable source", async () => {
+    setClientStorage(createMemoryStorage());
+    const source = "---\ntitle: Internal metadata\n---\n# Visible title\n\nBody.\n";
+    const { kind, actions } = setup({ "notes.md": source });
+    render(<>{kind.render({ path: "notes.md" }, handle(), actions, REPO)}</>);
+    expect((await findEditor("notes.md")).text()).toBe(source);
+    fireEvent.click(screen.getByRole("button", { name: "Show rendered markdown" }));
+    expect(await screen.findByRole("heading", { name: "Visible title" })).toBeTruthy();
+    expect(document.querySelector(".files-markdown")?.textContent).not.toContain("Internal metadata");
+    fireEvent.click(screen.getByRole("button", { name: "Show markdown source" }));
+    expect((await findEditor("notes.md")).text()).toBe(source);
+  });
+
+  it("opens notebooks rendered, edits and saves their exact JSON, and remembers the source choice independently", async () => {
+    setClientStorage(createMemoryStorage());
+    const source = JSON.stringify({ nbformat: 4, metadata: {}, cells: [{ cell_type: "markdown", source: "# Saved notebook" }] }, null, 2) + "\n";
+    const changed = source.replace("Saved notebook", "Edited notebook");
+    const { host, kind, actions } = setup({ "analysis.ipynb": source, "notes.md": "# Markdown source" });
+    const tab = handle();
+    render(<>{kind.render({ path: "analysis.ipynb" }, tab, actions, REPO)}</>);
+    expect(await screen.findByRole("heading", { name: "Saved notebook" })).toBeTruthy();
+    expect(screen.queryByLabelText("Contents of analysis.ipynb")).toBeNull();
+    expect(host.writes).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Show notebook source" }));
+    const editor = await findEditor("analysis.ipynb");
+    expect(editor.text()).toBe(source);
+    editor.replace(changed);
+    expect(tab.dirty.at(-1)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Show rendered notebook" }));
+    expect(await screen.findByRole("heading", { name: "Edited notebook" })).toBeTruthy();
+    expect(host.writes).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: /^Save/u }));
+    await waitFor(() => expect(host.writes).toEqual([{ relPath: "analysis.ipynb", text: changed, expectedMtimeMs: 1_000 }]));
+    fireEvent.click(screen.getByRole("button", { name: "Show notebook source" }));
+    expect((await findEditor("analysis.ipynb")).text()).toBe(changed);
+    cleanup();
+    render(<>{kind.render({ path: "analysis.ipynb" }, handle(), actions, REPO)}</>);
+    expect((await findEditor("analysis.ipynb")).text()).toBe(changed);
+    cleanup();
+    render(<>{kind.render({ path: "notes.md" }, handle(), actions, REPO)}</>);
+    expect((await findEditor("notes.md")).text()).toBe("# Markdown source");
+    expect(screen.getByRole("button", { name: "Show rendered markdown" })).toBeTruthy();
+  });
+
+  it("keeps broken notebook JSON accessible and previews a repair from the source buffer", async () => {
+    setClientStorage(createMemoryStorage());
+    const { host, kind, actions } = setup({ "broken.ipynb": "{broken JSON\n" });
+    render(<>{kind.render({ path: "broken.ipynb" }, handle(), actions, REPO)}</>);
+    expect((await screen.findByRole("alert")).textContent).toContain("not valid JSON");
+    fireEvent.click(screen.getByRole("button", { name: "Show notebook source" }));
+    const editor = await findEditor("broken.ipynb");
+    expect(editor.text()).toBe("{broken JSON\n");
+    editor.replace(JSON.stringify({ nbformat: 4, cells: [{ cell_type: "markdown", source: "# Repaired" }] }));
+    fireEvent.click(screen.getByRole("button", { name: "Show rendered notebook" }));
+    expect(await screen.findByRole("heading", { name: "Repaired" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(host.writes).toEqual([]);
+  });
+
+  it("refuses to parse a notebook's truncated JSON prefix and leaves its loaded source readable", async () => {
+    setClientStorage(createMemoryStorage());
+    const source = JSON.stringify({ nbformat: 4, cells: [] });
+    const { host, kind, actions } = setup({ "large.ipynb": source });
+    const original = host.invoke.getMockImplementation()!;
+    host.invoke.mockImplementation(async (extensionId, command, input) => {
+      const response = await original(extensionId, command, input);
+      return command === "notebook" ? parseNotebook(source, { truncated: true }) : command === "read" ? { ...response as UiFileContent, size: 12 * 1024 * 1024, truncated: true } : response;
+    });
+    render(<>{kind.render({ path: "large.ipynb" }, handle(), actions, REPO)}</>);
+    expect((await screen.findByRole("alert")).textContent).toContain("only partly loaded");
+    expect(screen.queryByText("This notebook is empty.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show notebook source" }));
+    const editor = await findEditor("large.ipynb");
+    expect(editor.text()).toBe(source);
+    expect(editor.view.state.readOnly).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Save/u })).toBeNull();
+    expect(host.writes).toEqual([]);
   });
 
   it("draws a CSV as a table and an HTML page in a frame that runs nothing", async () => {

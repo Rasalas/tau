@@ -190,3 +190,19 @@ describe("writing the cache", () => {
     expect(phone.peek("pr-view", { url })).toBeUndefined();
   });
 });
+
+it("keeps a saved maintainer setting in the offline cache when an older read finishes late", async () => {
+  const cache = new PullRequestCache(createMemoryStorage());
+  let finish!: (value: unknown) => void;
+  const stale = new Promise<unknown>((resolve) => { finish = resolve; });
+  const current = { ref: { url }, maintainerCanModify: false };
+  const transport = { invoke: vi.fn(async (command: string) => command === "pr-view" ? stale : current), onEvent: () => () => undefined };
+  const client = pullRequestClient(transport, cache);
+  const read = client.view(url);
+  await client.update(url, { maintainerCanModify: false, expectedMaintainerCanModify: true });
+  finish({ ref: { url }, maintainerCanModify: true });
+  await read;
+  cache.setConnected(false);
+  expect((await client.view(url)).maintainerCanModify).toBe(false);
+  cache.stop();
+});

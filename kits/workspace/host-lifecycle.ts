@@ -992,7 +992,7 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
   const turns: HostTurnObserver = {
     accepted: (sessionId, turnId, { deferBefore, expectsInput }) => {
       const record = features.get(sessionId);
-      if (!record) return;
+      if (!record || isScratchWorkspace(services.stateDir, record.cwd)) return;
       record.deferred.set(turnId, deferBefore);
       record.feature.runtime.acceptUserTurn(turnId, { deferBefore, ...(expectsInput === undefined ? {} : { expectsInput }) });
     },
@@ -1018,9 +1018,8 @@ export function createWorkspaceKitLifecycle(services: HostExtensionServices, opt
   };
 
   const runtimeExtension: RuntimeExtensionFactory = (pi, session) => {
-    if (isScratchWorkspace(services.stateDir, session.cwd)) return;
     const record = featureFor(session.sessionId, session.cwd);
-    return record.feature.createPiExtension({ nextTurnId: randomUUID, findAssistantAnchor: assistantAnchorForMessage })(pi);
+    return record.feature.createPiExtension({ nextTurnId: randomUUID, findAssistantAnchor: assistantAnchorForMessage, enabled: () => !isScratchWorkspace(services.stateDir, session.cwd) })(pi);
   };
 
   const attachedInvoke = (sessionId: string, command: string, input: unknown) =>

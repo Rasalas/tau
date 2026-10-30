@@ -4,7 +4,7 @@
   "description": "Saved prompts run on a schedule or by a webhook from Tau, GitHub, Stripe or curl, in a new or an existing thread. Agents can propose automations; the owner approves them.",
   "icon": "CalendarClock",
   "version": "1.0.0",
-  "engines": { "api": "^1.74.0" },
+  "engines": { "api": "^1.80.0" },
   "permissions": ["sessions", "workspace:read", "network", "process", "runtime:extend"],
   "isolation": "in-process",
   "host": "./host.ts",

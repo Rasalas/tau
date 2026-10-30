@@ -114,6 +114,24 @@ export function mergeCodexSnapshot(previous: CodexRateSnapshot | undefined, upda
   };
 }
 
+/** Token ticks repeat cached windows. Publish only changes so they cannot undo a newer account read. */
+export function codexSnapshotUpdate(previous: CodexRateSnapshot | undefined, update: unknown): CodexRateSnapshot | undefined {
+  const next = snapshotOf(update);
+  if (!next || (next.limitId && next.limitId !== "codex")) return undefined;
+  const merged = mergeCodexSnapshot(previous, next);
+  const before = codexLimitWindows(previous);
+  const after = codexLimitWindows(merged);
+  const changed: CodexRateSnapshot = {};
+  if (next.planType != null && next.planType !== previous?.planType) changed.planType = next.planType;
+  for (const id of ["primary", "secondary"] as const) {
+    if (next[id] === undefined) continue;
+    const oldWindow = before.find((window) => window.id === id);
+    const newWindow = after.find((window) => window.id === id);
+    if (JSON.stringify(oldWindow) !== JSON.stringify(newWindow)) changed[id] = next[id];
+  }
+  return Object.keys(changed).length > 0 ? { ...changed, ...(next.limitId != null ? { limitId: next.limitId } : {}) } : undefined;
+}
+
 /** The official read response reports reset credits separately from quota windows. */
 export function codexResetCredits(response: unknown, now = Date.now()): LimitAccount["resetCredits"] {
   const summary = (response as { rateLimitResetCredits?: { availableCount?: unknown; credits?: Array<{ status?: string; expiresAt?: number | null }> } } | undefined)?.rateLimitResetCredits;

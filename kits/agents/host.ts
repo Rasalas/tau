@@ -1224,15 +1224,42 @@ export function createAgentsHostExtension(options: {
       };
 
       /**
-       * Stops a child and, after it, everything below it: its own turn first, so
-       * it starts nothing more, then each of its agents the same way. A finished
-       * one stays as it is.
+       * Holds admission throughout the subtree, then stops each running turn.
+       * A finished child stays as it is.
        */
       const cancelChild = async (parentThreadId: string, input: unknown) => {
-        const result = await cancelOne(parentThreadId, input);
         const link = requireChild(parentThreadId, decodeThreadId(input));
-        const below = await cancelBelow(link.threadId);
-        return below > 0 ? { ...result, alsoStopped: below } : result;
+        holdDescendants(link.threadId);
+        // A failed or hung runtime must not keep its descendants alive.
+        const [result, below] = await Promise.allSettled([
+          cancelOne(parentThreadId, input), cancelBelow(link.threadId),
+        ]);
+        if (result.status === "rejected") throw result.reason;
+        if (below.status === "rejected") throw below.reason;
+        return below.value > 0 ? { ...result.value, alsoStopped: below.value } : result.value;
+      };
+
+      /** Block admission and result delivery throughout the subtree before any stop awaits. */
+      const holdDescendants = (threadId: string | undefined) => {
+        if (!threadId || stoppedParents.has(threadId)) return;
+        stoppedParents.add(threadId);
+        for (const child of book.childrenOf(threadId)) {
+          expecting.delete(child.id);
+          holdDescendants(child.threadId);
+        }
+      };
+
+      const stopRuntime = async (stop: () => Promise<unknown>) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            Promise.resolve().then(stop),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => reject(new Error("The sub-agent's runtime did not confirm Stop within 30 seconds. Inspect its thread before sending more work.")), 30_000);
+              timer.unref?.();
+            }),
+          ]);
+        } finally { clearTimeout(timer); }
       };
 
       /** Cancels every busy or queued descendant and consumes results still waiting below the thread. */
@@ -1242,17 +1269,19 @@ export function createAgentsHostExtension(options: {
         // Queued ones first: a freed slot would otherwise start one just to stop it.
         const children = book.childrenOf(threadId).sort((left, right) => Number(right.status === "pending") - Number(left.status === "pending"));
         const counts = await Promise.all(children.map(async (child) => {
-          const result = await cancelOne(threadId, { threadId: child.id }).catch((error: unknown) => {
-            services.log("agents.cancel-failed", `${child.id.slice(0, 8)} · ${error instanceof Error ? error.message : String(error)}`);
-          });
-          const below = await cancelBelow(child.threadId, seen);
+          const [result, below] = await Promise.all([
+            cancelOne(threadId, { threadId: child.id }).catch((error: unknown) => {
+              services.log("agents.cancel-failed", `${child.id.slice(0, 8)} · ${error instanceof Error ? error.message : String(error)}`);
+            }),
+            cancelBelow(child.threadId, seen),
+          ]);
           return (result?.cancelled ? 1 : 0) + below;
         }));
         return counts.reduce((total, count) => total + count, 0);
       };
 
       /** Stops one child: a queued one never starts, a running one ends its turn. */
-      const cancelOne = async (parentThreadId: string, input: unknown) => {
+      const cancelOneOnce = async (parentThreadId: string, input: unknown) => {
         const link = requireChild(parentThreadId, decodeThreadId(input));
         const handle = link.threadId ?? link.id;
         expecting.delete(link.id);
@@ -1273,7 +1302,7 @@ export function createAgentsHostExtension(options: {
         }
         if (link.machine?.link && isBusyStatus(link.status)) {
           changed(link.id, book.noteCancelled(link.id, Date.now()));
-          await remote.abort(link.id);
+          await stopRuntime(() => remote.abort(link.id));
           void pump(parentThreadId);
           return { threadId: handle, status: book.linkFor(link.id)?.status ?? "cancelled", cancelled: true };
         }
@@ -1285,9 +1314,22 @@ export function createAgentsHostExtension(options: {
         }
         if (!services.sessions.abort) throw new Error("This Tau cannot stop another thread's turn; it needs extension API 1.11.0.");
         changed(link.id, book.noteCancelled(link.id, Date.now()));
-        await services.sessions.abort(link.threadId);
+        await stopRuntime(() => services.sessions.abort!(link.threadId!));
         void pump(parentThreadId);
         return { threadId: handle, status: book.linkFor(link.id)?.status ?? "cancelled", cancelled: true };
+      };
+
+      // sessions.abort invokes stop observers again. Share the whole operation,
+      // including notices and hooks, when that observer reaches the same child.
+      const stoppingChildren = new Map<string, ReturnType<typeof cancelOneOnce>>();
+      const cancelOne = (parentThreadId: string, input: unknown): ReturnType<typeof cancelOneOnce> => {
+        const link = requireChild(parentThreadId, decodeThreadId(input));
+        const existing = stoppingChildren.get(link.id);
+        if (existing) return existing;
+        const stopping = Promise.resolve().then(() => cancelOneOnce(parentThreadId, input))
+          .finally(() => { stoppingChildren.delete(link.id); });
+        stoppingChildren.set(link.id, stopping);
+        return stopping;
       };
 
       /** Resolves when the agent's turn ended, it asked the user something, or it failed. */
@@ -1663,15 +1705,7 @@ export function createAgentsHostExtension(options: {
           stopped: async (sessionId) => {
             settleExpectedTurns(sessionId);
             // Block every descendant's pump and result before cancellation awaits disk or a runtime.
-            const hold = (threadId: string) => {
-              if (stoppedParents.has(threadId)) return;
-              stoppedParents.add(threadId);
-              for (const child of book.childrenOf(threadId)) {
-                expecting.delete(child.id);
-                if (child.threadId) hold(child.threadId);
-              }
-            };
-            hold(sessionId);
+            holdDescendants(sessionId);
             const count = await cancelBelow(sessionId);
             return count > 0 ? [`stopped ${count === 1 ? "a sub-agent" : `${count} sub-agents`}`] : undefined;
           },

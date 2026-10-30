@@ -31,6 +31,15 @@ function externalThread() {
 }
 
 describe("ThreadProjection for a backend without a journal", () => {
+  it("generates the public tool contract from canonical history and live previews", () => {
+    const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => undefined);
+    const thread = externalThread();
+    const tool = { id: "private-id", name: "Bash", args: { password: "PRIVATE INPUT" }, status: "running" as const, startedAt: 1 };
+    thread.adapterActivity = [{ id: "private-turn", status: "running", tools: [tool] }];
+    thread.tools.set(tool.id, { ...tool, output: "Live preview" });
+    expect(projection.publicTools(thread, { includeOutput: false })).toEqual({ tools: [{ name: "Bash", status: "running" }], truncated: false });
+    expect(projection.publicTools(thread, { includeOutput: true })).toEqual({ tools: [{ name: "Bash", status: "running", output: "Live preview" }], truncated: false });
+  });
   it("shows a steer sent while an answer streamed below that answer, as the live view did", () => {
     const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => undefined);
     const thread = externalThread();
@@ -124,6 +133,40 @@ describe("ThreadProjection catalog", () => {
 });
 
 describe("ThreadProjection transcript", () => {
+  it("retains sanitized public tool activity when a conversation switches to Pi", () => {
+    const entries = [
+      { type: "message", id: "a", message: { role: "assistant", content: [{ type: "toolCall", id: "current", name: "bash", arguments: {} }], timestamp: 2 } },
+      { type: "message", id: "r", message: { role: "toolResult", toolCallId: "current", content: [{ type: "text", text: "Current result" }], timestamp: 3 } },
+    ];
+    const thread = piThread(() => entries);
+    thread.backend.capabilities.conversation = { history: () => [], offset: 0, activity: () => [{
+      id: "inherited-turn", status: "completed", tools: [
+        { id: "inherited", name: "Bash", status: "done", args: { secret: "PRIVATE" }, startedAt: 1, output: "Previous result" },
+        { id: "private", name: "request_secret_file", status: "done", args: {}, startedAt: 1, output: "PRIVATE" },
+      ],
+    }] };
+    const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => undefined);
+    expect(projection.publicTools(thread, { includeOutput: false })).toEqual({ tools: [
+      { name: "Bash", status: "done" }, { name: "bash", status: "done" },
+    ], truncated: false });
+    expect(projection.publicTools(thread, { includeOutput: true })).toEqual({ tools: [
+      { name: "Bash", status: "done", output: "Previous result" }, { name: "bash", status: "done", output: "Current result" },
+    ], truncated: false });
+  });
+
+  it("generates public Pi tools without returning raw branch fields or hidden tool answers", () => {
+    const entries = [
+      { type: "message", id: "u", message: { role: "user", content: "Hi", timestamp: 1 } },
+      { type: "message", id: "a", message: { role: "assistant", content: [{ type: "thinking", thinking: "PRIVATE" }, { type: "toolCall", id: "t", name: "bash", arguments: { password: "PRIVATE" } }, { type: "toolCall", id: "s", name: "mcp__tau__request_secret_file", arguments: {} }, { type: "toolCall", id: "h", name: "computer_use_window", arguments: {} }], timestamp: 2 } },
+      { type: "message", id: "r", message: { role: "toolResult", toolCallId: "t", content: [{ type: "text", text: "Visible result" }], details: { secret: "PRIVATE" }, timestamp: 3 } },
+      { type: "message", id: "s-r", message: { role: "toolResult", toolCallId: "s", toolName: "bash", content: [{ type: "text", text: "PRIVATE SECRET FILE" }], timestamp: 3 } },
+      { type: "message", id: "h-r", message: { role: "toolResult", toolCallId: "h", toolName: "read", content: [{ type: "text", text: "PRIVATE HIDDEN RESULT" }], timestamp: 3 } },
+    ];
+    const projection = new ThreadProjection(new ClientTurnLedger(), () => undefined, new Set(), () => ({}) as never, () => undefined);
+    const result = projection.publicTools(piThread(() => entries), { includeOutput: true });
+    expect(result).toEqual({ tools: [{ name: "bash", status: "done", output: "Visible result" }, { name: "computer_use_window", status: "done" }], truncated: false });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE");
+  });
   it("recomputes pins after a provider reload while the journal stays unchanged", () => {
     const original = vi.fn(() => ["old-anchor"]);
     const replacement = vi.fn(() => ["new-anchor"]);

@@ -67,8 +67,8 @@ export async function runtimeItems(actions: WorkbenchActions): Promise<PaletteIt
     const state = runtimeState(catalog);
     return {
       id: backend.kind,
-      label: state.label,
-      ...(state.detail ? { detail: state.detail } : {}),
+      label: backend.label,
+      detail: [state.label, state.detail].filter(Boolean).join(" · "),
       icon: <ProviderIconStack runtimeProvider={backend.kind} />,
       keywords: [backend.label, backend.kind, "runtime"],
       current: draft && backend.kind === home,

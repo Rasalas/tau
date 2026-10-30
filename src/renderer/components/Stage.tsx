@@ -67,7 +67,9 @@ function OriginFileViewer({ registry, workspace, ...props }: ComponentProps<type
     return from && source?.loadMedia ? (path: string) => source.loadMedia!(path, { workspace: from }) : undefined;
   }, [client, source, origin, workspace]);
   const foreign = origin !== undefined && !actionableStageTab(props.tab, workspace, source?.id);
-  return <FileViewer {...props} loadFile={loadFile} loadMedia={loadMedia} loadDiff={loadDiff} {...(origin !== undefined ? { relativePath: props.tab.path } : {})} {...(foreign ? { changed: false, editor: undefined, commands: [] } : {})} />;
+  const previewWorkspace = origin === undefined ? workspace : origin && source?.id === origin.sourceId ? origin.workspace : undefined;
+  const preview = previewWorkspace ? source?.renderPreview?.(props.tab.path, { workspace: previewWorkspace }) : undefined;
+  return <FileViewer {...props} preview={preview} loadFile={loadFile} loadMedia={loadMedia} loadDiff={loadDiff} {...(origin !== undefined ? { relativePath: props.tab.path } : {})} {...(foreign ? { changed: false, editor: undefined, commands: [] } : {})} />;
 }
 
 export function Stage({

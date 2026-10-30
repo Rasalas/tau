@@ -70,10 +70,16 @@ export function usePullRequest(client: PullRequestClient, url: string) {
     files: client.cache?.peek<PullRequestFiles>("pr-files", { url })?.value,
   }));
   const alive = useRef(true);
+  const detailRevision = useRef(0);
+  const detailRequest = useRef(0);
   const updatedAt = useRef<string | undefined>(undefined);
   const filesWanted = useRef(Boolean(data.files));
   const lastRead = useRef(0);
-  const patch = useCallback((next: Partial<PullRequestViewData>) => { if (alive.current) setData((current) => ({ ...current, ...next })); }, []);
+  const patch = useCallback((next: Partial<PullRequestViewData>) => {
+    if (!alive.current) return;
+    if (next.detail) detailRevision.current++;
+    setData((current) => ({ ...current, ...next }));
+  }, []);
 
   const loadThreads = useCallback(async (fresh: boolean) => {
     try { patch({ threads: await client.threads(url, fresh), threadsError: undefined }); } catch (error) { patch({ threadsError: errorMessage(error) }); }
@@ -89,8 +95,11 @@ export function usePullRequest(client: PullRequestClient, url: string) {
   }, [client, patch, url]);
 
   const loadDetail = useCallback(async (fresh: boolean) => {
+    const revision = detailRevision.current;
+    const request = ++detailRequest.current;
     try {
       const detail = await client.view(url, fresh);
+      if (revision !== detailRevision.current || request !== detailRequest.current) return;
       const moved = updatedAt.current !== undefined && detail.updatedAt !== updatedAt.current;
       updatedAt.current = detail.updatedAt;
       patch({ detail, detailError: undefined });
@@ -99,7 +108,7 @@ export function usePullRequest(client: PullRequestClient, url: string) {
         if (filesWanted.current) void loadFiles(true);
       }
     } catch (error) {
-      patch({ detailError: errorMessage(error) });
+      if (revision === detailRevision.current && request === detailRequest.current) patch({ detailError: errorMessage(error) });
     }
   }, [client, loadFiles, loadThreads, patch, url]);
 
@@ -337,7 +346,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
               <RefreshCw size={13} />
             </button>
           </>}
-          <PullRequestHeaderActions detail={detail} checks={checks} client={client} actions={actions} preferences={shared.preferences} threadId={threadId} writes={writes} extra={phoneSteps}
+          <PullRequestHeaderActions key={detail.ref.url} detail={detail} checks={checks} client={client} actions={actions} preferences={shared.preferences} threadId={threadId} writes={writes} extra={phoneSteps}
             onDetail={(next) => { setData({ detail: next }); void loadChecks(); }} onPickThread={() => setPicking(true)} />
         </div>
         {condensed ? null : (
@@ -389,7 +398,7 @@ export function PullRequestView({ params, handle, actions, client, chips, rows, 
         <span className="spacer" />
         {tab === "summary" ? (
           <span className="pr-tab-context" aria-label="Checks summary">
-            {rollup ? <RollupIcon rollup={rollup} /> : null}
+            {rollup ? <RollupIcon rollup={rollup} required={checks.some((check) => check.required === true)} /> : null}
             {checksSummary(checks)}
           </span>
         ) : null}

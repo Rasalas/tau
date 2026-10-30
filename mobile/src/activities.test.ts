@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { HostEvent } from "../../src/shared/contracts";
 import { followActivities, type ActivityPort } from "./activities";
 import type { UsageLimitAccount } from "../../kits/usage/protocol";
+import { nativeAppVisibility } from "./app-visibility";
 
 const NOW = 1_800_000;
 const account = (patch: Partial<UsageLimitAccount> = {}): UsageLimitAccount => ({ id: "private-id", runtime: "codex", label: "Codex", checkedAt: NOW, windows: [{ id: "session", kind: "session", label: "Session", usedPercent: 40 }], identity: { provider: "openai", key: "hashed-account" }, ...patch });
@@ -59,29 +60,33 @@ describe("widget snapshots", () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it("rests the two-minute beat while the app is in the background and catches up on return", async () => {
+  it("rests the two-minute beat on native background events and catches up on return", async () => {
     vi.useFakeTimers();
     try {
-      let shown = true;
-      let changed!: () => void;
+      let appState!: (state: { isActive: boolean }) => void;
+      const visibility = await nativeAppVisibility({
+        getState: async () => ({ isActive: true }),
+        addListener: async (_event, listener) => { appState = listener; return { remove: async () => {} }; },
+      });
       const native = port();
       const limits = vi.fn(async () => ({ checkedAt: NOW, accounts: [], sources: [] }));
       const follow = followActivities("host-a", {
         onHostEvent: () => () => undefined,
         bootstrap: vi.fn(async () => { throw Error("offline"); }),
         invokeHostExtension: vi.fn(async (extension: string) => { if (extension === "tau.usage") return limits(); throw Error("missing kit"); }),
-      }, native, () => NOW, "", { visible: () => shown, subscribe: (listener) => { changed = listener; return () => undefined; } });
+      }, native, () => NOW, "", visibility);
       await vi.advanceTimersByTimeAsync(500);
       expect(limits).toHaveBeenCalledOnce();
-      shown = false; changed();
+      appState({ isActive: false });
       await vi.advanceTimersByTimeAsync(10 * 120_000);
       expect(limits).toHaveBeenCalledOnce();
-      shown = true; changed();
+      appState({ isActive: true });
       await vi.advanceTimersByTimeAsync(500);
       expect(limits).toHaveBeenCalledTimes(2);
       await vi.advanceTimersByTimeAsync(120_000);
       expect(limits).toHaveBeenCalledTimes(3);
       follow.stop();
+      visibility.dispose();
     } finally { vi.useRealTimers(); }
   });
 });

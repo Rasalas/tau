@@ -33,7 +33,7 @@ export function evaluateStartBudgets(report, budgets, { timings = true } = {}) {
  * binary as plain Node instead of Electron, so `app.whenReady` never exists.
  */
 export function buildFixtureEnv(baseEnv = process.env) {
-  const env = { ...baseEnv, ELECTRON_IS_DEV: "0" };
+  const env = { ...baseEnv, ELECTRON_IS_DEV: "0", TAU_BENCHMARK_PROFILE_ROOT: baseEnv.TAU_BENCHMARK_PROFILE_ROOT ?? join(ROOT, ".tau-dev", "start-fixture-profiles") };
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
 }

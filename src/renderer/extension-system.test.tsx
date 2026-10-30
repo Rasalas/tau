@@ -1353,3 +1353,14 @@ describe("ExtensionRegistry scoped data", () => {
     expect(other).toHaveBeenCalledTimes(otherCalls);
   });
 });
+
+it("keeps registered focus areas ordered and withdraws them when their extension deactivates", async () => {
+  const registry = new ExtensionRegistry();
+  await registry.activate({ id: "areas", name: "Areas", activate(context) {
+    context.registerFocusArea({ id: "late", order: 80, label: "Later", root: () => null });
+    context.registerFocusArea({ id: "early", order: 60, label: "Earlier", root: () => null });
+  } });
+  expect(registry.getFocusAreas().map((area) => area.id)).toEqual(["early", "late"]);
+  registry.deactivate("areas");
+  expect(registry.getFocusAreas()).toEqual([]);
+});

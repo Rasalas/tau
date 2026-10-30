@@ -21,9 +21,9 @@ export function CheckIcon({ status, size = 13 }: { status: PullRequestCheckStatu
   }
 }
 
-export function RollupIcon({ rollup }: { rollup: ChecksRollup }) {
+export function RollupIcon({ rollup, required = false }: { rollup: ChecksRollup; required?: boolean }) {
   const status: PullRequestCheckStatus = rollup === "failing" ? "failed" : rollup === "pending" ? "pending" : "passed";
-  return <span className="pr-rollup" title={ROLLUP_TITLES[rollup]}><CheckIcon status={status} /></span>;
+  return <span className="pr-rollup" title={required ? ROLLUP_TITLES[rollup].replace("checks", "required checks") : ROLLUP_TITLES[rollup]}><CheckIcon status={status} /></span>;
 }
 
 /** "Pull request [#12](url): title", or "Merge request [!12](url): …" for GitLab. */

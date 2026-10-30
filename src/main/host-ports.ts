@@ -122,6 +122,7 @@ export interface AttachedSessionPort {
 
 /** What the host extension seam may ask of the host. */
 export interface ExtensionServicesPort {
+  readonly conversations?: HostExtensionServices["conversations"];
   readonly background?: HostExtensionServices["background"];
   runtimeChoices?: HostExtensionServices["runtimeChoices"];
   runtimeTools?(action: "state" | "update", input?: { kind: string }): Promise<UiRuntimeToolsState>;
@@ -138,6 +139,7 @@ export interface ExtensionServicesPort {
   admitWorkspace(path: string): WorkspaceRef;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): void;
+  refreshProject?(cwd: string): Promise<void>;
   /** Whether Tau or an attached Pi terminal owns the visible runtime. */
   runtimeOwner(): "tau" | "pi";
   thread(sessionId?: string): HostThread | undefined;
@@ -176,7 +178,7 @@ export interface ExtensionServicesPort {
   removeThread(sessionId: string): Promise<void>;
   restoreThread(sessionId: string): Promise<void>;
   purgeThread(sessionId: string): Promise<void>;
-  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; identity?: ClientTurnIdentity; from?: string; attachments?: UiPromptAttachment[]; wake?: UiWake }): Promise<void>;
+  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; beforeAdmit?: () => void; identity?: ClientTurnIdentity; from?: string; attachments?: UiPromptAttachment[]; wake?: UiWake }): Promise<void>;
   /** Changes a thread's model by id, on or off screen. */
   setThreadModel(sessionId: string, provider: string, id: string): Promise<void>;
   /** Stops a thread's running turn; nothing happens to a thread without a runtime. */
@@ -367,6 +369,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   });
 
   const services: HostExtensionServices = {
+    ...(port.conversations ? { conversations: port.conversations } : {}),
     ...(port.background ? { background: port.background } : {}),
     cwd: () => port.cwd(),
     agentDir: getAgentDir(),
@@ -381,6 +384,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     admitWorkspace: (path) => port.admitWorkspace(path),
     projectName: (cwd) => port.projectName(cwd),
     rememberProjectName: (cwd, name) => port.rememberProjectName(cwd, name),
+    ...(port.refreshProject ? { refreshProject: (cwd: string) => port.refreshProject!(cwd) } : {}),
     pickDirectory: (options) => port.platform.pickDirectory
       ? port.platform.pickDirectory(options)
       : Promise.reject(new Error("This host has no folder picker.")),
@@ -449,6 +453,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         if (sendOptions?.wake && sendOptions.delivery !== "queue") throw new HostCommandError("A wake waits in the queue: send it with delivery \"queue\".");
         return port.sendToThread(sessionId, text, {
           delivery: sendOptions?.delivery ?? "prompt",
+          ...(sendOptions?.beforeAdmit ? { beforeAdmit: sendOptions.beforeAdmit } : {}),
           ...(sendOptions?.from ? { from: sendOptions.from } : {}),
           ...(sendOptions?.attachments ? { attachments: [...sendOptions.attachments] } : {}),
           ...(sendOptions?.identity ? { identity: sendOptions.identity } : {}),

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -6,7 +6,7 @@ import type { UiMessage } from "../shared/contracts.js";
 import { clientMessageFingerprint } from "../shared/client-message-correlation.js";
 import { PiHost } from "./pi-host.js";
 import { ProjectHistory } from "./project-history.js";
-import type { HostBackendOpenContext, HostExtension } from "./host-extensions.js";
+import type { HostBackendOpenContext, HostExtension, HostExtensionServices } from "./host-extensions.js";
 import type { AgentRuntimeAdapter } from "./runtime-adapters.js";
 import type { ThreadBackendPromptInput, ThreadRuntimeBackend } from "./runtime-types.js";
 import { externalThreadPath } from "./pi-host-support.js";
@@ -20,7 +20,9 @@ async function bench() {
   const records = new Map([ ["first", new Map<string, UiMessage[]>([["saved", [{ id: "original", role: "user", text: "Original context", timestamp: 1 }]]])], ["second", new Map<string, UiMessage[]>()] ]);
   const received: Array<{ kind: string; input: ThreadBackendPromptInput }> = [];
   let rejectActivation = false;
+  let services!: HostExtensionServices;
   const kit: HostExtension = { id: "test.switch", name: "Runtime fixtures", permissions: ["runtime:extend", "sessions"], activate(context) {
+    services = context.services;
     context.services.registerThreadLifecycle({ beforeActivate: async thread => { if (rejectActivation && thread.backendKind === "second") throw new Error("fixture activation refused"); } });
     const stops = [...records].map(([kind, sessions]) => {
       const adapter: AgentRuntimeAdapter = { id: kind, capabilities: { skillInvocationDialect: "acp" }, transport: { sendPrompt: async () => ({}) } };
@@ -50,7 +52,7 @@ async function bench() {
     const host = new PiHost(cwd, () => undefined, history, false, false, { dataFolder: root, defaultBackendKind: "first", hostExtensions: [kit], kitStateDir: join(root, "kits"), createModelRuntime: async () => ({ getAvailable: async () => [], getModels: () => [], getModel: () => undefined, isUsingSubscription: () => false }) as never });
     await host.start(); cleanups.push(() => host.dispose()); return host;
   };
-  return { host: await makeHost(), makeHost, received, rejectActivation: () => { rejectActivation = true; } };
+  return { host: await makeHost(), makeHost, received, services: () => services, rejectActivation: () => { rejectActivation = true; } };
 }
 it("switches a conversation in place, retains history after restart, and can switch back", async () => {
   const b = await bench(); await b.host.switchSession(externalThreadPath("first", "saved"));
@@ -77,6 +79,33 @@ it("keeps the conversation when switching through a fresh Pi segment", async () 
   expect(await b.host.snapshot()).toMatchObject({ sessionId: "saved", backendKind: "pi", messages: [expect.objectContaining({ text: "Original context" })] });
   await b.host.switchThreadRuntime("saved", "second");
   expect(await b.host.snapshot()).toMatchObject({ sessionId: "saved", backendKind: "second", messages: [expect.objectContaining({ text: "Original context" })] });
+});
+
+it("exports inherited context and the latest persisted Pi segment without reopening the thread", async () => {
+  const b = await bench(); await b.host.switchSession(externalThreadPath("first", "saved"));
+  await b.host.switchThreadRuntime("saved", "second");
+  await b.host.prompt("External inherited history", [], "saved");
+  await expect.poll(async () => (await b.host.snapshot()).messages.length).toBe(3);
+  await b.host.switchThreadRuntime("saved", "pi");
+  const conversations = b.services().conversations!;
+  const [before] = await conversations.list();
+  expect(before).toMatchObject({ sessionId: "saved", path: expect.stringContaining("runtime-segments") });
+  await appendFile(before!.path, JSON.stringify({ type: "message", id: "new-pi-turn", parentId: null, timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: "Unique Pi segment phrase" }], timestamp: Date.now() } }) + "\n");
+  const [summary] = await conversations.list();
+  expect(summary!.version).not.toBe(before!.version);
+  const contents: string[] = [];
+  let cursor: import("../shared/transcript-cursor.js").HostTranscriptCursor | undefined;
+  for (;;) {
+    const answer = await conversations.page("saved", summary!.version, cursor);
+    expect(answer.status).toBe("ok");
+    if (answer.status !== "ok") throw new Error(answer.status);
+    contents.push(...answer.page.messages.map(message => message.text));
+    if (!answer.page.hasMore) break;
+    cursor = answer.page.olderCursor;
+  }
+  expect(contents).toEqual(expect.arrayContaining(["Original context", "External inherited history", "Unique Pi segment phrase"]));
+  // The live runtime did not reload the independently persisted fixture entry.
+  expect((await b.host.snapshot()).messages.some(message => message.text === "Unique Pi segment phrase")).toBe(false);
 });
 
 it("restores the source when target activation fails", async () => {

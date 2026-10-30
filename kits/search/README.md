@@ -1,38 +1,46 @@
-# Thread content search limits
+# Thread content search
 
-The palette searches user and assistant text, with all query words in one
-message, case-insensitively. Reasoning and tool output stay out of palette search.
-Find in transcript instead matches a literal substring in text or reasoning and
-keeps the newest 2,000 matching message ids. Its structured finder result carries
+The palette searches visible user and assistant text, with all query words in
+one message. Whole words rank above prefixes and substrings. Reasoning and tool
+output stay out of palette search. Opening a message hit resolves its best
+message against the runtime's current ids before navigating there.
+
+Find in transcript matches a literal substring in text or reasoning and keeps
+the newest 2,000 matching message ids. Its structured finder result carries
 `truncated`; older desktop extensions may still return an array of ids.
+Transcript read failures reject the request so the bar can retain loaded
+matches, label them partial, and offer Retry.
 
-Pi palette search keeps the first 400,000 text characters per session, slicing
-an oversized message at the remaining character budget. It reads JSONL in 64 KiB
-chunks, reads at most 8 MB per file and 32 MB per query, and skips records over
-4 MB rather than accumulating an unbounded JSON line. A skipped record, unread
-suffix, file error, result limit, or the 400-session scan limit makes the result
-partial. A zero from a partial search does not establish absence. The palette
-shows a partial-search row even when there are no matches.
+The machine-local message index streams Pi sessions and versioned runtime
+exports to disk. Completed generations include older sessions and the middle
+of large messages without retaining whole sessions in RAM. Runtime exports
+arrive in pages of at most 64,000 characters. A changed or failed export never
+publishes a half-written generation. Older runtime providers expose only their
+legacy prefix, which remains partial coverage.
 
-The Pi text cache retains at most 400 entries and 4,000,000 characters across
-sessions, evicting
-the least recently used entries. Eviction does not remove a session from search:
-its text can be reread. File reads run one at a time across queries. Cancellation
-stops queued reads and checks between chunks; cancelled results are not cached.
-Metadata is shared across concurrent queries and reused for five seconds, then
-session paths are listed and statted again with at most eight stats in flight.
-Turn completion, reset, deletion, fork, and the `invalidate` command clear metadata
-and text immediately. Changed size or
-mtime invalidates a cached file after that metadata refresh; additions/deletions
-also become visible then. No background scan or watcher is installed.
+While the index is unavailable or disabled, Pi search uses bounded cold reads.
+It keeps the first 400,000 text characters per session, slicing an oversized
+message at the remaining budget. Reads use 64 KiB chunks, stop at 8 MB per file
+and 32 MB per query, and skip records larger than 4 MB. At most 400 admitted
+sessions are scanned, newest first. A skipped record, unread suffix, file error,
+result limit, or remaining session makes coverage partial. A zero from a
+partial search does not establish absence. The palette shows a partial-search
+row even when there are no matches.
 
-Other runtimes keep their existing delta index and export limits. The palette
-also marks that index partial when more pages remain, text was evicted, or a
-thread reaches the runtime export's 64,000-character cap. Reaching that cap is
-conservatively partial even if the full text happens to be exactly that length.
+The cold text cache retains at most 400 entries and 4,000,000 characters across
+sessions, evicting the least recently used entries. Evicted text can be reread.
+File reads run one at a time across queries. Cancellation stops queued reads
+and checks between chunks; cancelled results are not cached. Metadata is
+shared across concurrent queries and reused for five seconds, with at most
+eight stats in flight. Turn completion, reset, deletion, fork, and the
+`invalidate` command clear cold metadata and text. Thread lifecycle events also
+refresh the persistent index.
 
-The host's `threads` command still returns an array by default. New clients send
-`includeStatus: true` to receive `{ matches, truncated, cancelled?, error? }`.
-A window supplies a `channel` so a newer query cancels its previous one without
-cancelling another window. Transcript read failures reject the find request;
-the bar retains loaded matches, labels them partial, and offers Retry.
+The palette uses `thread-search` continuation pages so a cold search can return
+useful matches while work continues. `complete` describes job completion;
+`truncated` and `error` describe coverage even after a job finishes. The legacy
+`threads` command returns an array by default. Callers can send
+`includeStatus: true` for `{ matches, truncated, cancelled?, error? }`. Both
+protocols use a per-window `channel` to cancel superseded work without
+cancelling another window. The active transcript takes precedence over stored
+text when its runtime is available.

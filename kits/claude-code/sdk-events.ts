@@ -1,5 +1,6 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { authenticationFailure } from "./auth-failure.js";
+import { interruptedResult, isSuccessfulResult, resultErrorText } from "./result-error.js";
 import type { ThreadRuntimeEvent, UiContextUsage, UiMessage, UiThreadUsage, UiToolRun, UsageTally } from "tau/host-extension";
 
 /** Matches the host's own bound for a tool card; the durable result stays with Claude's session. */
@@ -29,15 +30,6 @@ export interface TurnOutcome {
   interrupted?: boolean;
   /** A usage limit stopped the turn; the reset in epoch ms when the CLI named one. */
   limit?: { resetsAt?: number };
-}
-
-/** The CLI reports a stopped turn as an error result; its diagnostics are not for the user. */
-function interruptedResult(message: ResultMessage): boolean {
-  const reason = (message as { terminal_reason?: string }).terminal_reason;
-  if (reason === "aborted_streaming" || reason === "aborted_tools") return true;
-  const errors = (message as { errors?: unknown }).errors;
-  if (!Array.isArray(errors) || errors.length === 0) return false;
-  return errors.every((error) => typeof error === "string" && (/^\[ede_diagnostic\]/u.test(error) || /interrupted|aborted/iu.test(error)));
 }
 
 export interface SdkSessionFacts {
@@ -184,15 +176,6 @@ function writesUpdatesAsThinking(model: string | undefined): boolean {
 }
 
 const CONTEXT_FULL_HINT = "\nThe context window is full. Compact the conversation or start a new thread.";
-
-function resultErrorText(message: ResultMessage): string {
-  const candidate = message as { subtype: string; result?: unknown; errors?: unknown };
-  const parts = [
-    ...(Array.isArray(candidate.errors) ? candidate.errors.map(String) : []),
-    typeof candidate.result === "string" ? candidate.result : "",
-  ].map((part) => part.trim()).filter(Boolean);
-  return parts.join("\n") || candidate.subtype;
-}
 
 function formatWait(resetsAtSeconds: number, now: number): string {
   const seconds = Math.max(0, Math.round(resetsAtSeconds - now / 1000));
@@ -368,10 +351,10 @@ export class SdkTurnTranslator {
   }
 
   private result(message: ResultMessage): ThreadRuntimeEvent[] {
-    if (message.subtype !== "success" || message.is_error || (this.compacting && this.compactionError)) {
-      // `blocking_limit` also ends a turn whose context window is full; only a rejected window is a usage limit.
-      const reason = (message as { terminal_reason?: string }).terminal_reason;
-      const limit = this.rejected;
+    if (!isSuccessfulResult(message) || (this.compacting && this.compactionError)) {
+      // `blocking_limit` also means full context; a rejected window or HTTP 429 proves a usage limit.
+      const reason = message.terminal_reason;
+      const limit = this.rejected ?? (message.subtype === "success" && message.api_error_status === 429 ? {} : undefined);
       const full = !limit && (reason === "blocking_limit" || reason === "prompt_too_long");
       const tallies = resultTallies(message, this.facts.model);
       this.outcome = interruptedResult(message)

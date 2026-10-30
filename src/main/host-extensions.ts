@@ -275,6 +275,8 @@ export class HostExtensionRegistry {
   private readonly known = new Map<string, HostExtension>();
   /** Host-issued contexts are valid only while their activation is alive. */
   private readonly invocationContexts = new Map<string, { extensionId: string; record?: ActiveHostExtension }>();
+  /** In-process subscribers; the publishing id comes from its live activation. */
+  private readonly eventObservers = new Map<string, Set<(payload: unknown) => void>>();
   /** Contexts of stopped kit instances, newest last: a leftover call they make is still refused, but names its kit. */
   private readonly retiredContexts = new Map<string, string>();
   private readonly failures = new Map<string, string>();
@@ -392,11 +394,25 @@ export class HostExtensionRegistry {
         record.disposers.push(dispose);
         return dispose;
       },
+      observeExtensionEvent: (source, name, listener) => {
+        if (!EXTENSION_ID.test(source) || !COMMAND_NAME.test(name)) throw new Error("Invalid extension event.");
+        if (this.invocationContexts.get(invocationContextId)?.record !== record) throw new Error("Extension activation has ended.");
+        const key = `${source}/${name}`;
+        const guarded = (payload: unknown) => { if (this.active.get(extension.id) === record) listener(payload); };
+        const observers = this.eventObservers.get(key) ?? new Set<(payload: unknown) => void>();
+        observers.add(guarded); this.eventObservers.set(key, observers);
+        const release = () => { observers.delete(guarded); if (!observers.size) this.eventObservers.delete(key); };
+        record.disposers.push(release);
+        return release;
+      },
       emit: (name, payload, options) => {
         if (this.active.get(extension.id) !== record) return;
         const topic = options?.topic;
         if (topic !== undefined && !(typeof topic === "string" && topic.length > 0 && topic.length <= MAX_TOPIC_LENGTH)) {
           throw new Error(`Host extension ${extension.id}: a topic is a string of 1 to ${MAX_TOPIC_LENGTH} characters`);
+        }
+        for (const listener of this.eventObservers.get(`${extension.id}/${name}`) ?? []) {
+          try { listener(payload); } catch { this.services.log("host-extension.event-observer-failed", extension.id); }
         }
         this.publish({ type: "extension-event", extensionId: extension.id, name, payload, ...(topic === undefined ? {} : { topic }) });
       },

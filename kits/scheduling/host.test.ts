@@ -360,6 +360,32 @@ it("stops an overdue run even with automations off, preserves the timeout throug
   expect(h.abort).toHaveBeenCalledTimes(1);
 });
 
+it("stops an overdue scheduled run promptly after sleep even with automations off", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-03T08:00:00Z"));
+  const h = await harness();
+  const job = await h.call("create", { ...config, maxDurationMinutes: 60 }) as { id: string };
+  await h.call("set-enabled", { enabled: true }); await h.call("run", { id: job.id });
+  h.busyThreads.add("thread-1");
+  await h.call("set-enabled", { enabled: false });
+  // Sleep advances the wall clock without running timer callbacks.
+  vi.setSystemTime(new Date("2026-10-03T10:00:00Z"));
+  await vi.advanceTimersByTimeAsync(30_000);
+  await vi.waitFor(async () => expect(await h.call("list")).toMatchObject({ jobs: [{ status: "failed", lastRun: { outcome: "failed" } }] }));
+  expect(h.abort).toHaveBeenCalledExactlyOnceWith("thread-1");
+});
+
+it("rechecks the deadline instead of stopping early when the clock moves backward", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-03T08:00:00Z"));
+  const h = await harness();
+  const job = await h.call("create", { ...config, maxDurationMinutes: 1 }) as { id: string };
+  await h.call("set-enabled", { enabled: true }); await h.call("run", { id: job.id });
+  vi.setSystemTime(new Date("2026-10-03T07:59:00Z"));
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(h.abort).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(60_000);
+  await vi.waitFor(() => expect(h.abort).toHaveBeenCalledExactlyOnceWith("thread-1"));
+});
+
 
 it.each(["full", "ask", "auto", "read-only"])("reads and saves the new-thread default %s when no access level was chosen", async (level) => {
   const h = await harness();

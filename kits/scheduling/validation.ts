@@ -1,6 +1,8 @@
 import { HostCommandError } from "tau/host-extension";
 import { CRON_MAX_LENGTH, knownTimeZone, parseCron } from "./cron.js";
 import { WEBHOOK_FORMATS, type AccessLevel, type JobConfig, type RunTarget, type WebhookFormat } from "./protocol.js";
+import { decodeWebhookCoalescing } from "./webhook-coalescing.js";
+import { decodeWebhookFilters } from "./webhook-filters.js";
 
 export function object(input: unknown, keys: string[]): Record<string, unknown> {
   if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !keys.includes(key))) throw new HostCommandError("Invalid scheduling input.");
@@ -41,13 +43,17 @@ export function decodeConfig(input: unknown): JobConfig {
   const backend = text(v.backend, "Runtime backend", 128);
   if (!/^[a-z0-9][a-z0-9@._-]*$/u.test(backend) || backend === "machine" || backend.startsWith("machine@")) throw new HostCommandError("Select a local runtime backend.");
   const prompt = text(v.prompt, "Prompt", 16_384);
-  const s = object(v.schedule, ["kind", "at", "time", "timezone", "expression", "format", "includePayload"]);
+  const s = object(v.schedule, ["kind", "at", "time", "timezone", "expression", "format", "includePayload", "filters", "coalescing"]);
   if (s.kind === "webhook") {
-    object(s, ["kind", "format", "includePayload"]);
+    object(s, ["kind", "format", "includePayload", "filters", "coalescing"]);
     if (s.format !== undefined && !WEBHOOK_FORMATS.includes(s.format as WebhookFormat)) throw new HostCommandError("Webhook format must be tau, github, stripe or bearer.");
     if (s.includePayload !== undefined && typeof s.includePayload !== "boolean") throw new HostCommandError("includePayload must be a boolean.");
     const format = s.format as WebhookFormat | undefined;
-    return { ...execution, name, workspace, backend, prompt, schedule: { kind: "webhook", ...(format && format !== "tau" ? { format } : {}), ...(s.includePayload === true ? { includePayload: true } : {}) } };
+    try {
+      const filters = s.filters === undefined ? {} : { filters: decodeWebhookFilters(s.filters) };
+      const coalescing = s.coalescing === undefined ? {} : { coalescing: decodeWebhookCoalescing(s.coalescing) };
+      return { ...execution, name, workspace, backend, prompt, schedule: { kind: "webhook", ...(format && format !== "tau" ? { format } : {}), ...(s.includePayload === true ? { includePayload: true } : {}), ...filters, ...coalescing } };
+    } catch (error) { throw new HostCommandError((error as Error).message); }
   }
   if (s.kind === "once") {
     object(s, ["kind", "at"]);

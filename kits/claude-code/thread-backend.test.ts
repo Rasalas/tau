@@ -117,6 +117,40 @@ function scriptedAdapter(filePath: string, script: Script, version = "2.1.263") 
 }
 
 describe("thread runtime backends", () => {
+  it("settles an unflagged final API failure as an error and reuses the SDK session for recovery", async () => {
+    const { filePath, store } = await scratchStore();
+    const detail = "API Error: 400 Request rejected by a safeguard.";
+    const signals: AbortSignal[] = [];
+    const query = ((params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => {
+      signals.push(params.options.abortController!.signal);
+      async function* run(): AsyncGenerator<SDKMessage> {
+        yield init();
+        for await (const message of params.prompt) {
+          yield message.message.content === "Retry"
+            ? result("Recovered", { user_message_uuids: [message.uuid] })
+            : result(`  ${detail}\n`, { terminal_reason: "api_error", api_error_status: 400, user_message_uuids: [message.uuid] });
+        }
+      }
+      return Object.assign(run(), { interrupt: async () => undefined }) as unknown as ReturnType<ClaudeQuery>;
+    }) as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath, query });
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("terminal-api-error", WORKSPACE, { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+    try {
+      await backend.start("create");
+      await expect(backend.prompt({ text: "Try", delivery: "prompt" })).rejects.toThrow(detail);
+      expect(events.filter((event) => event.type === "turn-settled")).toEqual([{ type: "turn-settled", status: "error", error: detail }]);
+      expect(signals[0]!.aborted).toBe(false);
+      expect((await store.get("terminal-api-error"))?.lastAttemptOutcome).toBe("failed");
+      await expect(backend.prompt({ text: "Retry", delivery: "prompt" })).resolves.toMatchObject({ assistantText: "Recovered" });
+      expect(signals).toHaveLength(1);
+      expect(events.filter((event) => event.type === "turn-settled")).toEqual([
+        { type: "turn-settled", status: "error", error: detail },
+        { type: "turn-settled", status: "completed" },
+      ]);
+    } finally { await backend.dispose(); }
+  });
+
   it("keeps the cumulative baseline across a resumed CLI and a reloaded store", async () => {
     const { filePath, store } = await scratchStore();
     let calls = 0;

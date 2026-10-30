@@ -1,0 +1,14 @@
+.private-command-secret { box-sizing: border-box; display: grid; gap: 8px; width: 100%; max-width: var(--content-max, 780px); margin: 0 auto 8px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line)); border-radius: var(--radius-md); background: var(--float); color: var(--ink); font-size: var(--text-xs); }
+.private-command-secret header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.private-command-secret header { color: var(--warn); }
+.private-command-secret header span, .private-command-secret small { color: var(--muted); }
+.private-command-secret p { margin: 0; overflow-wrap: anywhere; }
+.private-command-secret input { box-sizing: border-box; width: 100%; min-width: 0; }
+.private-command-secret input, .private-command-secret select { padding: 9px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--inset); color: var(--ink); font: var(--text-sm) var(--mono); }
+.private-command-secret label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.private-command-secret footer { display: flex; justify-content: flex-end; gap: 8px; }
+.private-command-secret button { padding: 7px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--float); color: var(--ink); font: inherit; cursor: pointer; }
+.private-command-secret button:hover:not(:disabled) { background: var(--hover); }
+.private-command-secret button:disabled { opacity: .45; cursor: default; }
+.private-command-secret .primary { border-color: transparent; background: var(--acid); color: var(--acid-ink); }
+@media (pointer: coarse) { .private-command-secret :is(input, select, button) { min-height: 44px; } .private-command-secret input { font-size: max(16px, var(--type-input-min, 16px)); } .private-command-secret footer { flex-wrap: wrap; } }

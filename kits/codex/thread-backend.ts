@@ -51,6 +51,7 @@ import { usageTurnsOf, type CodexSessionStore, type CodexStoredGoal, type CodexS
 import { codexToolsWrite } from "./tools.js";
 import { PLAN_MODE } from "./events.js";
 import { completeCodex } from "./completion.js";
+import { codexSnapshotUpdate, mergeCodexSnapshot, type CodexRateSnapshot } from "./limits.js";
 
 /** What the backend needs of a live app-server; `CodexAppServer` is the real one. */
 export interface CodexSessionLike {
@@ -277,7 +278,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
   /** How the account pays, as the session's login says. */
   private billing?: UiModelBilling;
   /** The last `account/rateLimits/updated`, for when a usage limit stops a turn. */
-  private rateLimits: unknown;
+  private rateLimits: CodexRateSnapshot | undefined;
   private context?: UiContextUsage;
   private chosenModel?: string;
   private chosenServiceTier?: string;
@@ -783,6 +784,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
     await this.store.ensure(this.threadId, this.cwd, this.options.instance);
     // A process that dies during the handshake exits before `session` is assigned.
     let session: CodexSessionLike | undefined;
+    this.rateLimits = undefined;
     session = await this.options.openSession({
       cwd: this.cwd,
       threadId: this.threadId,
@@ -855,8 +857,9 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       return;
     }
     if (method === "account/rateLimits/updated") {
-      this.rateLimits = params.rateLimits;
-      this.options.onRateLimits?.(params.rateLimits);
+      const update = codexSnapshotUpdate(this.rateLimits, params.rateLimits);
+      this.rateLimits = mergeCodexSnapshot(this.rateLimits, params.rateLimits);
+      if (update) this.options.onRateLimits?.(update);
       return;
     }
     if (method === "thread/goal/updated") {

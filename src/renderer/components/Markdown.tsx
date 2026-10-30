@@ -420,7 +420,8 @@ const COMPONENTS: MarkdownComponents = {
   // A path in inline code reads as a file chip with its name; the path is its tooltip.
   code({ children }) {
     const name = typeof children === "string" ? inlineCodeFile(children) : undefined;
-    if (!name) return <code>{children}</code>;
+    // Native word selection stops at punctuation in commands and identifiers.
+    if (!name) return <code onDoubleClick={(event) => event.currentTarget.ownerDocument.getSelection()?.selectAllChildren(event.currentTarget)}>{children}</code>;
     return <FileChip path={children as string} name={name} />;
   },
   a({ href, children }) {

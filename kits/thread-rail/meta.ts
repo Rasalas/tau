@@ -1,6 +1,7 @@
 // Pure rules over the kit's thread meta, shared by both halves. No imports beyond types.
 import type { UiSession } from "tau";
 import type {
+  SnoozePreset,
   RailSectionId,
   RailSections,
   RailSettings,
@@ -11,7 +12,15 @@ import type {
 } from "./protocol.js";
 
 export const DAY_MS = 24 * 60 * 60 * 1_000;
-export const DEFAULT_SETTINGS: RailSettings = { onMerged: true, onClosed: false, workingSection: false };
+export const DEFAULT_SNOOZE_PRESETS: readonly SnoozePreset[] = [
+  { id: "1h", kind: "after", amount: 1, unit: "hours" },
+  { id: "3h", kind: "after", amount: 3, unit: "hours" },
+  { id: "evening", kind: "at", day: "today", time: "18:00" },
+  { id: "tomorrow", kind: "at", day: "tomorrow", time: "09:00" },
+  { id: "next-week", kind: "at", day: 1, time: "09:00" },
+];
+
+export const DEFAULT_SETTINGS: RailSettings = { onMerged: true, onClosed: false, workingSection: false, snoozePresets: DEFAULT_SNOOZE_PRESETS };
 export const EMPTY_STATE: RailState = { threads: {}, settings: DEFAULT_SETTINGS };
 
 const SETTLED_BY: readonly SettledBy[] = ["user", "inactive", "pr-merged", "pr-closed", "import", "agent"];
@@ -43,6 +52,7 @@ export function decodeSettings(value: unknown): RailSettings {
   const days = number(raw.inactiveDays);
   return {
     ...(days !== undefined && days > 0 ? { inactiveDays: days } : {}),
+    snoozePresets: decodeSnoozePresets(raw.snoozePresets) ?? DEFAULT_SNOOZE_PRESETS,
     onMerged: typeof raw.onMerged === "boolean" ? raw.onMerged : DEFAULT_SETTINGS.onMerged,
     workingSection: raw.workingSection === true,
     onClosed: typeof raw.onClosed === "boolean" ? raw.onClosed : DEFAULT_SETTINGS.onClosed,
@@ -439,30 +449,55 @@ export function clockLabel(epoch: number): string {
   return new Date(epoch).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-/** The snooze presets of the row menu and the rail's clock, in local time. */
-export function snoozePresets(now: Date): Array<{ id: string; label: string; when: string; until: number }> {
-  const hour = 60 * 60 * 1_000;
-  const at = (days: number, hourOfDay: number) => {
-    const next = new Date(now);
-    next.setDate(next.getDate() + days);
-    next.setHours(hourOfDay, 0, 0, 0);
-    return next.getTime();
-  };
-  const inOne = now.getTime() + hour;
-  const inThree = now.getTime() + 3 * hour;
-  const evening = at(0, 18);
-  const tomorrow = at(1, 9);
-  const nextWeek = at(((8 - now.getDay()) % 7) || 7, 9);
-  return [
-    { id: "snooze:1h", label: "In 1 hour", when: clockLabel(inOne), until: inOne },
-    { id: "snooze:3h", label: "In 3 hours", when: clockLabel(inThree), until: inThree },
-    ...(evening - now.getTime() > hour ? [{ id: "snooze:evening", label: "This evening", when: clockLabel(evening), until: evening }] : []),
-    { id: "snooze:tomorrow", label: "Tomorrow", when: clockLabel(tomorrow), until: tomorrow },
-    // On a Sunday next Monday is tomorrow.
-    ...(nextWeek !== tomorrow
-      ? [{ id: "snooze:next-week", label: "Next week", when: `${new Date(nextWeek).toLocaleDateString([], { weekday: "short" })} ${clockLabel(nextWeek)}`, until: nextWeek }]
-      : []),
-  ];
+const MINUTE = 60_000;
+const UNIT_MINUTES = { minutes: 1, hours: 60, days: 1440 };
+
+/** Reject the entire list on invalid input, rather than silently losing choices. */
+export function decodeSnoozePresets(value: unknown): SnoozePreset[] | undefined {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 8) return undefined;
+  const ids = new Set<string>();
+  const presets: SnoozePreset[] = [];
+  for (const entry of value) {
+    const raw = record(entry);
+    if (typeof raw.id !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/u.test(raw.id) || raw.id === "custom" || ids.has(raw.id)) return undefined;
+    ids.add(raw.id);
+    if (raw.kind === "after" && (raw.unit === "minutes" || raw.unit === "hours" || raw.unit === "days")
+      && typeof raw.amount === "number" && Number.isFinite(raw.amount) && raw.amount >= 1
+      && Number.isInteger(raw.amount) && raw.amount * UNIT_MINUTES[raw.unit] <= 30 * 1440) {
+      presets.push({ id: raw.id, kind: "after", amount: raw.amount, unit: raw.unit });
+    } else if (raw.kind === "at" && (raw.day === "today" || raw.day === "tomorrow" || (typeof raw.day === "number" && Number.isInteger(raw.day) && raw.day >= 0 && raw.day <= 6))
+      && typeof raw.time === "string" && /^([01]\d|2[0-3]):[0-5]\d$/u.test(raw.time)) {
+      presets.push({ id: raw.id, kind: "at", day: raw.day, time: raw.time });
+    } else return undefined;
+  }
+  return presets;
+}
+
+/** The row menu and picker use the same clock, deduplication and chronological order. */
+export function snoozePresets(now: Date, settings?: Pick<RailSettings, "snoozePresets">): Array<{ id: string; label: string; when: string; until: number }> {
+  const seen = new Set<number>();
+  return (settings?.snoozePresets ?? DEFAULT_SNOOZE_PRESETS).flatMap((preset) => {
+    let until: number;
+    let label: string;
+    if (preset.kind === "after") {
+      until = now.getTime() + preset.amount * UNIT_MINUTES[preset.unit] * MINUTE;
+      label = `In ${preset.amount} ${preset.amount === 1 ? preset.unit.slice(0, -1) : preset.unit}`;
+    } else {
+      const date = new Date(now);
+      const days = preset.day === "today" ? 0 : preset.day === "tomorrow" ? 1 : ((preset.day - now.getDay() + 7) % 7 || 7);
+      date.setDate(date.getDate() + days);
+      const [hours, minutes] = preset.time.split(":").map(Number);
+      date.setHours(hours!, minutes!, 0, 0);
+      until = date.getTime();
+      if (preset.day === "today" && until - now.getTime() < 15 * MINUTE) return [];
+      label = preset.day === "today" ? (hours! >= 17 ? "This evening" : "Later today")
+        : preset.day === "tomorrow" ? "Tomorrow" : date.toLocaleDateString("en", { weekday: "long" });
+    }
+    if (seen.has(until)) return [];
+    seen.add(until);
+    const weekday = new Date(until).toDateString() === now.toDateString() ? "" : `${new Date(until).toLocaleDateString([], { weekday: "short" })} `;
+    return [{ id: `snooze:${preset.id}`, label, when: `${weekday}${clockLabel(until)}`, until }];
+  }).sort((left, right) => left.until - right.until);
 }
 
 /** "in 4 min", "until 09:00", "until Mon 09:00": when a snoozed thread wakes, briefly. */

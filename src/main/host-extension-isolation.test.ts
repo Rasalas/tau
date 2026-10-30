@@ -629,6 +629,10 @@ describe("isolated host extensions", () => {
     const purged = vi.fn(async () => undefined);
     facade.sessions.restore = restored;
     facade.sessions.purge = purged;
+    Object.assign(facade, { conversations: {
+      list: async () => [{ sessionId: "canonical", cwd: "/project", path: "/segments/latest.jsonl", modifiedAt: 1, version: "v1" }],
+      page: async (sessionId: string, version: string) => version === "v1" ? { status: "ok", page: { sessionId, hasMore: false, messages: [{ id: "inherited", role: "user", text: "Imported history", timestamp: 1 }] } } : { status: "changed" },
+    } });
     await registry.activate(extension);
     const invoke = (path: string, ...args: unknown[]) => registry.invoke("acme.worker", "service-call", { path, args });
     try {
@@ -644,6 +648,9 @@ describe("isolated host extensions", () => {
       await expect(invoke("sessions.import", importOptions)).resolves.toEqual({ ok: true, value: { sessionId: "imported", path: "/imported.jsonl", cwd: "/project" } });
       expect(imported).toHaveBeenCalledWith(importOptions);
       await expect(invoke("sessions.read", "/stored.jsonl")).resolves.toEqual({ ok: true, value: { path: "/stored.jsonl", sessionId: "stored", cwd: "/project", entries: [{ id: "entry" }], leafId: "entry" } });
+      await expect(invoke("conversations.list")).resolves.toMatchObject({ ok: true, value: [{ sessionId: "canonical", path: "/segments/latest.jsonl", version: "v1" }] });
+      await expect(invoke("conversations.page", "canonical", "v1")).resolves.toMatchObject({ ok: true, value: { status: "ok", page: { sessionId: "canonical", messages: [{ text: "Imported history" }] } } });
+      await expect(invoke("conversations.page", "canonical", "old")).resolves.toEqual({ ok: true, value: { status: "changed" } });
       await expect(invoke("workspaceRef", "/project")).resolves.toEqual({ ok: true, value: { workspaceId: "ws1_/project", displayPath: "/project" } });
       await expect(invoke("settings")).resolves.toEqual({ ok: true, value: { options: {}, values: {} } });
       await expect(invoke("priceUsage", [])).resolves.toEqual({ ok: true, value: [] });

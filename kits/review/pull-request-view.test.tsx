@@ -19,6 +19,8 @@ import { REVIEW_HOST_EXTENSION_ID, THREAD_PULL_REQUESTS_TAB } from "./protocol.j
 import { RowRequests } from "./requests.js";
 import { ThreadLinkRows } from "./thread-links-store.js";
 import { TestThreadStore } from "../../src/renderer/test-support/test-providers.js";
+import { interactionFiles } from "./file-interaction-test-support.js";
+import { createMemoryStorage, setClientStorage } from "../../src/renderer/test-support/kit-harness.js";
 import { HostClientProvider } from "../../src/renderer/test-support/kit-harness.js";
 import { createFakeHostClient } from "../../src/renderer/test-support/fake-host-client.js";
 
@@ -279,9 +281,10 @@ describe("the pull-request view", () => {
       expect(screen.queryByRole("button", { name: /checkout/u })).toBeNull();
       expect(screen.getByText("feat/output").tagName).toBe("SPAN");
       fireEvent.click(screen.getByRole("button", { name: "More pull request actions" }));
-      const labels = screen.getAllByRole("menuitem").map((item) => item.textContent);
+      const sheet = await screen.findByRole("dialog", { name: "More pull request actions" });
+      const labels = within(sheet).getAllByRole("button").filter((item) => item.getAttribute("aria-label") !== "Close").map((item) => item.textContent);
       expect(labels.slice(0, 6)).toEqual(["Refresh", "Copy link", "Copy branch name", "Copy checkout command", "Add to the composer", "Link to this thread"]);
-      fireEvent.click(screen.getByRole("menuitem", { name: "Copy link" }));
+      fireEvent.click(within(sheet).getByRole("button", { name: "Copy link" }));
       expect(workbench.copyText).toHaveBeenCalledWith(REF.url);
       await waitFor(() => expect(workbench.notify).toHaveBeenCalledWith("Copied the link."));
       // Comment or review sits in a bar under the body, not over it.
@@ -661,6 +664,21 @@ describe("the pull-request view's Guide tab", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open kits/package.json in Code" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Code" }).getAttribute("aria-selected")).toBe("true"));
   });
+
+  it("reveals a filtered test file explicitly opened from a guide", async () => {
+    const storage = createMemoryStorage();
+    storage.set("tau.review.hide-test-files", "true");
+    setClientStorage(storage);
+    try {
+      const guide = sampleGuide({ stops: [{ title: "Regression", summary: "Read the regression.", attention: null, excerpts: [], files: [{ path: "src/a.test.ts" }], notes: [], questions: [] }] });
+      const { shared } = renderView(fakeClient({ files: vi.fn(async () => interactionFiles()), guides: fakeGuideClient({ guide }) }), undefined, false, { ...PARAMS, focus: "guide", at: 1 });
+      switchOn(shared);
+      fireEvent.click(await screen.findByRole("button", { name: "Open src/a.test.ts in Code" }));
+      await waitFor(() => expect(document.querySelector(".pr-file-header strong")?.textContent).toBe("a.test.ts"));
+      expect((screen.getByRole("checkbox", { name: "Hide test files" }) as HTMLInputElement).checked).toBe(false);
+      expect(storage.get("tau.review.hide-test-files")).toBe("false");
+    } finally { setClientStorage(undefined); }
+  });
 });
 
 
@@ -782,5 +800,120 @@ describe("explicit remote branch deletion from the request view", () => {
     renderView(fakeClient({ view: vi.fn(async () => detail) }));
     await openMenu();
     expect(screen.queryByRole("menuitem", { name: "Delete branch…" })).toBeNull();
+  });
+});
+
+describe("request code file controls", () => {
+  afterEach(() => setClientStorage(undefined));
+
+  async function openCode(client: PullRequestClient) {
+    renderView(client);
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    await screen.findByRole("button", { name: /a\.test\.ts/u });
+  }
+
+  it("filters the selected test, navigation and open search together, and persists the toggle", async () => {
+    const storage = createMemoryStorage();
+    setClientStorage(storage);
+    const client = fakeClient({ files: vi.fn(async () => interactionFiles()), threads: vi.fn(async () => []) });
+    await openCode(client);
+    fireEvent.click(screen.getByRole("button", { name: /a\.test\.ts/u }));
+    fireEvent.keyDown(document.querySelector(".pr-code")!, { key: "f", metaKey: true });
+    fireEvent.change(await screen.findByRole("textbox", { name: "Find in diff" }), { target: { value: "testOnlyNeedle" } });
+    await screen.findByText("1 of 1");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide test files" }));
+    expect(screen.queryByRole("button", { name: /a\.test\.ts/u })).toBeNull();
+    expect(document.querySelector(".pr-file-header strong")?.textContent).toBe("a.ts");
+    expect(screen.getByText("3 of 4 files")).toBeTruthy();
+    await screen.findByText("No results");
+    fireEvent.click(screen.getByRole("button", { name: "Next file" }));
+    expect(document.querySelector(".pr-file-header strong")?.textContent).toBe("c.ts");
+    fireEvent.click(screen.getByRole("button", { name: "Previous file" }));
+    expect(document.querySelector(".pr-file-header strong")?.textContent).toBe("a.ts");
+    expect(client.viewed).not.toHaveBeenCalled();
+    cleanup();
+    renderView(client);
+    await screen.findByRole("heading", { name: "Add the output helper" });
+    fireEvent.click(screen.getByRole("tab", { name: "Code" }));
+    expect((await screen.findByRole("checkbox", { name: "Hide test files" }) as HTMLInputElement).checked).toBe(true);
+    await screen.findByRole("button", { name: /^.*a\.ts/u });
+    expect(screen.queryByRole("button", { name: /a\.test\.ts/u })).toBeNull();
+  });
+
+  it("marks and unmarks visible ranges without advancing for each item or marking the hidden test", async () => {
+    const client = fakeClient({ files: vi.fn(async () => interactionFiles()), threads: vi.fn(async () => []) });
+    await openCode(client);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide test files" }));
+    await act(async () => { fireEvent.click(screen.getByRole("checkbox", { name: "Viewed" })); });
+    expect(document.querySelector(".pr-file-header strong")?.textContent).toBe("c.ts");
+    fireEvent.click(screen.getByRole("button", { name: /d\.ts/u }));
+    await act(async () => { fireEvent.click(screen.getByRole("checkbox", { name: "Viewed" }), { shiftKey: true }); });
+    expect(client.viewed).toHaveBeenCalledTimes(3);
+    for (const path of ["src/a.ts", "src/c.ts", "src/d.ts"]) expect(client.viewed).toHaveBeenCalledWith(REF.url, path, true);
+    expect(document.querySelector(".pr-file-header strong")?.textContent).toBe("d.ts");
+    expect(screen.getByText("3 / 4 viewed")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /a\.ts/u }));
+    await act(async () => { fireEvent.click(screen.getByRole("checkbox", { name: "Viewed" }), { shiftKey: true }); });
+    for (const path of ["src/a.ts", "src/c.ts", "src/d.ts"]) expect(client.viewed).toHaveBeenCalledWith(REF.url, path, false);
+    expect(screen.getByText("0 / 4 viewed")).toBeTruthy();
+    expect(client.viewed).not.toHaveBeenCalledWith(REF.url, "src/a.test.ts", expect.anything());
+  });
+
+  it("keeps the filter available when all changed files are tests", async () => {
+    const files = interactionFiles();
+    files.files = files.files.filter((file) => file.path === "src/a.test.ts");
+    files.diffs = files.diffs.filter((diff) => diff.path === "src/a.test.ts");
+    const client = fakeClient({ files: vi.fn(async () => files), threads: vi.fn(async () => []) });
+    await openCode(client);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide test files" }));
+    expect(screen.getByText("0 of 1 file")).toBeTruthy();
+    expect(screen.getByText("All changed files are hidden by the test file filter.")).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Viewed" })).toBeNull();
+    expect(client.viewed).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide test files" }));
+    expect(screen.getByRole("button", { name: /a\.test\.ts/u })).toBeTruthy();
+  });
+
+});
+
+describe("provider policy in the stage PR view", () => {
+  it("groups required checks without allowing an optional failure into the rollup", async () => {
+    const checks = [{ name: "build", status: "passed" as const, required: true }, { name: "lint", status: "failed" as const, required: false }, { name: "deploy", status: "pending" as const, required: true, expected: true, description: 'Waiting for "deploy" to report' }];
+    const detail = { ...parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json")), checks };
+    renderView(fakeClient({ view: vi.fn(async () => detail), checks: vi.fn(async () => checks) }), undefined, false, { ...PARAMS, focus: "checks", at: 1 });
+    const required = await screen.findByRole("heading", { name: "Required" });
+    expect(required).toBeTruthy();
+    expect(await screen.findByText('Waiting for "deploy" to report')).toBeTruthy();
+    expect(screen.getByText("Not required")).toBeTruthy();
+    expect(screen.getAllByText("1 of 2 required checks passed").length).toBeGreaterThan(0);
+  });
+
+  it("saves explicit maintainer access in the open menu, with optimistic state and rollback", async () => {
+    const detail = { ...parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json")), headRepository: "octo/tau", maintainerCanModify: true, viewerCanUpdate: true, viewerCanAllowMaintainerEdits: true };
+    let reject!: (reason: Error) => void;
+    const update = vi.fn(() => new Promise<PullRequestDetail>((_resolve, no) => { reject = no; }));
+    const { workbench } = renderView(fakeClient({ view: vi.fn(async () => detail), update }));
+    fireEvent.click(await screen.findByRole("button", { name: "More pull request actions" }));
+    const toggle = await screen.findByRole("menuitemcheckbox", { name: /Allow edits from maintainers/ });
+    expect(screen.getByRole("menuitemcheckbox", { name: /Allow edits from maintainers/ }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByRole("menuitemcheckbox", { name: /Allow edits from maintainers/ }).getAttribute("aria-checked")).toBe("false"));
+    expect(screen.getByText("Saving…")).toBeTruthy();
+    expect(update).toHaveBeenCalledWith(REF.url, { maintainerCanModify: false, expectedMaintainerCanModify: true });
+    await act(async () => reject(new Error("permission revoked")));
+    await waitFor(() => expect(screen.getByRole("menuitemcheckbox", { name: /Allow edits from maintainers/ }).getAttribute("aria-checked")).toBe("true"));
+    expect(workbench.notify).toHaveBeenCalledWith("Couldn't save maintainer access. permission revoked", "error");
+  });
+
+  it("keeps an eligible maintainer toggle disabled on a read-only device", async () => {
+    const detail = { ...parseGitHubDetail(REF, fixture("gh-pr-view-discussed.json")), headRepository: "octo/tau", maintainerCanModify: true, viewerCanUpdate: true, viewerCanAllowMaintainerEdits: true };
+    const client = fakeClient({ view: vi.fn(async () => detail) });
+    renderView(client, undefined, true);
+    fireEvent.click(await screen.findByRole("button", { name: "More pull request actions" }));
+    const toggle = await screen.findByRole("menuitemcheckbox", { name: /Allow edits from maintainers/ });
+    expect((toggle as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(toggle);
+    expect(client.update).not.toHaveBeenCalled();
   });
 });

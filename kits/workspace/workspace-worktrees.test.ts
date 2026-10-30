@@ -282,6 +282,19 @@ describe("a worktree whose folder vanished", () => {
 });
 
 describe("worktree removal", () => {
+  it("keeps Git's removal refusal for a worktree whose path porcelain quotes", async () => {
+    const path = '/trees/quoted\t"worktree"';
+    const calls: string[][] = [];
+    const refusal = new Error("contains modified or untracked files");
+    await expect(removeWorktree("/repo", path, { branch: "feature" }, async (_cwd, args) => {
+      calls.push(args);
+      if (args[1] === "remove") throw refusal;
+      if (args[1] === "list") return `worktree /repo\nbranch refs/heads/main\n\nworktree ${JSON.stringify(path)}\nbranch refs/heads/feature\n\n`;
+      return "";
+    })).rejects.toBe(refusal);
+    expect(calls.some((args) => args[0] === "branch")).toBe(false);
+  });
+
   it("passes destructive flags only when each is explicitly confirmed", async () => {
     const calls: string[][] = [];
     await removeWorktree("/repo", "/trees/feat", { branch: "feat", force: true, forceBranch: true }, async (_cwd, args) => {

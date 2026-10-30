@@ -14,8 +14,10 @@ function formatSize(size: number): string {
  * on-screen keyboard leaves a phone a few lines of code. A tablet and the
  * desktop edit.
  */
-export function FileReader({ path, load, onBack, actions }: {
+export function FileReader({ path, load, onBack, actions, preview }: {
   path: string;
+  /** A passive renderer admitted for this explicit workspace, before any text read. */
+  preview?: React.ReactNode;
   load(path: string): Promise<UiFileContent>;
   /** A phone's sheet: back to the tree. The stage's Files tab shows the tree beside the file instead. */
   onBack?(): void;
@@ -27,18 +29,21 @@ export function FileReader({ path, load, onBack, actions }: {
   useEffect(() => {
     let live = true;
     setLoaded(undefined);
+    if (preview !== undefined) return;
     load(path).then(
       (content) => { if (live) setLoaded({ path, content }); },
       (error: unknown) => { if (live) setLoaded({ path, error: errorMessage(error) }); },
     );
     return () => { live = false; };
-  }, [attempt, load, path]);
+  }, [attempt, load, path, preview !== undefined]);
 
   const name = path.split("/").at(-1) ?? path;
   const content = loaded?.path === path ? loaded.content : undefined;
   const error = loaded?.path === path ? loaded.error : undefined;
   let body;
-  if (error) {
+  if (preview !== undefined) {
+    body = preview;
+  } else if (error) {
     body = <Empty
       icon={<FileWarning size={20} />}
       title="Could not read this file"

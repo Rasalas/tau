@@ -1,16 +1,22 @@
 import { basename } from "node:path";
 import type { UiWorktree } from "tau/host-extension";
+import { unquoteGitPath } from "./git-output.js";
 
 /**
- * `git worktree list --porcelain` emits blank-line separated records; the first
+ * `git worktree list --porcelain -z` emits NUL-separated fields and records; the first
  * record is always the repository's primary checkout.
  */
 export function parseWorktrees(stdout: string, cwd: string): UiWorktree[] {
   const worktrees: UiWorktree[] = [];
-  for (const block of stdout.split("\n\n")) {
-    const path = /^worktree (.+)$/mu.exec(block)?.[1];
-    if (!path) continue;
-    const branch = /^branch refs\/heads\/(.+)$/mu.exec(block)?.[1] ?? (/^detached$/mu.test(block) ? "detached" : undefined);
+  const separator = stdout.includes("\0") ? "\0" : "\n";
+  for (const block of stdout.split(separator + separator)) {
+    const fields = block.split(separator);
+    const encodedPath = fields.find((field) => field.startsWith("worktree "))?.slice("worktree ".length);
+    if (!encodedPath) continue;
+    // NUL-delimited fields contain literal paths, including leading quotes and newlines.
+    const path = separator === "\0" ? encodedPath : unquoteGitPath(encodedPath);
+    const branch = fields.find((field) => field.startsWith("branch refs/heads/"))?.slice("branch refs/heads/".length)
+      ?? (fields.includes("detached") ? "detached" : undefined);
     worktrees.push({
       path,
       name: basename(path),

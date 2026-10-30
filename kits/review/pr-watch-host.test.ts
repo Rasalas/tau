@@ -393,3 +393,19 @@ it("reads once for a probe the full read disagrees with, as between two stages, 
   await vi.waitFor(() => expect(h.read).toHaveBeenCalledTimes(3));
   expect(h.send).not.toHaveBeenCalled();
 });
+
+it("persists Forgejo watches and optional failures without running a GitHub probe", async () => {
+  const url = "https://forge.test/acme/repo/pulls/7";
+  const probe = vi.fn(async () => { throw new Error("GitHub probe must not run"); });
+  const h = await harness(undefined, { ...initial, requiredChecks: true, advisoryFailed: [] }, { step: 5, probe });
+  await h.call("watch-start", { threadId: "a", url });
+  h.change({ advisoryFailed: [{ id: "lint", name: "lint" }] }, url);
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+  expect(h.send.mock.calls[0]?.[1]).toContain("optional a check failed (lint)");
+  h.change({ checks: "done" }, url);
+  await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(2));
+  expect(h.send.mock.calls[1]?.[1]).toContain("required checks passed");
+  expect(probe).not.toHaveBeenCalled();
+  const restored = await harness(h.stateDir, { ...initial, checks: "done", requiredChecks: true, advisoryFailed: [{ id: "lint", name: "lint" }] });
+  expect((await restored.list()).watches[0]).toMatchObject({ ref: { service: "forgejo" }, baseline: { requiredChecks: true, advisoryFailed: [{ name: "lint" }] } });
+});

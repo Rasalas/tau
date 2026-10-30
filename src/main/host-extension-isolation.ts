@@ -330,6 +330,8 @@ async function activateWorker(options: WorkerHostExtensionOptions, context: Host
     skills: C.skills.implement(([cwd]) => [...services.skills(cwd)]),
     refreshExtensionPackages: C.refreshExtensionPackages.implement(() => services.refreshExtensionPackages()),
     "sessions.list": C["sessions.list"].implement(() => services.sessions.list()),
+    "conversations.list": C["conversations.list"].implement(() => services.conversations?.list() ?? []),
+    "conversations.page": C["conversations.page"].implement(([id, version, cursor]) => services.conversations?.page(id, version, cursor) ?? { status: "missing" }),
     "sessions.read": C["sessions.read"].implement(([path]) => readSession(path)),
     "sessions.start": C["sessions.start"].implement(([startOptions]) => services.sessions.start(startOptions)),
     "sessions.import": C["sessions.import"].implement(([importOptions]) => {

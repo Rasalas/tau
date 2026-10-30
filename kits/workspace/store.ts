@@ -6,6 +6,7 @@ import {
   hostAvailable,
   hostHasLocalFiles,
   hostIsReadOnly,
+  READ_ONLY_REASON,
   readCachedTurnActivity,
   type FileNode,
   type HostActionResult,
@@ -20,8 +21,9 @@ import {
   type UiWorkspaceChanges,
   type WorkbenchActions,
 } from "tau";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { CloneToasts } from "./clone-toasts.js";
+import { projectPromotionMenu, PROMOTE_PROJECT } from "./project-promotion-menu.js";
 import {
   AUTO_PULL_OPTION,
   isWorktreeSubmodules,
@@ -32,6 +34,7 @@ import {
   type CommitMessageSuggester,
   type EditorPosition,
   type WorkspaceFileEditor,
+  type WorkspaceFilePreview,
   type ProjectDefaults,
   type WorkspaceHostClient,
   type WorkspaceKitState,
@@ -54,6 +57,7 @@ import {
 } from "./protocol.js";
 import { recordTurnStat } from "./turn-stats.js";
 import type { EditorPlace, EditorPlacement, EditorWindowMachines } from "./editor-placement.js";
+import { downloadWorkspaceFile } from "./file-download-client.js";
 import { readProjectFilter, sameProjects, writeProjectFilter, type RailProjectFilter, type SavedProjectGroup } from "./project-filter.js";
 import type { NewProjectGithub } from "./project-github.js";
 
@@ -183,6 +187,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private baseFromOrigin?: boolean;
   private commitMessageSuggester?: CommitMessageSuggester;
   private fileEditor?: WorkspaceFileEditor;
+  private filePreview?: WorkspaceFilePreview;
   /** Another thread's turn runs in the draft's folder, as the follower last saw it. */
   private busyCheckout = false;
   /** The draft took the suggested worktree, but it could not be made. */
@@ -208,6 +213,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     private readonly preferences: PreferencesStore,
     /** The kit's own host entry, reached through the extension channel. */
     readonly host: WorkspaceHostClient,
+    private readonly resourceUrl?: (path: string) => string,
+    private readonly readResource?: (path: string) => Promise<import("tau").BrowserResourceResponse>,
   ) {
     this.clones = new CloneToasts(host);
     const saved = readProjectFilter(getClientStorage());
@@ -1083,6 +1090,13 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   closeProjectSettings(): void { this.update({ projectSettings: undefined }); }
 
+  openProjectPromotion(session: UiSession): void {
+    if (hostIsReadOnly()) { this.actions?.notify(READ_ONLY_REASON); return; }
+    if (session.projectless) this.update({ projectPromotion: session });
+  }
+
+  closeProjectPromotion(): void { this.update({ projectPromotion: undefined }); }
+
   /** The index's projects, lent by the rail once it is drawn. */
   projectsOf?: () => readonly UiProject[];
 
@@ -1107,13 +1121,37 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void {
-    this.update({ threadRailOrganizer: organizer });
-    return () => { if (this.state.threadRailOrganizer === organizer) this.update({ threadRailOrganizer: undefined }); };
+    const decorated: ThreadRailOrganizer = {
+      ...organizer,
+      menu: (session, lookup) => projectPromotionMenu(organizer.menu(session, lookup), session, hostIsReadOnly()),
+      runMenu: (session, id, actions) => {
+        if (id === PROMOTE_PROJECT) { this.bind(actions); this.openProjectPromotion(session); }
+        else organizer.runMenu(session, id, actions);
+      },
+    };
+    this.update({ threadRailOrganizer: decorated });
+    return () => {
+      if (this.state.threadRailOrganizer === decorated) this.update({ threadRailOrganizer: undefined });
+    };
   }
 
   registerFileEditor(editor: WorkspaceFileEditor): () => void {
     this.fileEditor = editor;
     return () => { if (this.fileEditor === editor) this.fileEditor = undefined; };
+  }
+
+  registerFilePreview(reader: WorkspaceFilePreview): () => void {
+    this.filePreview = reader;
+    this.update({});
+    return () => { if (this.filePreview === reader) { this.filePreview = undefined; this.update({}); } };
+  }
+
+  renderFilePreview(path: string, from: { workspace: string }): ReactNode | undefined {
+    return this.filePreview?.(path, from);
+  }
+
+  downloadFile(path: string, from: { workspace: string }, signal: AbortSignal): Promise<{ blob: Blob; name: string }> {
+    return downloadWorkspaceFile(this.host, this.resourceUrl, path, from, signal, this.readResource);
   }
 
   /** Hands a file to the kit that edits files; false when none offered to. */

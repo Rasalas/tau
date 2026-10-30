@@ -208,6 +208,7 @@ export function Menu({
   label,
   onSelect,
   onClose,
+  keepOpenOnSelect,
 }: {
   placement?: "below" | "above";
   align?: "left" | "right";
@@ -221,6 +222,8 @@ export function Menu({
   label?: string;
   onSelect(id: string): void;
   onClose(): void;
+  /** Keep a toggle menu open while its selected value is saved. API 1.79.0. */
+  keepOpenOnSelect?(id: string): boolean;
 }) {
   const menu = useRef<HTMLDivElement>(null);
   const [side, setSide] = useState(placement);
@@ -271,7 +274,7 @@ export function Menu({
   useKeepClear(menu);
 
   const groups = sections ?? [{ heading, items: items ?? [] }];
-  const pick = (id: string) => { onSelect(id); onClose(); };
+  const pick = (id: string) => { onSelect(id); if (!keepOpenOnSelect?.(id)) onClose(); };
   const level = useMenuLevel({ groups, onPick: pick, onCloseAll: onClose, focusFirst: byKeyboard, mount: fixed });
   const body = (
     <>

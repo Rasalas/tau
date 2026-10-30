@@ -69,6 +69,31 @@ describe("wrapped lines", () => {
     expect(positionIn(line, 13)).toEqual({ x: 2, y: 3 });
     expect(positionIn(line, 25)).toEqual({ x: 2, y: 4 });
   });
+
+  it("maps Unicode offsets to terminal cells across a wrapped link", () => {
+    const bufferRow = (isWrapped: boolean, cells: Array<[string, number]>) => ({
+      isWrapped,
+      length: cells.length,
+      translateToString: () => cells.map(([chars, width]) => width === 0 ? "" : chars || " ").join(""),
+      getCell: (column: number) => cells[column] && ({ getChars: () => cells[column]![0], getWidth: () => cells[column]![1] }),
+    });
+    const buffer = [
+      bufferRow(false, [["文", 2], ["", 0], ["", 1], ["𐐀", 1], ["e\u0301", 1], ["/", 1]]),
+      bufferRow(true, [["说", 2], ["", 0], ["明", 2], ["", 0], [".", 1], ["m", 1], ["d", 1]]),
+    ];
+    const line = wrappedLineAt(2, (index) => buffer[index])!;
+    expect(line.text).toBe("文 𐐀e\u0301/说明.md");
+    const [link] = findTerminalFileLinks(line.text);
+    expect(link?.path).toBe("𐐀e\u0301/说明.md");
+    expect(positionIn(line, link!.start)).toEqual({ x: 4, y: 1 });
+    // Both halves of a surrogate pair and both codepoints of a combined cell share a column.
+    expect(positionIn(line, link!.start + 1)).toEqual({ x: 4, y: 1 });
+    expect(positionIn(line, link!.start + 3)).toEqual({ x: 5, y: 1 });
+    expect(positionIn(line, link!.end - 1, "end")).toEqual({ x: 7, y: 2 });
+    const wide = line.text.indexOf("明");
+    expect(positionIn(line, wide)).toEqual({ x: 3, y: 2 });
+    expect(positionIn(line, wide, "end")).toEqual({ x: 4, y: 2 });
+  });
 });
 
 describe("findTerminalFileLinks", () => {
@@ -86,6 +111,99 @@ describe("findTerminalFileLinks", () => {
     const text = "x src/app.ts:12 y";
     const [match] = findTerminalFileLinks(text);
     expect(text.slice(match!.start, match!.end)).toBe("src/app.ts:12");
+  });
+
+  it.each([
+    ["src/żółć.ts:12:7", "src/żółć.ts", 12, 7],
+    ["żółć/main.ts:12", "żółć/main.ts", 12, undefined],
+    [String.raw`żółć\main.ts:12`, String.raw`żółć\main.ts`, 12, undefined],
+    ["src/cafe\u0301.ts:12", "src/cafe\u0301.ts", 12, undefined],
+    ["src/𐐀.ts:12", "src/𐐀.ts", 12, undefined],
+    ["文档/说明.md", "文档/说明.md", undefined, undefined],
+  ])("keeps the complete Unicode path %s and its position", (printed, path, line, column) => {
+    const text = `see ${printed} for details`;
+    expect(findTerminalFileLinks(text)).toEqual([{ path, line, column, start: 4, end: 4 + printed.length }]);
+  });
+
+  it.each([
+    ['"src/My File.ts":12:3', "src/My File.ts", 12, 3],
+    ["'src/My File.ts:12:3'", "src/My File.ts", 12, 3],
+    ['"/tmp/a b.txt:7"', "/tmp/a b.txt", 7, undefined],
+    ['"./my folder/file.ts":5', "./my folder/file.ts", 5, undefined],
+    ["'../my folder/file.ts'", "../my folder/file.ts", undefined, undefined],
+    ['"~/My Notes/today.md"', "~/My Notes/today.md", undefined, undefined],
+    [String.raw`"C:\Program Files\app\main.cs":7:2`, String.raw`C:\Program Files\app\main.cs`, 7, 2],
+    [String.raw`'\\host\my share\f.txt:8'`, String.raw`\\host\my share\f.txt`, 8, undefined],
+    ['`文档/我的 说明.md`:2:4', "文档/我的 说明.md", 2, 4],
+    ['"żółć/cafe\u0301 notes.ts":9', "żółć/cafe\u0301 notes.ts", 9, undefined],
+    ['"𐐀 docs/文档.md"', "𐐀 docs/文档.md", undefined, undefined],
+    [String.raw`"src/a\"quoted\" file.ts":2`, 'src/a"quoted" file.ts', 2, undefined],
+    [String.raw`'src/it\'s here.ts:3:2'`, "src/it's here.ts", 3, 2],
+    ['"My File.ts":10', "My File.ts", 10, undefined],
+    ['"/tmp/odd [name].ts".', "/tmp/odd [name].ts", undefined, undefined],
+  ])("reads the whole quoted path and preserves source offsets: %s", (printed, path, line, column) => {
+    const text = `see ${printed} for details`;
+    const [match] = findTerminalFileLinks(text);
+    const source = printed.endsWith(".") ? printed.slice(0, -1) : printed;
+    expect(findTerminalFileLinks(text)).toEqual([{ path, line, column, start: 4, end: 4 + source.length }]);
+    expect(text.slice(match!.start, match!.end)).toBe(source);
+  });
+
+  it("resolves decoded quoted paths using the terminal cwd", () => {
+    const [posix] = findTerminalFileLinks(String.raw`"./My \"Notes\".md":4`);
+    expect(resolveTerminalPath(posix!.path, "/project")).toBe('/project/My "Notes".md');
+    const [windows] = findTerminalFileLinks(String.raw`"C:\Program Files\app\main.cs":7`);
+    expect(resolveTerminalPath(windows!.path, undefined)).toBe("C:/Program Files/app/main.cs");
+  });
+
+  it("orders quoted and unquoted paths together and leaves web links to the URL provider", () => {
+    const text = 'src/a.ts "src/My File.ts":3 https://example.com/a/b.md "https://example.com/a b.md" ./end.ts';
+    const urls = findTerminalLinks(text);
+    expect(findTerminalFileLinks(text, urls).map((link) => link.path)).toEqual(["src/a.ts", "src/My File.ts", "./end.ts"]);
+    const quoted = '"src/a b.ts"';
+    expect(findTerminalFileLinks(quoted, [{ start: 4, end: 5 }])).toEqual([]);
+  });
+
+  it.each([
+    "use and/or 5/10 without spaces becoming paths",
+    '"use and/or words"',
+    '"not a file"',
+    '"5/10"',
+    '"file:///tmp/My File.ts"',
+    '"https://example.com/a b.ts"',
+    '"src/unclosed file.ts',
+  ])("does not invent partial paths from prose or incomplete quoting: %s", (text) => {
+    expect(findTerminalFileLinks(text)).toEqual([]);
+  });
+
+  it("preserves contractions in prose around unquoted and quoted links", () => {
+    expect(found(`don't truncate src/file.ts or 'src/My File.ts'`)).toEqual([{ path: "src/file.ts" }, { path: "src/My File.ts" }]);
+  });
+
+  it("maps wrapped quoted paths to wide, combining and escaped-quote cells using source offsets", () => {
+    const row = (isWrapped: boolean, cells: Array<[string, number]>) => ({
+      isWrapped, length: cells.length,
+      translateToString: () => cells.map(([chars, width]) => width === 0 ? "" : chars || " ").join(""),
+      getCell: (column: number) => cells[column] && ({ getChars: () => cells[column]![0], getWidth: () => cells[column]![1] }),
+    });
+    const buffer = [
+      row(false, [["文", 2], ["", 0], [" ", 1], ['"', 1], ["𐐀", 1], ["e\u0301", 1], [" ", 1], ["/", 1]]),
+      row(true, [["说", 2], ["", 0], [" ", 1], ["\\", 1], ['"', 1], ["明", 2], ["", 0], [".", 1], ["t", 1], ["s", 1], ['"', 1], [":", 1], ["2", 1], [":", 1], ["4", 1]]),
+    ];
+    const line = wrappedLineAt(2, (index) => buffer[index])!;
+    const [link] = findTerminalFileLinks(line.text);
+    expect(link?.path).toBe('𐐀e\u0301 /说 "明.ts');
+    expect(link).toMatchObject({ line: 2, column: 4 });
+    expect(positionIn(line, link!.start)).toEqual({ x: 4, y: 1 });
+    expect(positionIn(line, link!.end - 1, "end")).toEqual({ x: 15, y: 2 });
+    const quote = line.text.indexOf('\\"');
+    expect(positionIn(line, quote)).toEqual({ x: 4, y: 2 });
+    expect(positionIn(line, quote + 1)).toEqual({ x: 5, y: 2 });
+    expect(positionIn(line, line.text.indexOf("明"), "end")).toEqual({ x: 7, y: 2 });
+  });
+
+  it("does not treat the slash within Unicode prose as a rooted path", () => {
+    expect(found("żółć/bez and 文档/说明")).toEqual([]);
   });
 
   it("leaves prose, URLs and bare names without an extension alone", () => {

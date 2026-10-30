@@ -10,6 +10,7 @@ import { ALLOW, ALLOW_SESSION } from "./approvals.js";
 import { spawnRpcProcess } from "./rpc.js";
 import { createCodexRuntimeAdapter } from "./runtime-adapter.js";
 import { CodexSessionStore } from "./session-store.js";
+import { mergeCodexSnapshot, type CodexRateSnapshot } from "./limits.js";
 import { CodexThreadRuntimeBackend, storedModel, userInput, type CodexSessionLike, type CodexThreadBackendOptions } from "./thread-backend.js";
 import frames from "./fixtures/app-server-frames.json" with { type: "json" };
 
@@ -32,6 +33,27 @@ it("adopts a Codex title, persists it, and preserves a manual rename against lat
   await backend.prompt({ text: "[scenario:title]", delivery: "prompt" });
   expect(backend.state()).toMatchObject({ title: "Mein Titel", titleSource: "renamed" });
   expect(await space.store.get("tau-1")).toMatchObject({ title: "Mein Titel", titleSource: "renamed" });
+});
+
+it("publishes only changed quota windows and starts a fresh snapshot after restarting Codex", async () => {
+  const space = await scratch();
+  const updates: unknown[] = [];
+  let accountRead: CodexRateSnapshot | undefined;
+  const { backend } = await open(space, { onRateLimits: (update) => {
+    updates.push(update);
+    accountRead = mergeCodexSnapshot(accountRead, update);
+    // A fresh probe saw a reset after this session cached its first snapshot.
+    if (updates.length === 1) accountRead = { ...accountRead, primary: { usedPercent: 5, windowDurationMins: 300, resetsAt: 1_790_001_000 } };
+  } });
+  await backend.prompt({ text: "[scenario:ratelimits]", delivery: "prompt" });
+  expect(updates).toHaveLength(2);
+  expect(updates[1]).toEqual({ secondary: { usedPercent: 21, windowDurationMins: 10_080, resetsAt: 1_790_400_000 } });
+  expect(accountRead?.primary?.usedPercent).toBe(5);
+  expect(accountRead?.secondary?.usedPercent).toBe(21);
+  await backend.capabilities.restart!.restart();
+  await backend.prompt({ text: "[scenario:ratelimits]", delivery: "prompt" });
+  expect(updates).toHaveLength(4);
+  expect(updates[2]).toMatchObject({ primary: { usedPercent: 100 }, secondary: { usedPercent: 20 } });
 });
 
 it("completes through a disposable Codex session without adding a turn to the original thread", async () => {
@@ -141,7 +163,7 @@ async function scratch() {
 
 type Scratch = Awaited<ReturnType<typeof scratch>>;
 
-async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBackendOptions["onBackgroundEnded"]; level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform; sessionCurrent?: (session: CodexSessionLike) => Promise<boolean>; onMcpApp?: CodexThreadBackendOptions["onMcpApp"]; appContext?: CodexThreadBackendOptions["appContext"]; cancelPrompts?: () => void } = {}) {
+async function open(space: Scratch, options: { onRateLimits?: CodexThreadBackendOptions["onRateLimits"]; onBackgroundEnded?: CodexThreadBackendOptions["onBackgroundEnded"]; level?: RuntimePermissionLevel; answer?: (prompt: BackendPrompt) => Promise<ExtensionUiAnswer> | ExtensionUiAnswer; resume?: boolean; script?: string[]; tools?: string[]; activity?: TurnActivityStore; policy?: () => Promise<HostExecutionPolicy>; platform?: NodeJS.Platform; sessionCurrent?: (session: CodexSessionLike) => Promise<boolean>; onMcpApp?: CodexThreadBackendOptions["onMcpApp"]; appContext?: CodexThreadBackendOptions["appContext"]; cancelPrompts?: () => void } = {}) {
   const events: ThreadRuntimeEvent[] = [];
   const asked: BackendPrompt[] = [];
   const processes: ReturnType<typeof spawnRpcProcess>[] = [];
@@ -162,6 +184,7 @@ async function open(space: Scratch, options: { onBackgroundEnded?: CodexThreadBa
     models: async () => frames.models.map(storedModel),
     onEvent: (event) => events.push(event),
     cancelPrompts: options.cancelPrompts,
+    onRateLimits: options.onRateLimits,
     ask: async (prompt) => { asked.push(prompt); return options.answer ? options.answer(prompt) : { cancelled: true }; },
     permissionLevel: () => options.level ?? "full",
     ...(options.tools ? { tools: options.tools } : {}),

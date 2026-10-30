@@ -6,6 +6,7 @@ import { listCall, pullRequestCalls } from "./pull-request-cli.js";
 import { parseRemote } from "./pull-request-hosting.js";
 import { parseGitHubChecks, parseGitHubDetail, parseGitHubFiles, parseGitHubThreads, parseGitHubBotLogins, markBotComments, isDiffTooLarge, parseUnifiedDiff } from "./pull-request-json.js";
 import { parseGitHubList } from "./pull-request-list-json.js";
+import { createMaintainerEdits, parseMaintainerAccess } from "./github-maintainer-edits.js";
 import { createGitHubStacks } from "./github-stacks.js";
 import { createGitHubPipelines } from "./github-pipeline.js";
 import { createCheckProbe } from "./github-check-probe.js";
@@ -118,6 +119,7 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
   }, true);
 
   const stacks = createGitHubStacks(tools);
+  const maintainerEdits = createMaintainerEdits(tools);
   const probe = createCheckProbe();
   const rollups = new Map<string, { tag: string; at: number; checks: PullRequestCheck[] }>();
   /**
@@ -157,6 +159,19 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
       const output = await tools.cli(kind, { args: ["pr", "view", "--json", GITHUB_BRANCH_FIELDS] }, "Reading the branch's pull request", { cwd, ...(host ? { host } : {}) }).catch(() => undefined);
       return output ? parseGitHubBranchRequest(output) : undefined;
     },
+    canChooseMaintainerEdits: async ({ host, repo }) => {
+      if (!host || !repo) return false;
+      const [owner, name] = repo.split("/");
+      const output = await tools.cli(kind, { args: ["api", "--hostname", host, "graphql", "--input", "-"], input: JSON.stringify({
+        query: "query($owner: String!, $name: String!) { viewer { login } repository(owner: $owner, name: $name) { isFork viewerPermission owner { __typename login } } }", variables: { owner, name },
+      }) }, "Reading fork permissions", { host });
+      const raw = record(JSON.parse(output));
+      if (Array.isArray(raw.errors) && raw.errors.length) return false;
+      const data = record(raw.data);
+      const repository = record(data.repository);
+      return repository.isFork === true && record(repository.owner)["__typename"] === "User" && record(repository.owner).login === record(data.viewer).login
+        && ["ADMIN", "MAINTAIN", "WRITE"].includes(String(repository.viewerPermission));
+    },
     create: async ({ cwd }, input) => createdUrl(await tools.cli(kind, { args: createArgs(kind, input) }, "Creating the pull request", { cwd })),
     merge: async (target, request, method, options = {}) => {
       await tools.cli(kind, { args: [...mergeArgs(kind, request.number, method, request.headSha), ...inRepository(target)] }, `Merging PR #${request.number}`, target.cwd ? { cwd: target.cwd } : {});
@@ -183,12 +198,14 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
     },
 
     detail: async (ref) => {
-      const [view, bots] = await Promise.all([
+      const [view, authors] = await Promise.all([
         cli(ref, pullRequestCalls.view(ref)[0]!, `Reading ${noun(ref)}`),
         // Best effort: without it a bot's comment reads as a person's.
-        cli(ref, pullRequestCalls.authors(ref), `Reading who commented on ${noun(ref)}`).then(parseGitHubBotLogins, () => new Set<string>()),
+        cli(ref, pullRequestCalls.authors(ref), `Reading who commented on ${noun(ref)}`).catch(() => "{}"),
       ]);
-      return markBotComments(parseGitHubDetail(ref, view), bots);
+      const raw = record(JSON.parse(authors));
+      const access = Array.isArray(raw.errors) && raw.errors.length ? {} : parseMaintainerAccess(record(raw.data));
+      return { ...markBotComments(parseGitHubDetail(ref, view), parseGitHubBotLogins(authors)), ...access };
     },
     pipeline: createGitHubPipelines(tools),
     checks,
@@ -223,7 +240,12 @@ export function createGitHubProvider(tools: ProviderTools): SourceControlProvide
     lineComment: async (ref, input, known) => {
       await cli(ref, pullRequestCalls.lineComment(ref, { ...input, ...(known.headSha ? { headSha: known.headSha } : {}) }), `Commenting on ${noun(ref)}`);
     },
-    update: async (ref, input) => { await cli(ref, pullRequestCalls.edit(ref, input), `Editing ${noun(ref)}`); },
+    update: async (ref, input) => {
+      if (input.maintainerCanModify !== undefined) {
+        if (typeof input.expectedMaintainerCanModify !== "boolean") throw new HostCommandError("Refresh maintainer access before saving.");
+        await maintainerEdits.save(ref, input.maintainerCanModify, input.expectedMaintainerCanModify);
+      } else await cli(ref, pullRequestCalls.edit(ref, input), `Editing ${noun(ref)}`);
+    },
     review: async (ref, input, known) => {
       await cli(ref, pullRequestCalls.review(ref, { ...input, ...(known.headSha ? { headSha: known.headSha } : {}) }), `Submitting the review of ${noun(ref)}`);
     },

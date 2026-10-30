@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { FocusAreaContribution } from "./focus-areas";
 import type { ExtensionUiAnswer, ExtensionUiPrompt, UiToolRun } from "../shared/contracts";
 import { readProjectIcon } from "../shared/project-icon-choice";
 import {
@@ -210,6 +211,7 @@ export class ExtensionRegistry {
   #threadListAccessories = new Map<string, Owned<ThreadListAccessoryContribution>>();
   #threadListLayouts = new Map<string, Owned<ThreadListLayout>>();
   #commands = new Map<string, Owned<CommandContribution>>();
+  #focusAreas = new Map<string, Owned<FocusAreaContribution>>();
   #paletteSources = new Map<string, Owned<PaletteSourceContribution>>();
   #slashCommands = new Map<string, Owned<SlashCommandContribution>>();
   #promptHooks = new Map<string, Owned<PromptHookContribution>>();
@@ -364,6 +366,7 @@ export class ExtensionRegistry {
     const hostClient = (extensionId: string): HostExtensionClient => ({
       invoke: (command, input) => this.hostBridge.invoke(extensionId, command, input),
       ...(this.hostBridge.resourceUrl ? { resourceUrl: (path: string) => this.hostBridge.resourceUrl!(path) } : {}),
+      ...(this.hostBridge.readResource ? { readResource: (path: string) => this.hostBridge.readResource!(path) } : {}),
       onEvent: (name, listener) => {
         if (!activation.active) return noContribution;
         const guarded = activation.guard(listener);
@@ -555,6 +558,7 @@ export class ExtensionRegistry {
         note("thread list layouts");
         return this.register(this.#threadListLayouts, layout.id, { ...layout, ...owner }, activation);
       },
+      registerFocusArea: (area) => this.register(this.#focusAreas, area.id, { ...area, ...owner }, activation),
       registerCommand: (command) =>
         this.register(this.#commands, command.id, { ...command, ...owner }, activation),
       registerPaletteSource: (source) => {
@@ -891,6 +895,9 @@ export class ExtensionRegistry {
     this.#sortedCache.set("commands:listed", { version: this.#version, value });
     return value;
   }
+
+  /** Visible keyboard areas, in `order`. */
+  getFocusAreas(): readonly FocusAreaContribution[] { return this.sorted("focus areas", this.#focusAreas); }
 
   /** The palette's sources, in `order`. */
   getPaletteSources(): Array<Owned<PaletteSourceContribution>> {

@@ -187,3 +187,16 @@ describe("the Commit, push & PR card", () => {
     expect(within(dialog).getByRole("list", { name: "Progress" }).textContent).toBe("CommitPushCreate MR");
   });
 });
+
+it("defaults maintainer edits on for a confirmed personal fork and forwards an explicit opt-out", async () => {
+  const { requests } = setup({ status: { canChooseMaintainerEdits: true } });
+  const dialog = await card();
+  const toggle = await within(dialog).findByRole("checkbox", { name: /Allow edits from maintainers/ });
+  expect((toggle as HTMLInputElement).checked).toBe(true);
+  await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false));
+  fireEvent.click(toggle);
+  const confirm = within(dialog).getByRole("button", { name: "Commit, push & PR" });
+  await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(confirm);
+  await waitFor(() => expect(requests.create).toHaveBeenCalledWith(expect.objectContaining({ maintainerCanModify: false })));
+});

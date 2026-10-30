@@ -42,6 +42,10 @@ export class HostThreadLifecycleSet {
     if (errors.length > 0) throw new AggregateError(errors, "Thread deletion cleanup failed");
   }
 
+  async beforeRemove(sessionId: string, cwd: string): Promise<void> {
+    for (const hook of [...this.hooks]) await hook.beforeRemove?.(sessionId, cwd);
+  }
+
   async beforeOpen(session: HostSessionFile): Promise<void> {
     for (const hook of [...this.hooks]) await hook.beforeOpen?.(session);
   }

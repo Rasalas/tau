@@ -1,3 +1,5 @@
+import { installSidebarKeyboard } from "./sidebar-keyboard";
+import { installFocusAreas, focusAreaBlocked } from "./focus-areas";
 import { useEffect } from "react";
 import type { ExtensionRegistry, WorkbenchActions } from "./extension-system";
 import { errorMessage } from "../workbench/error-message";
@@ -23,6 +25,8 @@ export function useAppKeybindings(
   onNotice: (message: string, level?: "info" | "warning" | "error") => void,
 ): void {
   useEffect(() => {
+    const stopSidebar = installSidebarKeyboard(registry, actions, onNotice);
+    const stopAreas = registry.getProfile() === "compact" ? () => undefined : installFocusAreas(() => registry.getFocusAreas());
     const chosen = new WeakMap<KeyboardEvent, Match>();
     const run = (match: Match) => {
       const refused = commandRefusal(match.command, hostIsReadOnly());
@@ -35,7 +39,11 @@ export function useAppKeybindings(
       if (event.target instanceof Element && event.target.closest(`[${KEYBINDING_CAPTURE_ATTRIBUTE}]`)) return;
       const context = domKeybindingContext();
       const match = registry.matchKeybinding(event, context);
-      if (!match || (!match.modified && context("overlayOpen"))) return;
+      const areaCommand = match?.command.id === "workbench.focus-next-area" || match?.command.id === "workbench.focus-previous-area";
+      if (areaCommand && (focusAreaBlocked() || (registry.getProfile() === "compact" || document.body.dataset.profile === "compact"))) return;
+      if (!match || (!areaCommand && !match.modified && context("overlayOpen"))) return;
+      // F6 is a workbench navigation key even while an editor or terminal owns bare function keys.
+      if (areaCommand) { event.preventDefault(); event.stopPropagation(); run(match); return; }
       if (!match.specific || !match.modified) { chosen.set(event, match); return; }
       event.preventDefault();
       event.stopPropagation();
@@ -50,6 +58,8 @@ export function useAppKeybindings(
     window.addEventListener("keydown", early, true);
     window.addEventListener("keydown", late);
     return () => {
+      stopSidebar();
+      stopAreas();
       window.removeEventListener("keydown", early, true);
       window.removeEventListener("keydown", late);
     };

@@ -5,9 +5,9 @@ import { codexHome } from "./config.js";
 
 /** An optional auth overlay shares sessions while keeping CLI credentials private. */
 export const AUTH_HOME_VARIABLE = "TAU_CODEX_AUTH_HOME";
-const SHARED_DIRECTORIES = ["sessions", "archived_sessions", "sqlite", "shell_snapshots", "worktrees", "skills", "plugins", "cache", "logs", "mcp-oauth-locks"];
+const SHARED_DIRECTORIES = ["sessions", "archived_sessions", "sqlite", "shell_snapshots", "worktrees", "skills", "plugins", "cache", "logs", "mcp-oauth-locks", "thread-writer-locks"];
 // Finder keeps its own .DS_Store in every directory, so it is never linked or a conflict.
-const PRIVATE = new Set(["auth.json", "models_cache.json", "log", "memories", "tmp", ".DS_Store"]);
+const PRIVATE = new Set(["auth.json", "auth.lock", "models_cache.json", "log", "memories", "tmp", ".DS_Store"]);
 
 export function codexHomeLayout(env: NodeJS.ProcessEnv) {
   const shared = resolve(codexHome(env));
@@ -34,7 +34,7 @@ export async function prepareCodexHome(env: NodeJS.ProcessEnv): Promise<NodeJS.P
   const shared = await realpath(layout.shared);
   const effective = await realpath(layout.effective);
   if (shared === effective || effective.startsWith(shared + sep) || shared.startsWith(effective + sep)) throw new Error("The Codex auth home resolves to its shared home.");
-  for (const name of ["auth.json", "models_cache.json"]) {
+  for (const name of ["auth.json", "auth.lock", "models_cache.json"]) {
     if ((await stat(join(effective, name)))?.isSymbolicLink()) throw new Error(`Codex ${name} must be private to its auth home, not a symlink.`);
   }
   for (const name of SHARED_DIRECTORIES) await mkdir(join(shared, name), { recursive: true, mode: 0o700 });

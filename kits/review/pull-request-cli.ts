@@ -36,8 +36,11 @@ export const GITHUB_THREADS_QUERY = `query($owner: String!, $name: String!, $num
 
 /** Who wrote the request's comments and reviews, by account type: `gh pr view` does not say which are bots. */
 const AUTHORS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  viewer { login }
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
+      id state maintainerCanModify viewerCanUpdate author { login }
+      headRepository { nameWithOwner owner { __typename login } }
       comments(first: 100) { nodes { author { login __typename } } }
       reviews(first: 100) { nodes { author { login __typename } } }
     }

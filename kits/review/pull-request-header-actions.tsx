@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GitMerge, Link2, MoreHorizontal, RotateCcw } from "lucide-react";
-import { Menu, READ_ONLY_REASON, errorMessage, tooltipProps, type MenuItem, type MenuSection, type PreferencesStore, type WorkbenchActions } from "tau";
+import { Menu, Sheet, Switch, READ_ONLY_REASON, errorMessage, tooltipProps, type MenuItem, type MenuSection, type PreferencesStore, type WorkbenchActions } from "tau";
 import { providerInfo, type MergeMethod, type PullRequestActionResult, type PullRequestCheck, type PullRequestDetail } from "./protocol.js";
 import type { PullRequestClient } from "./pull-request-client.js";
 import { parseRequestUrl } from "./pull-request-json.js";
@@ -9,6 +9,8 @@ import { openPullRequest } from "./pull-request-open.js";
 import { METHOD_LABELS, MergeConfirm, outcomeText, useMergeConfirmation } from "./merge-controls.js";
 import { ALL_WRITES, type PullRequestWrites } from "./pull-request-writes.js";
 import { BranchDeleteConfirm, type BranchDeletionSelection } from "./branch-delete-confirm.js";
+import { canSetMaintainerEdits } from "./maintainer-access.js";
+import { useCompactProfile } from "./compact-profile.js";
 import { readBranchHead } from "./branch-head.js";
 
 /** A step the view moves into the menu where its header has no room for it, a phone's. */
@@ -54,6 +56,31 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
   const methods = capabilities.merge;
   const confirmation = useMergeConfirmation(methods, preferences);
   const [menu, setMenu] = useState(false);
+  const phone = useCompactProfile();
+  const [savingAccess, setSavingAccess] = useState<boolean>();
+  const saving = useRef(false);
+  const currentUrl = useRef<string | undefined>(detail.ref.url);
+  useEffect(() => { currentUrl.current = detail.ref.url; return () => { currentUrl.current = undefined; }; }, [detail.ref.url]);
+  const saveAccess = async () => {
+    if (saving.current || !writes.update || !canSetMaintainerEdits(detail)) return;
+    const url = detail.ref.url;
+    const allow = !detail.maintainerCanModify;
+    saving.current = true;
+    setSavingAccess(allow);
+    try {
+      const updated = await client.update(url, { maintainerCanModify: allow, expectedMaintainerCanModify: detail.maintainerCanModify! });
+      if (currentUrl.current === url) onDetail(updated);
+    } catch (error) {
+      if (currentUrl.current === url) {
+        const cause = errorMessage(error);
+        if (actions.toast) actions.toast({ type: "error", title: "Couldn't save maintainer access.", description: cause });
+        else actions.notify(`Couldn't save maintainer access. ${cause}`, "error");
+      }
+    } finally {
+      saving.current = false;
+      if (currentUrl.current === url) setSavingAccess(undefined);
+    }
+  };
   const [notice, setNotice] = useState<string>();
   const [deletion, setDeletion] = useState<BranchDeletionSelection>();
   const [deleted, setDeleted] = useState<string>();
@@ -113,7 +140,16 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
   if (detail.state === "merged" && capabilities.revert) sections.push({ items: [{ id: "revert", label: "Revert changes", icon: <RotateCcw size={13} />, ...refused(writes.action) }] });
   if (!open && capabilities.deleteBranchAction && head && deleted !== branchKey) sections.push({ items: [{ id: "delete-branch", label: "Delete branch…", ...refused(writes.action) }] });
 
+  if (capabilities.maintainerEdits && canSetMaintainerEdits(detail)) sections.push({ items: [{
+    id: "maintainer-access", label: "Allow edits from maintainers", multiple: true,
+    selected: savingAccess ?? detail.maintainerCanModify,
+    disabled: !writes.update || savingAccess !== undefined,
+    description: !writes.update ? writes.reason ?? READ_ONLY_REASON : "Maintainers can push to this branch. If your fork has workflows, this can also give them access to its secrets.",
+    ...(savingAccess !== undefined ? { badge: "Saving…" } : {}),
+  }] });
+
   const pick = (id: string) => {
+    if (id === "maintainer-access") { void saveAccess(); return; }
     setMenu(false);
     const step = extra.find((candidate) => candidate.id === id);
     if (step) step.run();
@@ -145,7 +181,21 @@ export function PullRequestHeaderActions({ detail, checks, client, actions, pref
         <button className="icon-button compact pr-more" aria-label={`More ${info.noun} actions`} title={`More ${info.noun} actions`} aria-expanded={menu} onClick={() => setMenu(!menu)}>
           <MoreHorizontal size={14} />
         </button>
-        {menu ? <Menu align="right" label={`More ${info.noun} actions`} sections={sections} onSelect={pick} onClose={() => setMenu(false)} /> : null}
+        {menu && !phone ? <Menu align="right" label={`More ${info.noun} actions`} sections={sections} onSelect={pick} keepOpenOnSelect={(id) => id === "maintainer-access"} onClose={() => setMenu(false)} /> : null}
+        {menu && phone ? <Sheet title={`More ${info.noun} actions`} className="pr-actions-sheet" onClose={() => setMenu(false)}>
+          {sections.map((section, index) => <section key={section.heading ?? index}>
+            {section.heading ? <h3>{section.heading}</h3> : null}
+            {section.items.map((item) => item.id === "maintainer-access" ? <div key={item.id} className="pr-maintainer-switch">
+              <div><span>{item.label}{item.badge ? <small>{item.badge}</small> : null}</span>{item.description ? <small>{item.description}</small> : null}</div>
+              <Switch label={item.label} checked={item.selected === true} disabled={item.disabled} onChange={() => pick(item.id)} />
+            </div> : <button key={item.id} type="button" disabled={item.disabled}
+              role={item.selected !== undefined ? "radio" : undefined}
+              aria-checked={item.selected} onClick={() => pick(item.id)}>
+              <span>{item.icon}{item.label}{item.badge ? <small>{item.badge}</small> : null}</span>
+              {item.description ? <small>{item.description}</small> : null}
+            </button>)}
+          </section>)}
+        </Sheet> : null}
       </span>
       {notice ? <span className="pr-error pr-head-notice" role="alert" title={notice}>{notice}</span> : null}
       {deletion ? <BranchDeleteConfirm selection={deletion} client={client}

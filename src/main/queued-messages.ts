@@ -221,11 +221,13 @@ export class QueuedMessages {
   }
 
   /** `add` for a caller that may be refused: a thread whose runtime is off takes no message (ADR 0033). */
-  async submit(sessionId: string, message: Omit<QueuedMessage, "id" | "queuedAt">): Promise<QueuedMessage> {
+  async submit(sessionId: string, message: Omit<QueuedMessage, "id" | "queuedAt">, beforeAdmit?: () => void): Promise<QueuedMessage> {
     return this.receipts.run(sessionId, message.identity?.clientMessageId, async () => {
       const existing = message.identity && this.list(sessionId).find((item) => item.identity?.clientMessageId === message.identity!.clientMessageId);
       if (existing) return existing;
+      beforeAdmit?.();
       await this.port.admit?.(sessionId);
+      beforeAdmit?.();
       return this.add(sessionId, message);
     });
   }

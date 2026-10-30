@@ -1,5 +1,5 @@
 import { FileMedia, isPlayableFile, type MediaLoader, type MediaResource } from "./FileMedia";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ExternalLink, FileWarning, WrapText } from "lucide-react";
 import type { DiffLoadOptions, UiEditor, UiFileContent, UiFileDiff } from "../../shared/workspace-kit-types";
 import type { StageFileTab, StageView } from "../../workbench/stage";
@@ -28,7 +28,7 @@ function missingFileDescription(error: string, path: string): string {
   return `There is no file at ${attempted}.`;
 }
 
-export function FileViewer({ tab, relativePath, changed, stat, editor, commands = [], actions, loadFile, loadMedia, loadDiff, onChangeView, onOpenInEditor, onClose }: {
+export function FileViewer({ tab, relativePath, changed, stat, editor, commands = [], actions, preview, loadFile, loadMedia, loadDiff, onChangeView, onOpenInEditor, onClose }: {
   tab: StageFileTab;
   relativePath: string;
   /** The working tree differs from HEAD for this file, so a diff exists. */
@@ -39,6 +39,8 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
   /** Commands an extension offers on the `file-tab` surface; they read the tab from `actions.activeStageTab()`. */
   commands?: readonly CommandContribution[];
   actions?: WorkbenchActions;
+  /** An extension-owned passive reader; core does not parse its document format. */
+  preview?: ReactNode;
   loadMedia?: MediaLoader;
   loadFile(path: string): Promise<UiFileContent>;
   loadDiff(path: string, options?: DiffLoadOptions): Promise<UiFileDiff>;
@@ -56,20 +58,21 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
   const { layout: mode, setLayout: setMode, wrap, setWrap } = useDiffPresentation();
   const { readOnly } = useHostCapabilities();
   const view: StageView = tab.view === "diff" && (!changed || mainCheckout) ? "source" : tab.view;
+  const hasPreview = preview !== undefined && view === "source";
   const markdown = useMarkdownView(relativePath, tab, content, view);
 
   useEffect(() => {
     let cancelled = false;
     setContent(undefined);
     setError(undefined);
-    if (isPlayableFile(relativePath)) return;
+    if (hasPreview || isPlayableFile(relativePath)) return;
     // The source reads paths inside the project; a tab opened by its absolute path is one too.
     loadFile(relativePath).then(
       (next) => { if (!cancelled) setContent(next); },
       (reason: unknown) => { if (!cancelled) setError(errorMessage(reason)); },
     );
     return () => { cancelled = true; };
-  }, [attempt, loadFile, relativePath]);
+  }, [attempt, loadFile, relativePath, hasPreview]);
 
   const meta = content?.kind === "text"
     ? `${formatBytes(content.size)} · ${lineCount(content.text ?? "")} ${lineCount(content.text ?? "") === 1 ? "line" : "lines"}`
@@ -114,6 +117,7 @@ export function FileViewer({ tab, relativePath, changed, stat, editor, commands 
     </header>
     {view === "diff"
       ? <DiffPane path={relativePath} mode={mode} wrap={wrap} loadDiff={loadDiff} />
+      : hasPreview ? preview
       : isPlayableFile(relativePath) ? <FileMedia path={relativePath} load={loadMedia} onLoad={setMedia} />
       : error && missingReason(error)
         ? <Empty

@@ -8,6 +8,8 @@ import { probeClaude, type ClaudeProbe } from "./probe.js";
 import { ClaudeSdkSession } from "./sdk-session.js";
 import { ClaudeRuntimeSessionStore } from "./session-store.js";
 import { readClaudeNativeTitle } from "./native-title.js";
+import { authenticationFailure } from "./auth-failure.js";
+import { interruptedResult, isSuccessfulResult, resultErrorText } from "./result-error.js";
 
 /** The SDK entry the adapter drives; tests inject a scripted one. */
 export type ClaudeQuery = typeof sdkQuery;
@@ -210,7 +212,18 @@ export function claudeQueryOptions(plan: ClaudeQueryPlan): Options {
     cwd: plan.cwd,
     spawnClaudeCodeProcess: (input) => {
       const child = spawnOwnedProcess(input);
-      if (plan.stderr) child.stderr.on("data", (chunk: Buffer) => plan.stderr!(chunk.toString("utf8")));
+      if (plan.stderr) {
+        const stderr = (chunk: Buffer) => { if (!input.signal.aborted) plan.stderr!(chunk.toString("utf8")); };
+        const detach = () => {
+          child.stderr.off("data", stderr);
+          child.off("exit", detach);
+          input.signal.removeEventListener("abort", detach);
+        };
+        child.stderr.on("data", stderr);
+        child.once("exit", detach);
+        input.signal.addEventListener("abort", detach, { once: true });
+        if (input.signal.aborted) detach();
+      }
       return child;
     },
     pathToClaudeCodeExecutable: plan.launch?.executable ?? plan.executable,
@@ -310,15 +323,6 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && (error.name === "AbortError" || /aborted/iu.test(error.message));
 }
 
-function resultErrorText(message: SDKMessage & { type: "result" }): string {
-  const candidate = message as { subtype: string; result?: unknown; errors?: unknown };
-  const parts = [
-    ...(Array.isArray(candidate.errors) ? candidate.errors.map(String) : []),
-    typeof candidate.result === "string" ? candidate.result : "",
-  ].map((part) => part.trim()).filter(Boolean);
-  return parts.join("\n") || candidate.subtype;
-}
-
 /**
  * Runs one turn to its `result` and returns the assistant text of the main
  * loop: every text block Claude wrote between tool calls, not only the last.
@@ -339,7 +343,10 @@ export async function consumeTurn(messages: AsyncIterable<SDKMessage>, onMessage
       continue;
     }
     if (message.type !== "result") continue;
-    if (message.subtype !== "success" || message.is_error) throw new Error(`Claude Code reported an error: ${resultErrorText(message)}`);
+    if (!isSuccessfulResult(message)) {
+      if (interruptedResult(message)) throw abortError("Claude Code turn was interrupted.");
+      throw authenticationFailure(message) ?? new Error(`Claude Code reported an error: ${resultErrorText(message)}`);
+    }
     // A resumed session answers with an empty result before the turn; the
     // real one follows.
     if (message.num_turns === 0 && !sawAssistant) continue;

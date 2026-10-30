@@ -55,6 +55,25 @@ async function fixture(request?: WorktreeStorageOptions["request"], overrides: P
 const listed = (repo: string) => git(repo, "worktree", "list", "--porcelain");
 
 describe("worktree storage", () => {
+  it("inspects recorded and orphaned worktrees with quoted paths and keeps their dirty files", async () => {
+    const { repo, root, storage } = await fixture(undefined, { now: () => Date.now() + 2 * 60 * 60_000 });
+    const parent = join(root, "worktrees", "repo");
+    const recorded = join(parent, 'recorded\t"tree"');
+    const orphan = join(parent, "orphan\nname");
+    git(repo, "worktree", "add", "-q", "-b", "quoted-recorded", recorded);
+    git(repo, "worktree", "add", "-q", "-b", "quoted-orphan", orphan);
+    await storage.remember(recorded, repo, "quoted-recorded");
+    await writeFile(join(recorded, "draft.txt"), "keep\n");
+    await storage.setPolicy({ rules: { unchanged: true } });
+
+    const report = await storage.report({ sizes: false });
+    expect(report.worktrees.find((tree) => tree.path === recorded)?.verdict.blockers).toContain("uncommitted");
+    expect(report.worktrees.find((tree) => tree.path === recorded)?.verdict.blockers).not.toContain("not-linked");
+    expect(report.untracked?.map((tree) => tree.path)).toContain(orphan);
+    expect((await storage.sweep()).removed).not.toContain(recorded);
+    expect(await readFile(join(recorded, "draft.txt"), "utf8")).toBe("keep\n");
+  });
+
   it.each(["sweep", "manual"])("rechecks live threads after %s waits for another worktree mutation", async (action) => {
     let queued!: () => void;
     const waiting = new Promise<void>((resolve) => { queued = resolve; });

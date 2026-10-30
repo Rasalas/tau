@@ -1,12 +1,14 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server } from "node:http";
+import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { HostCommandError, SecurityKeychain, SecretToolStore, type SecretStore } from "tau/host-extension";
-import type { WebhookFormat } from "./protocol.js";
+import type { WebhookFilter, WebhookFormat } from "./protocol.js";
+import { matchesWebhookFilters } from "./webhook-filters.js";
 
 export const SECRET_SERVICE = "tau-webhook-signatures";
 export const DELIVERY_WINDOW_MS = 5 * 60_000;
+export const WEBHOOK_ROUTE = "/extensions/tau.scheduling/webhooks";
 
 /** Reuses the instance's OS-store stubs; production never falls back to a file. */
 export function webhookSecretStore(findCommand: (name: string) => string | undefined): SecretStore | undefined {
@@ -82,6 +84,15 @@ const header = (headers: IncomingHttpHeaders, name: string): string | undefined 
 /** Constant-time over equal-length digests, so neither length nor content leaks through timing. */
 const sameDigest = (expected: Buffer, actual: Buffer) => expected.length === actual.length && timingSafeEqual(expected, actual);
 const hmac = (secret: string, ...parts: (string | Buffer)[]) => { const mac = createHmac("sha256", secret); for (const part of parts) mac.update(part); return mac.digest(); };
+
+/** Unfiltered webhooks retain their raw-body contract, including non-JSON deliveries. */
+export function matchesWebhookBody(filters: readonly WebhookFilter[] | undefined, body: Buffer): boolean {
+  if (!filters?.length) return true;
+  let payload: unknown;
+  try { payload = JSON.parse(body.toString("utf8")); }
+  catch { return false; }
+  return matchesWebhookFilters(filters, payload);
+}
 
 /** Timestamp and ID are signed as well as the body, so neither can be replayed or substituted. */
 export function verifyDelivery(delivery: WebhookDelivery, secret: string, now = Date.now()): boolean {
@@ -194,10 +205,27 @@ async function readRequest(request: IncomingMessage): Promise<WebhookRequest> {
 /** An opt-in loopback endpoint. Opening the host to a network remains the owner's choice. */
 export class WebhookListener {
   private server?: Server;
+  private readonly closing = new Set<Server>();
   private serial: Promise<void> = Promise.resolve();
   private stopped = false;
   url?: string;
   constructor(private readonly directory: string, private readonly receive: (jobId: string, request: WebhookRequest) => Promise<number>, private readonly changed: () => void) {}
+
+  /** The same signed receiver on an explicitly enabled host listener or its local port. */
+  async handle(request: IncomingMessage, response: ServerResponse, prefix = WEBHOOK_ROUTE): Promise<boolean> {
+    const path = request.url ?? "";
+    if (path !== prefix && !path.startsWith(prefix + "/")) return false;
+    const id = path.slice(prefix.length + 1);
+    let status = 404;
+    if (!this.stopped && request.method === "POST" && /^[a-f0-9-]{36}$/u.test(id)) {
+      try { status = await this.receive(id, await readRequest(request)); }
+      catch { status = 400; }
+    }
+    request.resume();
+    response.writeHead(status, { "content-type": "text/plain", "cache-control": "no-store" });
+    response.end(status === 204 ? undefined : status === 202 ? "accepted" : status === 200 ? "already accepted" : "not accepted");
+    return true;
+  }
 
   reconcile(enabled: boolean): Promise<void> {
     const next = this.serial.catch(() => undefined).then(async () => {
@@ -208,10 +236,9 @@ export class WebhookListener {
       const port = Number(raw.trim());
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new HostCommandError("Invalid saved webhook port.");
       const server = createServer((request, response) => {
-        const finish = (status: number) => { request.resume(); response.writeHead(status, { "content-type": "text/plain", "cache-control": "no-store" }); response.end(status === 202 ? "accepted" : status === 200 ? "already accepted" : "not accepted"); };
-        const match = /^\/webhooks\/([a-f0-9-]{36})$/u.exec(request.url ?? "");
-        if (request.method !== "POST" || !match) { finish(404); return; }
-        void readRequest(request).then((body) => this.receive(match[1]!, body)).then(finish, () => finish(400));
+        void this.handle(request, response, "/webhooks").then((handled) => {
+          if (!handled) { request.resume(); response.writeHead(404); response.end("not accepted"); }
+        }).catch(() => response.destroy());
       });
       server.requestTimeout = 10_000;
       server.headersTimeout = 10_000;
@@ -234,8 +261,22 @@ export class WebhookListener {
     const server = this.server;
     this.server = undefined;
     this.url = undefined;
-    if (server) { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); this.changed(); }
+    if (server) {
+      // Configuration changes let already admitted requests finish their queued checks.
+      // Shutdown explicitly aborts them rather than waiting on a runtime start.
+      this.closing.add(server);
+      if (this.stopped) server.closeAllConnections();
+      try { await new Promise<void>((resolve) => server.close(() => resolve())); }
+      finally { this.closing.delete(server); }
+      this.changed();
+    }
   }
 
-  async close(): Promise<void> { this.stopped = true; await this.serial.catch(() => undefined); await this.closeServer(); }
+  async close(): Promise<void> {
+    this.stopped = true;
+    this.server?.closeAllConnections();
+    for (const server of this.closing) server.closeAllConnections();
+    await this.serial.catch(() => undefined);
+    await this.closeServer();
+  }
 }

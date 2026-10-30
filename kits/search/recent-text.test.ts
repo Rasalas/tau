@@ -1,0 +1,20 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { recentPiText } from "./recent-text.js";
+import { findInThread } from "./threads.js";
+const roots: string[] = [];
+afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+it("keeps the old beginning/end fallback, with no middle hit, tool text or invented phrase across its gap", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tau-recent-search-")); roots.push(root);
+  const path = join(root, "session.jsonl");
+  const message = (role: string, text: string) => JSON.stringify({ type: "message", message: { role, content: [{ type: "text", text }] } });
+  await writeFile(path, [message("user", `opening beacon ${"x".repeat(500_000)} middle hidden ${"y".repeat(500_000)} closing beacon`), message("toolResult", "secret tool output")].join("\n") + "\n");
+  const texts = await recentPiText(path, () => false);
+  expect(findInThread(texts, ["opening", "beacon"], "opening beacon")).toBeDefined();
+  expect(findInThread(texts, ["closing", "beacon"], "closing beacon")).toBeDefined();
+  expect(findInThread(texts, ["middle", "hidden"], "middle hidden")).toBeUndefined();
+  expect(findInThread(texts, ["opening", "closing"], "opening closing")).toBeUndefined();
+  expect(findInThread(texts, ["secret"], "secret")).toBeUndefined();
+});

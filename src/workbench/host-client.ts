@@ -92,6 +92,8 @@ export interface HostClient {
   invokeHostExtension: CommandClient<"host-extension">;
   /** Resolve a capability path against this client's host, never the device's own host. */
   resourceUrl?(path: string): string;
+  /** Read a capability on this authenticated connection, including relay transports. */
+  readBrowserResource: CommandClient<"read-browser-resource">;
   listHostExtensions: CommandClient<"host-extensions">;
   inspectExtensions: CommandClient<"inspect-extensions">;
   setHostExtensionActive: CommandClient<"host-extension-active">;
@@ -444,6 +446,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     watchThread: (sessionId) => connection.watchThread(sessionId),
     watchNewThread: (requestId) => connection.watchNewThread(requestId),
     resourceUrl: (path) => connection.resourceUrl(path),
+    readBrowserResource: (path) => commandCall("read-browser-resource", [path]),
     watchHostTopic: (extensionId, topic) => connection.watchTopic(extensionId, topic),
     limitPushesToWatched: () => connection.limitToWatched(),
     getVersions: () => ({ host: connection.getHostVersion(), window: local?.getHostVersion() }),

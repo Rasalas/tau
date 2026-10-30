@@ -7,6 +7,7 @@ import { ThreadViewStore } from "../../../workbench/thread-view-store";
 import { ToastStore, type ToastOptions } from "../../../workbench/toast-store";
 import { PlatformProvider } from "../../platform-context";
 import { showNoticesAsToasts } from "../../use-workbench-toasts";
+import { FocusAreaRing } from "../../focus-areas";
 import { ToastViewport, layoutToasts, toastSwipeDismisses } from "./Toasts";
 
 afterEach(cleanup);
@@ -82,11 +83,15 @@ describe("ToastViewport", () => {
     expect(store.isHeld()).toBe(false);
   });
 
-  it("moves focus into the stack on F6", () => {
+  it("offers Notifications to the shared area ring and holds their expiry while focused", () => {
     const { store } = setup();
     act(() => { store.show({ description: "Saved" }); });
-    fireEvent.keyDown(document, { key: "F6" });
-    expect(document.activeElement?.className).toContain("toast-item");
+    const ring = new FocusAreaRing();
+    try {
+      act(() => { expect(ring.move(1)).toBe(true); });
+      expect(document.activeElement?.className).toContain("toast-item");
+      expect(store.isHeld()).toBe(true);
+    } finally { ring.dispose(); }
   });
 });
 

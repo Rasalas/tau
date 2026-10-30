@@ -37,6 +37,7 @@ async function answer(url: string, method: string): Promise<{ status: number; bo
     if (path.includes("dump.sql")) return { status: 200, body: "x".repeat(2 * 1024 * 1024 + 1) };
     return { status: 200, body: "package main\n\nfunc main() {}\n" };
   }
+  if (path.startsWith("/statuses/")) return { status: 200, body: new URL(url).searchParams.get("page") === "1" ? JSON.stringify(JSON.parse(await fixture("forgejo-status.json")).statuses) : "[]" };
   if (path.startsWith("/commits/")) return { status: 200, body: await fixture("forgejo-status.json") };
   return { status: 200, body: "[]" };
 }

@@ -1,3 +1,4 @@
+import { decodeSnoozePresets } from "./meta.js";
 import { stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
@@ -333,8 +334,11 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
       });
       context.registerCommand("settings", (input) => {
         const fields = record(input);
+        if ("snoozePresets" in fields && fields.snoozePresets !== null && !decodeSnoozePresets(fields.snoozePresets)) {
+          throw new Error("Use 1 to 8 snooze options, with durations up to 30 days and valid times.");
+        }
         const inactiveDays = fields.inactiveDays === null ? undefined : fields.inactiveDays ?? state.settings.inactiveDays;
-        const settings = decodeSettings({ ...state.settings, inactiveDays, ...("workingSection" in fields ? { workingSection: fields.workingSection } : {}), ...("onMerged" in fields ? { onMerged: fields.onMerged } : {}), ...("onClosed" in fields ? { onClosed: fields.onClosed } : {}) });
+        const settings = decodeSettings({ ...state.settings, inactiveDays, ...("snoozePresets" in fields ? { snoozePresets: fields.snoozePresets } : {}), ...("workingSection" in fields ? { workingSection: fields.workingSection } : {}), ...("onMerged" in fields ? { onMerged: fields.onMerged } : {}), ...("onClosed" in fields ? { onClosed: fields.onClosed } : {}) });
         commit({ ...state, settings });
         return publicState();
       });
@@ -387,6 +391,11 @@ export function createThreadRailHostExtension(options: ThreadRailHostOptions = {
           return publicState();
         }
         if (running.has(id)) throw new HostCommandError("Cannot archive a running thread.");
+        // Revoke thread-owned capabilities before announcing the archive. A
+        // failed cleanup must not report a successfully archived thread.
+        for (const provider of context.offering("tau.thread-rail/archive")) {
+          await context.invokeHostExtension(provider.id, "thread-archived", { threadId: id });
+        }
         change({ [id]: archivePatch(clock()) });
         return publicState();
       }, { callers: ["tau.handoff"] });

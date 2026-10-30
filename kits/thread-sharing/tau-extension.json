@@ -1,0 +1,13 @@
+{
+  "id": "tau.thread-sharing",
+  "name": "Thread sharing",
+  "description": "Share one thread through an expiring guest link and review guest suggestions before sending.",
+  "icon": "Share2",
+  "version": "1.0.0",
+  "engines": { "api": "^1.80.0" },
+  "permissions": ["sessions", "network"],
+  "isolation": "in-process",
+  "host": "./host.ts",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css"
+}

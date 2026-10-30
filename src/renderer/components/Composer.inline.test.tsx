@@ -264,6 +264,23 @@ describe("the pieces the seam is built from", () => {
     expect(composerTrigger("/model openai/gpt", 17)).toMatchObject({ kind: "arg", command: "model", query: "openai/gpt" });
   });
 
+  it.each(["$5", "$9.99", "$.99", "$1,000", "$10k", "$2e6", "$10k.", "$5?", "$9.99)"])("keeps the amount %j out of the skill menu", (text) => {
+    expect(composerTrigger(text, text.length)).toBeUndefined();
+    const inline = `budget ${text}`;
+    // Even a similarly named skill must not turn an amount into an invocation.
+    expect(composerTrigger(inline, inline.length, [], [text.slice(1)])).toBeUndefined();
+  });
+
+  it("checks the whole amount while editing, and keeps skills that start with numbers", () => {
+    expect(composerTrigger("$9.99", 2)).toBeUndefined();
+    expect(composerTrigger("budget $9.99", 9, [], ["9.99"])).toBeUndefined();
+    for (const text of ["$", "$1password", "$2fa"]) {
+      expect(composerTrigger(text, text.length)).toMatchObject({ kind: "$", query: text.slice(1) });
+    }
+    expect(composerTrigger("$1password", 2)).toMatchObject({ kind: "$", query: "1" });
+    expect(composerTrigger("use $1password", 6, [], ["1password"])).toMatchObject({ kind: "$", query: "1" });
+  });
+
   it("places context before plain text and after a skill's instruction", () => {
     expect(withInlineContext("do it", "")).toEqual({ text: "do it", skillDraft: undefined });
     expect(withInlineContext("do it", "<file/>")).toEqual({ text: "<file/>\n\ndo it" });
