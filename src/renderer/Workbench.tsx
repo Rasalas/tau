@@ -83,7 +83,7 @@ import type { AppPageStore } from "../workbench/app-page-store";
 import { AppPageContext } from "./app-page-context";
 import type { ThreadViewStore } from "../workbench/thread-view-store";
 import { contextBreakdownFor, conversationMessagesFor, toolOutputKiloTokens } from "../workbench/app-state";
-import type { TranscriptHistoryController } from "../workbench/transcript-history";
+import { captureTranscriptScrollAnchor, type TranscriptHistoryController } from "../workbench/transcript-history";
 import type { useThreadDropController } from "./use-thread-drop-controller";
 import {
   ObservatoryContext,
@@ -1159,6 +1159,8 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
   );
   // Stable across renders: a new callback or status element per tool flush
   // would re-render every visible message and restart the tail follow.
+  const captureHistoryAnchor = useCallback(() => transcriptRef.current
+    ? captureTranscriptScrollAnchor(transcriptRef.current) : undefined, [transcriptRef]);
   const onCopyMessage = useCallback((message: UiMessage) => void copyMessage(message), [copyMessage]);
   const onForkMessage = useCallback((message: UiMessage, turn?: TranscriptTurn) => void forkMessage(message, turn), [forkMessage]);
   const onEditMessage = useCallback((message: UiMessage) => void editMessage(message), [editMessage]);
@@ -1181,11 +1183,12 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
     : thinking ? <LiveStatus startedAt={runStartedAt} /> : undefined, [liveStatusLabel, runStartedAt, thinking]);
   return <TranscriptHistoryBoundary
     controller={transcriptHistory}
+    captureAnchor={captureHistoryAnchor}
     showControl={!pendingNewThread && messages.length > 0}
     loadPage={loadTranscriptPage}
     applyPage={applyTranscriptPage}
   >
-    {(loadOlderOnReach, history, loadThrough) => <TranscriptViewport
+    {(loadOlderOnReach, history, loadThrough, historyGap) => <TranscriptViewport
       messages={messages}
       scrollRef={transcriptRef}
       sessionId={conversationSnapshot?.sessionId}
@@ -1204,6 +1207,7 @@ const ConversationTranscript = memo(function ConversationTranscript({ view, thre
       onEditMessage={readOnly ? undefined : onEditMessage}
       onRetryMessage={readOnly || limit || shell?.turnError ? undefined : retry}
       history={history}
+      historyGap={historyGap}
       onReachStart={loadOlderOnReach}
       loadThrough={loadThrough}
       jumpToLatest={jumpToLatest}

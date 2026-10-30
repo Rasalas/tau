@@ -69,3 +69,13 @@ export function answerTranscriptFind(ref: RefObject<HTMLDivElement | null>, sess
   const stopPending = sessionId ? pendingFind(ref).answer(sessionId, request => open(request.query, request.mode)) : undefined;
   return () => { stopEvent?.(); stopPending?.(); };
 }
+
+/** A history reset also releases the viewport's old anchor and follows the live tail. */
+export function requestLatest(node: Element | null | undefined): void {
+  node?.dispatchEvent(new Event("tau:latest-transcript"));
+}
+
+export function answerLatest(node: Element, jump: () => void): () => void {
+  node.addEventListener("tau:latest-transcript", jump);
+  return () => node.removeEventListener("tau:latest-transcript", jump);
+}

@@ -4,7 +4,7 @@ import { LazyFeatureBoundary } from "./LazyFeature";
 import { splitMessageBlocks } from "./message-blocks";
 import type { UiMessage } from "../../shared/contracts";
 import type { TranscriptDetail } from "../../workbench/transcript-folding";
-import { MessageActions } from "./MessageActions";
+import { MessageActions } from "../deferred-surfaces";
 import { UserMessage, useMessageBlocks } from "./UserMessage";
 import { Markdown } from "./LazyMarkdown";
 import { compactTimestamp, fullTimestamp } from "./message-timestamp";

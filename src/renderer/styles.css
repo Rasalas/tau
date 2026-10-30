@@ -718,6 +718,10 @@ tau-part { display: contents; }
   display: flex; align-items: center; justify-content: center; gap: var(--space-3);
   color: var(--faint); font: var(--text-xs) var(--mono); white-space: nowrap;
 }
+.transcript-history-row.transcript-window-gap {
+  position: relative; inset: auto; height: auto; min-height: 32px; padding: var(--space-3) 0;
+  white-space: normal; flex-wrap: wrap;
+}
 /* A page that lands at once never shows it. */
 .transcript-history-row.loading { animation: fade-up 160ms ease-out 200ms both; }
 .transcript-history-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

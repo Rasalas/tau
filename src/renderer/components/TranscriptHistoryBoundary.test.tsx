@@ -97,7 +97,7 @@ function Fixture({
     return true;
   }, [controller]);
 
-  return <div data-testid="transcript-scroll" ref={scrollRef} style={{ height: 600, overflow: "auto" }}>
+  return <div className="transcript" data-testid="transcript-scroll" ref={scrollRef} style={{ height: 600, overflow: "auto" }}>
     <TranscriptHistoryBoundary
       controller={controller}
       showControl
@@ -298,4 +298,47 @@ describe("TranscriptHistoryBoundary integration", () => {
     expect(node.querySelector("[data-older-turns]")).toBeNull();
     expect(node.scrollTop).toBe(500);
   });
+  it("shows eviction explicitly and returns to the live tail through the viewport's latest action", () => {
+    const tail = [message("latest")];
+    const controller = new TranscriptHistoryController(snapshot("thread", tail));
+    let messages = tail;
+    for (let n = 10; n > 0; n--) {
+      const request = controller.beginLoad()!;
+      messages = controller.applyPage({ sessionId: "thread", messages: [message(`old-${n}`)], hasMore: true,
+        olderCursor: asHostTranscriptCursor(`opaque:${n}`) }, messages, request)!.messages;
+      controller.completeSuccess(request, 1);
+    }
+    render(<Fixture controller={controller} initialMessages={messages} loadPage={vi.fn()} onReach={() => {}} />);
+    const jump = vi.fn();
+    screen.getByTestId("transcript-scroll").addEventListener("tau:latest-transcript", jump);
+    fireEvent.click(screen.getByRole("button", { name: "Back to latest turns" }));
+    expect(controller.getDetail("thread")?.messages.map((entry) => entry.id)).toEqual(["latest"]);
+    expect(screen.queryByRole("button", { name: "Back to latest turns" })).toBeNull();
+    expect(jump).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the cursor and rows when the reader moves away during a page fetch", async () => {
+    const tail = [message("tail")];
+    const controller = new TranscriptHistoryController(snapshot("thread", tail));
+    const first = controller.beginLoad()!;
+    controller.applyPage({ sessionId: "thread", messages: [message("leading")], hasMore: true,
+      olderCursor: asHostTranscriptCursor("opaque:leading") }, tail, first);
+    controller.completeSuccess(first, 1);
+    let visible = "leading";
+    let resolve!: (page: TranscriptPage) => void;
+    const loadPage = vi.fn(() => new Promise<TranscriptPage>((done) => { resolve = done; }));
+    const applyPage = vi.fn(() => true);
+    let reach!: () => void;
+    render(<TranscriptHistoryBoundary controller={controller} showControl loadPage={loadPage} applyPage={applyPage}
+      captureAnchor={() => ({ messageId: visible, viewportOffset: 0 })}>
+      {(onReach, history) => { reach = onReach; return history; }}
+    </TranscriptHistoryBoundary>);
+    act(() => reach());
+    visible = "tail";
+    await act(async () => { resolve({ sessionId: "thread", messages: [message("older")], hasMore: false }); });
+    expect(applyPage).not.toHaveBeenCalled();
+    expect(controller.getSnapshot()).toMatchObject({ loading: false, olderCursor: "opaque:leading" });
+    expect(controller.getDetail("thread")?.messages.map((entry) => entry.id)).toEqual(["leading", "tail"]);
+  });
+
 });

@@ -327,7 +327,6 @@ export class WorkbenchStore {
         }, currentTurnStart.turnId);
       }
     }
-    view.details.set(detailForRender);
     const reportedMessage = detailForRender.messages.find((message) => message.role === "user");
     const pendingForReport = newThread.current();
     const deliveryObservation = isCorrelatedCandidate && reportedMessage && pendingForReport
@@ -365,8 +364,8 @@ export class WorkbenchStore {
 
   /** The last snapshot the host confirmed, kept so the next start paints before the host answers. */
   private remember(snapshot: HostSnapshot): HostSnapshot {
-    this.cachedSnapshot = snapshot;
-    scheduleBootstrapCache(snapshot, this.cachedIndex, this.ports.storage);
+    this.cachedSnapshot = this.ports.history.getCacheSnapshot() ?? snapshot;
+    scheduleBootstrapCache(this.cachedSnapshot, this.cachedIndex, this.ports.storage);
     return snapshot;
   }
 }

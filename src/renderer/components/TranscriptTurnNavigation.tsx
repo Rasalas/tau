@@ -4,8 +4,8 @@ import {
   transcriptTurnNavigationIndexFromPointer,
   transcriptTurnNavigationMarkerIndexes,
   transcriptTurnNavigationTopPercent,
-  type TranscriptTurnNavigationEntry,
-} from "./transcript-turn-navigation";
+} from "./transcript-turn-navigation-layout";
+import type { TranscriptTurnNavigationEntry } from "./transcript-turn-navigation";
 
 export interface TranscriptTurnNavigationProps {
   entries: readonly TranscriptTurnNavigationEntry[];

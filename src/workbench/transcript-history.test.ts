@@ -376,3 +376,128 @@ describe("TranscriptHistoryController", () => {
     )).toBe(true);
   });
 });
+
+it("bounds 500 loaded pages while keeping the live tail and reloadable history", () => {
+  const controller = new TranscriptHistoryController(snapshot("t", ["tail"], "500"));
+  let messages = [message("tail")];
+  for (let n = 499; n >= 0; n--) {
+    const request = controller.beginLoad()!;
+    const result = controller.applyPage(page("t", Array.from({ length: 20 }, (_, i) => `${n}-${i}`), n ? String(n) : undefined), messages, request)!;
+    messages = result.messages;
+    controller.completeSuccess(request, 20);
+  }
+  expect(messages.length).toBeLessThanOrEqual(1000);
+  expect(messages.some((entry) => entry.id === "0-0")).toBe(true);
+  expect(messages.at(-1)?.id).toBe("tail");
+  expect(controller.getSnapshot().historyCompleteness).not.toBe("complete");
+});
+
+function fillWindow(controller: TranscriptHistoryController, count = 12): UiMessage[] {
+  let messages = controller.getDetail("t")!.messages;
+  for (let n = count; n > 0; n--) {
+    const request = controller.beginLoad()!;
+    messages = controller.applyPage({
+      ...page("t", [`old-${n}`], String(n)),
+      cursorBeforeMessageId: `old-${n}`,
+      cursorBoundaries: [{ messageId: `old-${n}`, cursor: asHostTranscriptCursor(`opaque:${n}`) }],
+      taskHistory: [{ id: `task-${n}`, anchorMessageId: `old-${n}`, progress: { tasks: [], completed: 0, total: 0 } }],
+      turnActivityHistory: [{ id: `activity-${n}`, anchorMessageId: `old-${n}`, tools: [], status: "completed" }],
+      turnActivityHistoryComplete: true,
+    }, messages, request)!.messages;
+    controller.completeSuccess(request, 1);
+  }
+  return messages;
+}
+
+it("evicts page metadata together, preserves live deltas, and reloads discarded history from opaque tail coordinates", () => {
+  const controller = new TranscriptHistoryController(snapshot("t", ["tail"], "tail-coordinate"));
+  const messages = fillWindow(controller);
+  const current = controller.getDetail("t")!;
+  expect(current.taskHistory?.some((entry) => entry.id === "task-12")).toBe(false);
+  expect(current.turnActivityHistory?.some((entry) => entry.id === "activity-12")).toBe(false);
+  expect(current.cursorBoundaries?.some((entry) => entry.messageId === "old-12")).toBe(false);
+  expect(controller.getSnapshot().gapBeforeMessageId).toBe("tail");
+
+  const restart = controller.beginRestoreLatest()!;
+  const latest = controller.applyPage(restart.page, [...messages, message("stream", "assistant")], restart.request)!;
+  expect(latest.messages.map((entry) => entry.id)).toEqual(["tail", "stream"]);
+  expect(controller.getSnapshot().gapBeforeMessageId).toBeUndefined();
+  controller.completeSuccess(restart.request, 0);
+  expect(controller.beginLoad()?.cursor).toBe(asHostTranscriptCursor("opaque:tail-coordinate"));
+});
+
+it("keeps a historical anchor and streaming tail through refreshes and rejects a discarded request after restart or switching", () => {
+  const controller = new TranscriptHistoryController(snapshot("t", ["tail"], "tail-coordinate"));
+  fillWindow(controller);
+  const pending = controller.beginLoad({ messageId: "old-1", viewportOffset: 80 })!;
+  const updated = { ...detail("t", ["tail", "new-reply"], "new-coordinate"), isStreaming: true };
+  const applied = controller.applyDetail(updated)!;
+  expect(applied.detail.messages[0]?.id).toBe("old-1");
+  expect(applied.detail.messages.at(-1)?.id).toBe("new-reply");
+  expect(controller.isCurrent(pending)).toBe(true);
+  expect(controller.anchorRef.current?.messageId).toBe("old-1");
+  const restart = controller.beginRestoreLatest()!;
+  controller.applyPage(restart.page, applied.detail.messages, restart.request);
+  expect(controller.applyPage(page("t", ["late"], "late"), [], pending)).toBeUndefined();
+  controller.beginThreadSwitch("other");
+  controller.applyDetail(detail("other", ["other-tail"], "other-coordinate"));
+  expect(controller.applyPage(restart.page, [], restart.request)).toBeUndefined();
+  expect(controller.getSnapshot().gapBeforeMessageId).toBeUndefined();
+});
+
+it("retains complete oversized records and the preceding page instead of slicing a turn", () => {
+  const controller = new TranscriptHistoryController(snapshot("t", ["tail"], "3"));
+  let messages = [message("tail")];
+  for (let n = 3; n > 0; n--) {
+    const request = controller.beginLoad()!;
+    const huge = { ...message(`huge-${n}`), text: "x".repeat(5 * 1024 * 1024) };
+    messages = controller.applyPage({ ...page("t", [], String(n - 1)), messages: [huge] }, messages, request)!.messages;
+    controller.completeSuccess(request, 1);
+  }
+  expect(messages.map((entry) => entry.id)).toEqual(["huge-1", "huge-2", "tail"]);
+  expect(messages[0]?.text.length).toBe(5 * 1024 * 1024);
+  expect(controller.getSnapshot().gapBeforeMessageId).toBe("tail");
+});
+
+it("bounds message-heavy pages before the page-count limit and caches only a contiguous tail", () => {
+  const controller = new TranscriptHistoryController(snapshot("t", ["tail"], "start"));
+  let messages = [message("tail")];
+  for (let n = 3; n > 0; n--) {
+    const request = controller.beginLoad()!;
+    messages = controller.applyPage(page("t", Array.from({ length: 400 }, (_, i) => `${n}-${i}`), String(n - 1)), messages, request)!.messages;
+    controller.completeSuccess(request, 400);
+  }
+  expect(messages).toHaveLength(801);
+  expect(controller.getCacheSnapshot()?.messages.map((entry) => entry.id)).toEqual(["tail"]);
+  controller.beginThreadSwitch("other");
+  controller.applyDetail(detail("other", ["other"]));
+  expect(controller.getDetail("t")?.messages.map((entry) => entry.id)).toEqual(["tail"]);
+});
+
+it("starts a fresh page window when revisiting a cached thread", () => {
+  const controller = new TranscriptHistoryController(snapshot("t", ["tail"], "start"));
+  fillWindow(controller);
+  controller.beginThreadSwitch("other");
+  controller.applyDetail(detail("other", ["other-tail"], "other-start"));
+  const request = controller.beginLoad()!;
+  controller.applyPage(page("other", ["other-history"], "older"), [message("other-tail")], request);
+  controller.completeSuccess(request, 1);
+  controller.beginThreadSwitch("t");
+  const revisited = controller.applyDetail(detail("t", ["tail"], "start"))!;
+  expect(revisited.detail.messages.map((entry) => entry.id)).toEqual(["tail"]);
+  expect(controller.getSnapshot().gapBeforeMessageId).toBeUndefined();
+});
+
+it("keeps gaps reloadable even when the host tail has no visible messages", () => {
+  const controller = new TranscriptHistoryController(snapshot("t", [], "start"));
+  fillWindow(controller);
+  expect(controller.getSnapshot().historyWindowEvicted).toBe(true);
+  expect(controller.beginRestoreLatest()?.request.cursor).toBe(asHostTranscriptCursor("opaque:start"));
+});
+
+it("waits until the leading source page is visible before scroll paging can evict rows", () => {
+  const controller = new TranscriptHistoryController(snapshot("t", ["tail"], "start"));
+  fillWindow(controller);
+  expect(controller.beginLoad({ messageId: "old-3", viewportOffset: 0 })).toBeUndefined();
+  expect(controller.beginLoad({ messageId: "old-1", viewportOffset: 0 })).toBeDefined();
+});

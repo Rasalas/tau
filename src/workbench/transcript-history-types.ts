@@ -18,6 +18,8 @@ export interface TranscriptHistoryState {
   sessionId?: string;
   olderCursor?: HostTranscriptCursor;
   historyCompleteness?: TranscriptHistoryCompleteness;
+  gapBeforeMessageId?: string;
+  historyWindowEvicted?: boolean;
   loading: boolean;
   status?: TranscriptHistoryStatus;
 }
@@ -26,6 +28,7 @@ export interface TranscriptHistoryRequest {
   generation: number;
   sessionId: string;
   cursor: HostTranscriptCursor;
+  restoreLatest?: boolean;
 }
 
 export interface TranscriptBootstrapRequest {
