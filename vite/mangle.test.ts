@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResolvedConfig } from "vite";
-import { mangleChunk, mangleForGzip } from "./mangle";
+import { mangleChunk, mangleForGzip, terserPool } from "./mangle";
 
 const CHUNK = [
   "/*! @license widget v1 | MIT */",
@@ -41,6 +41,29 @@ describe("mangleChunk", () => {
   it("returns a source map when the build writes one", async () => {
     expect((await mangleChunk(CHUNK, false)).map).toBeNull();
     expect(JSON.parse((await mangleChunk(CHUNK, true)).map ?? "{}").mappings).toBeTruthy();
+  });
+});
+
+describe("terserPool", () => {
+  it("returns what mangleChunk returns, for chunks sent at once", async () => {
+    const pool = terserPool(2);
+    try {
+      const chunks = [CHUNK, CHUNK.replace("widget", "gadget"), CHUNK.replace("currentValue", "otherValue")];
+      const results = await Promise.all(chunks.flatMap((chunk) => [pool.mangle(chunk, false), pool.mangle(chunk, true)]));
+      expect(results).toEqual(await Promise.all(chunks.flatMap((chunk) => [mangleChunk(chunk, false), mangleChunk(chunk, true)])));
+    } finally {
+      await pool.close();
+    }
+  });
+
+  it("rejects a chunk terser cannot parse and keeps working", async () => {
+    const pool = terserPool(1);
+    try {
+      await expect(pool.mangle("export {", false)).rejects.toThrow();
+      expect(await pool.mangle(CHUNK, false)).toEqual(await mangleChunk(CHUNK, false));
+    } finally {
+      await pool.close();
+    }
   });
 });
 
