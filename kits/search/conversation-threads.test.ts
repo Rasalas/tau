@@ -2,8 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import type { HostConversationServices, HostConversationSummary } from "tau/host-extension";
-import { asHostTranscriptCursor } from "../../src/shared/transcript-cursor.js";
+import type { HostConversationServices, HostConversationSummary, HostTranscriptCursor } from "tau/host-extension";
 import { ConversationThreadIndex } from "./conversation-threads.js";
 import { PersistentMessageIndex } from "./persistent-index.js";
 
@@ -14,7 +13,7 @@ async function fixture() {
   let listed: HostConversationSummary[] = [{ sessionId: "same-id", cwd: root, path: "/latest/pi.jsonl", modifiedAt: 20, version: "v1" }];
   const page = vi.fn<HostConversationServices["page"]>(async (_id, version, cursor) => version !== "v1" ? { status: "changed" } : { status: "ok", page: {
     sessionId: "same-id", hasMore: cursor === undefined,
-    ...(cursor === undefined ? { olderCursor: asHostTranscriptCursor("inherited") } : {}),
+    ...(cursor === undefined ? { olderCursor: "inherited" as HostTranscriptCursor } : {}),
     messages: cursor === undefined ? [{ id: "new", role: "assistant", text: "x".repeat(100_000) + " latest quasar", timestamp: 2 }]
       : [{ id: "imported", role: "user", text: "imported nebula", timestamp: 1 }],
   } });

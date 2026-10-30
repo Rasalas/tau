@@ -25,7 +25,20 @@ async function openTurnPill(name: RegExp = /^Turn changes: 1 file\b/u): Promise<
   await screen.findByRole("dialog", { name: /^(Turn changes|Changes so far)$/u });
 }
 
-afterEach(() => { cleanup(); setHostClient(undefined); setClientStorage(undefined); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); setHostClient(undefined); setClientStorage(undefined); });
+
+/** jsdom has no layout; give the real virtualizer a viewport before selecting a thread. */
+function measureThreadRail(): void {
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains("rail-active") ? 600 : 0;
+  });
+}
+
+async function clickTargetThread(): Promise<void> {
+  const navigation = await screen.findByRole("navigation", { name: "Threads" });
+  const title = await within(navigation).findByText("Target thread");
+  fireEvent.click(title.closest("button")!);
+}
 
 /**
  * Workspace Kit in front of the real workbench. These moved out of
@@ -88,7 +101,7 @@ describe("Workspace Kit in the workbench", () => {
   it("keeps the virtual thread canvas from shrinking inside the scroll rail", async () => {
     renderApp(undefined, { extensions: [workspaceExtension] });
     const navigation = await screen.findByRole("navigation", { name: "Threads" });
-    const canvas = navigation.querySelector(".rail-active-rows")?.firstElementChild as HTMLElement;
+    const canvas = navigation.querySelector<HTMLElement>(".rail-virtual")!;
     expect(canvas.style.flexShrink).toBe("0");
   });
 
@@ -351,6 +364,7 @@ describe("Workspace Kit in the workbench", () => {
   });
 
   it("switches to an existing thread while a new-thread message is still being delivered", async () => {
+    measureThreadRail();
     let createdClientMessageId = "";
     const newSession = vi.fn(async (...args: unknown[]) => {
       createdClientMessageId = (args[3] as { clientMessageId: string }).clientMessageId;
@@ -412,9 +426,7 @@ describe("Workspace Kit in the workbench", () => {
     await waitFor(() => expect(newSession).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-busy")).toBe("false"));
 
-    const navigation = await screen.findByRole("navigation", { name: "Threads" });
-    fireEvent.keyDown(navigation, { key: "ArrowDown" });
-    fireEvent.keyDown(navigation, { key: "Enter" });
+    await clickTargetThread();
 
     await waitFor(() => expect(switchSession).toHaveBeenCalledWith("/target.jsonl"));
     expect(screen.queryByText(/Wait for the current message delivery/u)).toBeNull();
@@ -460,6 +472,7 @@ describe("Workspace Kit in the workbench", () => {
       }],
     });
     function start(switchSession: () => Promise<HostActionResult>, loadTranscript: (sessionId: string) => Promise<{ sessionId: string; messages: { id: string; role: "assistant"; text: string; timestamp: number }[]; hasMore: boolean }>) {
+      measureThreadRail();
       const pages = vi.fn(loadTranscript);
       const client = createFakeHostClient({
         bootstrap: async () => ({
@@ -483,9 +496,7 @@ describe("Workspace Kit in the workbench", () => {
     }
     async function openTarget(): Promise<void> {
       await screen.findByText("Current content");
-      const navigation = await screen.findByRole("navigation", { name: "Threads" });
-      fireEvent.keyDown(navigation, { key: "ArrowDown" });
-      fireEvent.keyDown(navigation, { key: "Enter" });
+      await clickTargetThread();
     }
 
     it("shows the thread's persisted page while the host still opens it, then the host's own", async () => {

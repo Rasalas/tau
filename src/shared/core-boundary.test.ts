@@ -111,6 +111,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./host-extensions.js",   "./host-idle-compaction.js",   "./host-invocation.js",   "./host-jobs.js",   "./host-lifecycle.js",   "./host-lifecycle-coordinator.js",
   // Connection-scoped browser resource transport and the host's OS TLS trust store.
   "./host-browser-resources.js", "./host-read-paths.js", "./host-system-certificates.js",
+  "./public-thread-tools.js", // Runtime-neutral, bounded tool activity for an explicitly public audience.
+  "./project-registration.js", // Refresh project facts and history without replacing a thread or its runtime.
   "./host-listen.js",   "./host-local-files.js",   "./host-log.js",   "./host-origin.js",
   "./host-messages.js",   "./host-methods.js",   "./host-ports.js",   "./host-publication.js",
   "./host-process-errors.js",   "./host-process-supervisor.js",   "./host-start.js",   "./host-shutdown.js",
