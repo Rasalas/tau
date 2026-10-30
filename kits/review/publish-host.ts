@@ -26,9 +26,10 @@ const SERVICE_LIST: readonly RequestService[] = ["github", "gitlab"];
 
 /**
  * "Publish repository" for a checkout without a remote:
- * `gh repo create` or GitLab's API through `glab`, then `origin` and a push.
- * Nothing is created unless the call carries `confirm: true`, which only the
- * form's last step sends.
+ * `gh repo create` or GitLab's API through `glab`, then `origin` and a push,
+ * which also sets the branch's upstream. Nothing is created unless the call
+ * carries `confirm: true`, which only the form's last step sends, or Workspace
+ * Kit's "New project" form when its GitHub box is ticked (granted below).
  */
 export function registerPublishCommands(context: HostExtensionContext, options: { run?: CliRunner } = {}): void {
   const { services } = context;
@@ -75,7 +76,6 @@ export function registerPublishCommands(context: HostExtensionContext, options: 
     const repository = typeof fields.repository === "string" ? fields.repository.trim() : "";
     if (!isRepositoryPath(repository)) throw new HostCommandError("Name the repository as owner/name, with letters, digits, dots, dashes and underscores.");
     const visibility: RepositoryVisibility = fields.visibility === "public" ? "public" : "private";
-    const protocol: RemoteProtocol = fields.protocol === "ssh" ? "ssh" : "https";
     const git = await workspace<ReviewRequestContext>("review-request-context");
     if (git.remote) throw new HostCommandError(`This repository already has a remote (${git.remote.name}); it is published.`);
     if (!git.branch) throw new HostCommandError("Check out a branch before publishing; HEAD is detached.");
@@ -83,6 +83,9 @@ export function registerPublishCommands(context: HostExtensionContext, options: 
     if (!await cli(service, authArgs(), git.root).then(() => true, () => false)) {
       throw new HostCommandError(`${facts.label} is not signed in. Run \`${facts.login}\` in a terminal, then try again.`);
     }
+    // A caller that did not choose (a new project) gets the protocol the CLI is configured for.
+    const protocol: RemoteProtocol = fields.protocol === "ssh" || fields.protocol === "https" ? fields.protocol
+      : (await cli(service, protocolArgs(), git.root).catch(() => "")).trim() === "ssh" ? "ssh" : "https";
 
     let created: CreatedRepository | undefined;
     try {
@@ -90,6 +93,7 @@ export function registerPublishCommands(context: HostExtensionContext, options: 
         ? githubCreatedRepository(await cli(service, createRepositoryArgs(repository, visibility), git.root), repository)
         : await createGitlabProject(repository, visibility, (args) => cli(service, args, git.root));
     } catch (error) {
+      if (/already exists/iu.test(message(error))) throw new HostCommandError(`A repository named ${repository} already exists on ${service === "github" ? "GitHub" : "GitLab"}. Choose another name, or add the existing one as origin by hand.`);
       throw new HostCommandError(`Creating the repository failed: ${message(error).split("\n")[0]}`);
     }
     if (!created) throw new HostCommandError(`${facts.label} created the repository but did not say where; add the remote by hand.`);
@@ -114,7 +118,7 @@ export function registerPublishCommands(context: HostExtensionContext, options: 
     }
     services.log(pushed ? "repository.pushed" : "repository.remote-added", remote);
     return { repository: created.nameWithOwner, url: created.web, remote, pushed, branch: git.branch, ...(pushProblem ? { pushProblem } : {}) };
-  }, { long: true });
+  }, { long: true, callers: [WORKSPACE_HOST_EXTENSION_ID] });
 
   // The repository and its remote exist after a failed first push; this tries the push again.
   context.registerCommand("publish-push", async (): Promise<{ detail: string }> => {

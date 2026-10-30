@@ -11,7 +11,7 @@ export interface SearchFilesService {
   pickFile(onPick?: (path: string) => void): void;
 }
 
-/** Workspace Kit's live store, read through its registered service so provider withdrawal ends the binding. */
+/** Workspace Kit's store, copied down to what this kit reads; a kit never imports another kit. */
 export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export interface WorkspaceStoreView {
   getSnapshot(): { cwd?: string; changes?: { branch?: string; files?: ReadonlyArray<{ path: string; status: string }> } };
@@ -23,7 +23,7 @@ export interface WorkspaceStoreView {
  * `thread-texts` from its own store, granted to this kit, so the palette finds
  * their threads by what was said in them while nobody has them open.
  */
-export const THREAD_TEXT_SOURCES = ["tau.codex", "tau.claude-code", "tau.antigravity", "tau.opencode", "tau.grok", "tau.cursor"] as const;
+export const THREAD_TEXT_SOURCES = ["tau.codex", "tau.claude-code", "tau.antigravity", "tau.opencode", "tau.grok", "tau.cursor", "tau.acp"] as const;
 
 /** Matches one content search returns at most, and per file. */
 export const CONTENT_LIMIT = 500;
@@ -85,11 +85,15 @@ export interface ThreadSearchInput {
   query: string;
   /** Opt into completeness metadata; old callers still receive an array. */
   includeStatus?: boolean;
-  /** A newer query cancels the previous query from this window. */
-  channel?: string;
   limit?: number;
-  /** The thread on screen, read from its runtime when it has no session file. */
+  /** The thread on screen, searched in full through its runtime rather than a cached text window. */
   activeSessionId?: string;
+  channel?: string;
+  continuation?: string;
+  /** Optional candidate ids, filtered before ranking and the result limit. Omit to search all held threads. */
+  sessionIds?: readonly string[];
+  /** Archived candidates rank below every current thread, before applying the limit. */
+  archivedSessionIds?: readonly string[];
 }
 
 export interface ThreadSearchResult {
@@ -105,11 +109,15 @@ export interface ThreadMatch {
   role: "user" | "assistant";
   /** Where the query was found, cut to a line's worth. */
   snippet: string;
+  /** Literal match quality, before recency. Older hosts omit it. */
+  quality?: number;
 }
 
 export interface ThreadFindInput {
   sessionId: string;
   query: string;
+  /** Global message search: select its best text-only message with every token. Omit for literal in-thread find. */
+  mode?: "literal" | "all-words";
 }
 
 /** The messages of one thread that hold a query, whatever part of the history a client has loaded. */
@@ -130,6 +138,8 @@ export interface ThreadRequestInput {
   /** A request number (`#95`, `acme/tau#95`), a request URL, or words of its title or head branch. */
   query: string;
   limit?: number;
+  /** Optional candidate ids, filtered before the result limit. */
+  sessionIds?: readonly string[];
 }
 
 /** A thread whose stored request links match the query. */
@@ -143,9 +153,39 @@ export interface SearchHostCommands {
   "files": { input: FileSearchInput; output: FileSearchResult };
   /** Forgets a project's file list; the next `files` reads it again. */
   "invalidate": { input: { cwd?: string }; output: void };
+  "index-status": { input: Record<string, never>; output: MessageIndexStatus };
+  "index-configure": { input: { enabled: boolean }; output: MessageIndexStatus };
+  "index-rebuild": { input: Record<string, never>; output: MessageIndexStatus };
+  "thread-search": { input: ThreadSearchInput; output: ThreadSearchPage };
+  "thread-search-cancel": { input: { channel: string }; output: void };
   "threads": { input: ThreadSearchInput; output: ThreadMatch[] | ThreadSearchResult };
   /** Which messages of one thread say the query, over its whole history; the desktop half hands it to core's transcript find. */
   "find-in-thread": { input: ThreadFindInput; output: ThreadFindResult };
   /** Threads found through their linked requests; empty when Review Kit is not there. */
   "thread-requests": { input: ThreadRequestInput; output: ThreadRequestMatch[] };
+}
+
+
+/** Machine-local index settings and progress, pushed as `index-status`. */
+export interface MessageIndexStatus {
+  /** Identifies one host activation; revisions only order updates within it. */
+  activation?: string;
+  enabled: boolean;
+  state: "ready" | "indexing" | "disabled" | "error" | "unavailable";
+  done: number;
+  total: number;
+  threads: number;
+  bytes: number;
+  error?: string;
+  revision: number;
+}
+export interface ThreadSearchPage {
+  matches: ThreadMatch[];
+  status: MessageIndexStatus;
+  /** False while the bounded job still scans. Poll `continuation` to continue. */
+  complete: boolean;
+  continuation?: string;
+  /** Coverage can remain partial after the search job has finished. */
+  truncated?: boolean;
+  error?: string;
 }

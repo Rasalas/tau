@@ -6,6 +6,7 @@ import {
   hostAvailable,
   hostHasLocalFiles,
   hostIsReadOnly,
+  READ_ONLY_REASON,
   readCachedTurnActivity,
   type FileNode,
   type HostActionResult,
@@ -20,8 +21,9 @@ import {
   type UiWorkspaceChanges,
   type WorkbenchActions,
 } from "tau";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { CloneToasts } from "./clone-toasts.js";
+import { projectPromotionMenu, PROMOTE_PROJECT } from "./project-promotion-menu.js";
 import {
   AUTO_PULL_OPTION,
   isWorktreeSubmodules,
@@ -32,6 +34,7 @@ import {
   type CommitMessageSuggester,
   type EditorPosition,
   type WorkspaceFileEditor,
+  type WorkspaceFilePreview,
   type ProjectDefaults,
   type WorkspaceHostClient,
   type WorkspaceKitState,
@@ -53,7 +56,10 @@ import {
   type DraftMachineSource,
 } from "./protocol.js";
 import { recordTurnStat } from "./turn-stats.js";
+import type { EditorPlace, EditorPlacement, EditorWindowMachines } from "./editor-placement.js";
+import { downloadWorkspaceFile } from "./file-download-client.js";
 import { readProjectFilter, sameProjects, writeProjectFilter, type RailProjectFilter, type SavedProjectGroup } from "./project-filter.js";
+import type { NewProjectGithub } from "./project-github.js";
 
 export const WORKSPACE_KIT_ID = WORKSPACE_HOST_EXTENSION_ID;
 
@@ -181,6 +187,7 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   private baseFromOrigin?: boolean;
   private commitMessageSuggester?: CommitMessageSuggester;
   private fileEditor?: WorkspaceFileEditor;
+  private filePreview?: WorkspaceFilePreview;
   /** Another thread's turn runs in the draft's folder, as the follower last saw it. */
   private busyCheckout = false;
   /** The draft took the suggested worktree, but it could not be made. */
@@ -190,6 +197,11 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   /** Predicates for projects whose threads never get a worktree (a package folder is loaded from where it lies). */
   private readonly inPlaceProjects = new Set<(cwd: string) => boolean>();
+
+  /** Where editors open from a desktop window; see `setEditorPlacement`. */
+  private placement?: EditorPlacement;
+  private editorsLoaded = false;
+  private editorsRequest = 0;
 
   /** Projects created here whose first thread has not been sent yet. */
   private readonly freshProjects = new Set<string>();
@@ -201,6 +213,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     private readonly preferences: PreferencesStore,
     /** The kit's own host entry, reached through the extension channel. */
     readonly host: WorkspaceHostClient,
+    private readonly resourceUrl?: (path: string) => string,
+    private readonly readResource?: (path: string) => Promise<import("tau").BrowserResourceResponse>,
   ) {
     this.clones = new CloneToasts(host);
     const saved = readProjectFilter(getClientStorage());
@@ -288,6 +302,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
       void this.refreshChanges();
       void this.refreshWorkspace();
     }
+    // Another project may live on another machine: its editors are placed anew.
+    if (projectChanged && this.editorsLoaded && this.placement) void this.loadEditors();
     if (next.cwd && projectChanged) {
       void this.autoPullDefaultBranch();
       this.defaults = undefined;
@@ -298,8 +314,8 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   /** Creates a project from a name; its first thread starts in the folder, not in a worktree. */
-  async createProject(name: string, parentPath?: string): Promise<Awaited<ReturnType<WorkspaceHostClient["createProject"]>>> {
-    const created = await this.host.createProject(name, parentPath);
+  async createProject(name: string, parentPath?: string, github?: NewProjectGithub): Promise<Awaited<ReturnType<WorkspaceHostClient["createProject"]>>> {
+    const created = await this.host.createProject(name, parentPath, github);
     if (created) this.freshProjects.add(created.workspace.workspaceId);
     return created;
   }
@@ -455,16 +471,69 @@ export class WorkspaceStore implements WorkspaceStoreApi {
     }
   }
 
-  /** Editors run on the host's machine; a client elsewhere is offered none. */
-  async loadEditors(): Promise<void> {
-    if (!hostAvailable()) return;
-    if (!hostHasLocalFiles()) { this.update({ editors: [] }); return; }
-    try { this.update({ editors: await this.host.listEditors() }); } catch { this.update({ editors: [] }); }
+  /**
+   * Places editors for this client (`setEditorPlacement`): a project of the
+   * window's machine opens there, one of another machine in this device's
+   * editor over SSH, or on that machine as its Settings chose.
+   */
+  setEditorPlacement(placement: EditorPlacement, machines: EditorWindowMachines): () => void {
+    this.placement = placement;
+    // The window's list changes with every thread; only a change of machine or route places editors anew.
+    const key = () => {
+      const snapshot = machines.getSnapshot();
+      return JSON.stringify([snapshot?.shown, snapshot?.environments.map((environment) => [environment.id, environment.local, environment.route, environment.address])]);
+    };
+    let last = key();
+    const stop = machines.subscribe(() => {
+      const next = key();
+      if (next === last) return;
+      last = next;
+      if (this.editorsLoaded) void this.loadEditors();
+    });
+    return () => { stop(); if (this.placement === placement) this.placement = undefined; };
   }
 
+  /** The editor placement of a desktop window; absent in a browser or on a phone. */
+  editorPlacement(): EditorPlacement | undefined { return this.placement; }
+
+  /** Whether "Open in editor" opens anything from this client: the host's files are here, or the project's editors were placed. */
+  editorsHere(): boolean {
+    return hostHasLocalFiles() || Boolean(this.state.editorRemote || this.state.editorOnMachine);
+  }
+
+  /**
+   * Editors run on the host's machine; a client elsewhere is offered none,
+   * unless its window places them: this device's own for a project of
+   * another machine, each saying whether it opens one over SSH.
+   */
+  async loadEditors(): Promise<void> {
+    if (!hostAvailable()) return;
+    this.editorsLoaded = true;
+    const request = ++this.editorsRequest;
+    const settle = (patch: Partial<WorkspaceKitState>) => { if (request === this.editorsRequest) this.update({ editorRemote: undefined, editorOnMachine: undefined, ...patch }); };
+    if (this.placement) {
+      try {
+        const place = await this.placement.place(this.workspace());
+        if (place.kind === "remote") {
+          const editors = await this.placement.editorsFor(place.remote).catch(() => []);
+          settle({ editors, editorRemote: place.remote });
+          return;
+        }
+        if (place.kind === "machine") {
+          settle({ editors: await this.host.listEditors(), editorOnMachine: place.name });
+          return;
+        }
+      } catch { /* the host's own editors, as without a window */ }
+    }
+    if (!hostHasLocalFiles()) { settle({ editors: [] }); return; }
+    try { settle({ editors: await this.host.listEditors() }); } catch { settle({ editors: [] }); }
+  }
+
+  /** The editor "Open in editor" uses: the chosen one where it can open the project, else the first that can. */
   activeEditor(): UiEditor | undefined {
     const preferred = this.preferences.value(WORKSPACE_KIT_ID, "editor");
-    return this.state.editors.find((editor) => editor.id === preferred) ?? this.state.editors[0];
+    const usable = this.state.editors.filter((editor) => !editor.unsupported);
+    return usable.find((editor) => editor.id === preferred) ?? usable[0];
   }
 
   chooseEditor(id: string): void { this.preferences.setValue(WORKSPACE_KIT_ID, "editor", id); }
@@ -712,6 +781,27 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   async openInEditor(relPath?: string, editorOverride?: string, position?: EditorPosition, workspace?: string): Promise<void> {
+    if (this.placement) {
+      if (!this.requireHost("Opening an editor")) return;
+      let place: EditorPlace;
+      try { place = await this.placement.place(workspace ?? this.workspace(), relPath); }
+      catch (error) { this.notify(errorMessage(error), "error"); return; }
+      if (place.kind === "remote") {
+        if (place.remote.problem) { this.notify(place.remote.problem, "error"); return; }
+        const editorId = editorOverride ?? this.activeEditor()?.id;
+        if (!editorId) { this.notify(`No editor on this device opens a project of ${place.remote.name}.`); return; }
+        try { await this.placement.open(editorId, place, position); }
+        catch (error) { this.notify(errorMessage(error), "error"); }
+        return;
+      }
+      if (place.kind === "machine") {
+        const editorId = editorOverride ?? this.activeEditor()?.id;
+        if (!editorId) { this.notify(`No supported editor found on ${place.name}.`); return; }
+        try { await this.host.openInEditor(editorId, relPath, workspace ?? this.workspace(), position); }
+        catch (error) { this.notify(errorMessage(error), "error"); }
+        return;
+      }
+    }
     if (!hostHasLocalFiles()) { this.notify("This machine's files are not on this device."); return; }
     const editorId = editorOverride ?? this.activeEditor()?.id;
     if (!editorId) { this.notify("No supported editor found on PATH"); return; }
@@ -1000,6 +1090,13 @@ export class WorkspaceStore implements WorkspaceStoreApi {
 
   closeProjectSettings(): void { this.update({ projectSettings: undefined }); }
 
+  openProjectPromotion(session: UiSession): void {
+    if (hostIsReadOnly()) { this.actions?.notify(READ_ONLY_REASON); return; }
+    if (session.projectless) this.update({ projectPromotion: session });
+  }
+
+  closeProjectPromotion(): void { this.update({ projectPromotion: undefined }); }
+
   /** The index's projects, lent by the rail once it is drawn. */
   projectsOf?: () => readonly UiProject[];
 
@@ -1024,13 +1121,37 @@ export class WorkspaceStore implements WorkspaceStoreApi {
   }
 
   registerThreadRailOrganizer(organizer: ThreadRailOrganizer): () => void {
-    this.update({ threadRailOrganizer: organizer });
-    return () => { if (this.state.threadRailOrganizer === organizer) this.update({ threadRailOrganizer: undefined }); };
+    const decorated: ThreadRailOrganizer = {
+      ...organizer,
+      menu: (session, lookup) => projectPromotionMenu(organizer.menu(session, lookup), session, hostIsReadOnly()),
+      runMenu: (session, id, actions) => {
+        if (id === PROMOTE_PROJECT) { this.bind(actions); this.openProjectPromotion(session); }
+        else organizer.runMenu(session, id, actions);
+      },
+    };
+    this.update({ threadRailOrganizer: decorated });
+    return () => {
+      if (this.state.threadRailOrganizer === decorated) this.update({ threadRailOrganizer: undefined });
+    };
   }
 
   registerFileEditor(editor: WorkspaceFileEditor): () => void {
     this.fileEditor = editor;
     return () => { if (this.fileEditor === editor) this.fileEditor = undefined; };
+  }
+
+  registerFilePreview(reader: WorkspaceFilePreview): () => void {
+    this.filePreview = reader;
+    this.update({});
+    return () => { if (this.filePreview === reader) { this.filePreview = undefined; this.update({}); } };
+  }
+
+  renderFilePreview(path: string, from: { workspace: string }): ReactNode | undefined {
+    return this.filePreview?.(path, from);
+  }
+
+  downloadFile(path: string, from: { workspace: string }, signal: AbortSignal): Promise<{ blob: Blob; name: string }> {
+    return downloadWorkspaceFile(this.host, this.resourceUrl, path, from, signal, this.readResource);
   }
 
   /** Hands a file to the kit that edits files; false when none offered to. */

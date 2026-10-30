@@ -64,7 +64,8 @@ export function createReviewSettingsSections(host: HostExtensionClient) {
  * Sections of Settings → Source control: how commit messages and request
  * descriptions are written, how diffs are drawn and which Git hosts this
  * machine reaches. The model that writes them stays on the Review
- * extension's own page, beside its switch.
+ * extension's own page, beside its switch, with the one that names threads
+ * (Text generation: one default, each kind's own).
  */
 export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?: HostExtensionClient; onNotify?(message: string, level?: "info" | "warning" | "error"): void } = {}) {
   const propose = useSetting<boolean>(option("propose-message"), { defaultValue: true, read: readBoolean });
@@ -88,7 +89,8 @@ export function ReviewSettingsPage({ host, onNotify = () => undefined }: { host?
   return (
     <>
       <SettingsSection title="Commit messages and pull requests">
-        <SettingRow id="setting-review-propose" title="Write a commit message when review opens" description="The model proposes one from the diff; you can always edit it." setting={propose}
+        <SettingRow id="setting-review-propose" title="Write a commit message when review opens" description="The model proposes one from the diff; you can always edit it."
+          help="Extensions → Review chooses the model, its effort and the runtime that writes commit messages, descriptions and thread titles." setting={propose}
           control={toggle("Write a commit message when review opens", propose)} />
         <SettingRow id="setting-review-format" title="Commit message format" setting={format}
           control={<Select label="Commit message format" value={format.value} options={FORMATS} onChange={format.set} />} />

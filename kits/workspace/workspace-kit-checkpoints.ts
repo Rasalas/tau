@@ -189,6 +189,7 @@ export interface WorkspaceKitPiExtensionOptions {
   nextTurnId(): string;
   findAssistantAnchor(ctx: ExtensionContext, message: unknown): string | undefined;
   bindTurnContext?(turnId: string, ctx: ExtensionContext): void;
+  enabled?(): boolean;
 }
 
 export interface WorkspaceKitCheckpointFeatureOptions {

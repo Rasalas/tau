@@ -44,7 +44,7 @@ function initials(name: string): string {
  * Project settings: the project's name and path, and its icon (a Lucide
  * icon in a colour, an emoji, a monogram, or an image).
  */
-export function ProjectSettingsDialog({ project, current, automatic, onSave, onClose, onError }: {
+export function ProjectSettingsDialog({ project, current, automatic, onSave, onClose, onError, onShowFolder, fileManagerName }: {
   project: UiProject;
   current?: ProjectIconChoice;
   /** What the project shows without a choice: its favicon or `t3.json` icon. */
@@ -52,6 +52,8 @@ export function ProjectSettingsDialog({ project, current, automatic, onSave, onC
   onSave(choice: ProjectIconChoice | undefined): void;
   onClose(): void;
   onError(message: string): void;
+  onShowFolder?(): void;
+  fileManagerName?: string;
 }) {
   const [mode, setMode] = useState<Mode>(current?.kind ?? "auto");
   const [name, setName] = useState(current?.kind === "icon" ? current.name : "FolderCode");
@@ -96,6 +98,7 @@ export function ProjectSettingsDialog({ project, current, automatic, onSave, onC
       <div className="project-settings-identity">
         <strong>{project.name}</strong>
         <MiddleTruncate value={project.displayPath ?? project.path} title={project.displayPath ?? project.path} />
+        {onShowFolder ? <button type="button" className="text-button" onClick={onShowFolder}>Show in {fileManagerName ?? "Finder"}</button> : null}
       </div>
       <div className="settings-label">Icon</div>
       <div className="segmented" role="group" aria-label="Icon type">

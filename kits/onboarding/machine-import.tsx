@@ -118,6 +118,7 @@ export function MachineImport({ machine, name, environments }: MachineImportProp
       </fieldset>
       {discovery.truncated ? <p className="onboarding-note" role="status">Scan limit reached. Some conversations may be missing.</p> : null}
       {discovery.unavailable.map((entry) => <p key={entry.source} className="onboarding-note">Could not ask {SESSION_SOURCES.find((source) => source.source === entry.source)?.label}: {entry.reason}</p>)}
+      {(discovery.unsupported ?? []).map((entry) => <p key={entry.source} className="onboarding-note">{SESSION_SOURCES.find((source) => source.source === entry.source)?.label} conversations can't be imported: {entry.reason}</p>)}
       <div className="onboarding-actions"><button type="button" className="onboarding-button primary" disabled={importing || chosen.length === 0} onClick={() => void run()}>
         {state.kind === "importing" ? `Importing… ${state.done} of ${state.total}` : `Import ${chosen.length}`}
       </button></div>

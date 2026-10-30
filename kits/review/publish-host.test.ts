@@ -113,6 +113,50 @@ describe("publishing a repository", () => {
     expect(signedOut.calls.some((call) => call.args[1] === "create")).toBe(false);
   });
 
+  it("says a taken name is taken, and creates no remote", async () => {
+    const { invoke, remotes } = await harness({ cli: (_tool, args) => { if (args[1] === "create") throw new Error("GraphQL: Name already exists on this account (createRepository)"); return ""; } });
+    await expect(invoke("publish-repository", { service: "github", repository: "octo/app", confirm: true }))
+      .rejects.toThrow("A repository named octo/app already exists on GitHub. Choose another name, or add the existing one as origin by hand.");
+    expect(remotes).toEqual([]);
+  });
+
+  it("uses gh's configured protocol when the caller did not choose one", async () => {
+    const { invoke, remotes } = await harness({ cli: (_tool, args) => args[0] === "config" ? "ssh\n" : args[1] === "create" ? "https://github.com/octo/app\n" : "" });
+    await expect(invoke("publish-repository", { service: "github", repository: "app", confirm: true })).resolves.toMatchObject({ repository: "octo/app", remote: "git@github.com:octo/app.git", pushed: true });
+    expect(remotes).toEqual(["git@github.com:octo/app.git"]);
+  });
+
+  it("publishes a new project for Workspace Kit's form and for no other kit", async () => {
+    const workspaceCalls: Array<{ command: string; input: unknown }> = [];
+    const registry = await activateHostKit({
+      id: "tau.workspace",
+      name: "Workspace Kit",
+      permissions: [],
+      activate(context: HostExtensionContext) {
+        const callers = { callers: [REVIEW_HOST_EXTENSION_ID] };
+        context.registerCommand("review-request-context", (input) => { workspaceCalls.push({ command: "review-request-context", input }); return UNPUBLISHED; }, callers);
+        context.registerCommand("add-remote", () => ({ hasCommits: true }), callers);
+        context.registerCommand("push", () => ({ detail: "Pushed" }), callers);
+        context.registerCommand("make-project", (input) => context.invokeHostExtension(REVIEW_HOST_EXTENSION_ID, "publish-repository", input));
+      },
+    }, { ...LINK_SEAMS, findCommand: () => "/stub/gh", noteSubprocess: () => undefined, runtimeOwner: () => "tau" });
+    await registry.activate(createReviewHostExtension({ run: async (_command, args) => (args[1] === "create" ? `https://github.com/octo/${args[2]}\n` : "") }));
+    await registry.activate({
+      id: "tau.other",
+      name: "Other",
+      permissions: [],
+      activate(context: HostExtensionContext) {
+        context.registerCommand("try", () => context.invokeHostExtension(REVIEW_HOST_EXTENSION_ID, "publish-repository", { service: "github", repository: "x", confirm: true }));
+      },
+    });
+    const request = { workspace: "ws1_new", service: "github", repository: "Quiet-Lake", visibility: "private", confirm: true };
+    await expect(registry.invoke("tau.workspace", "make-project", request)).resolves.toEqual({
+      repository: "octo/Quiet-Lake", url: "https://github.com/octo/Quiet-Lake", remote: "https://github.com/octo/Quiet-Lake.git", pushed: true, branch: "main",
+    });
+    expect(workspaceCalls.at(-1)?.input).toHaveProperty("workspace", "ws1_new");
+    await expect(registry.invoke("tau.other", "try")).rejects.toThrow(/Caller tau.other is not allowed/u);
+  });
+
   /** A Workspace Kit whose push fails with `stderr` until `fixed` is set. */
   async function failingPush(stderr: string, remote?: { name: string; url: string }) {
     const state = { fixed: false };

@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { HostCommandError, type HostExtensionContext, type HostMcpTool, type RuntimeSessionInfo, type SecretStore } from "tau/host-extension";
 import type { Job, SecretRequest } from "./protocol.js";
 import { object, text } from "./validation.js";
-import { SECRET_SERVICE } from "./webhooks.js";
+import { SECRET_SERVICE, webhookSecretProblem } from "./webhooks.js";
 
 /** The only consumer is the host's signature verifier. No general-purpose resolver is exposed. */
 export class WebhookSecrets {
@@ -40,6 +40,9 @@ export class WebhookSecrets {
       if (!request || request.status !== "pending" || request.expiresAt < Date.now()) throw new HostCommandError("This secret request ended.");
       if (!this.store) throw new HostCommandError("No operating-system secret store is available on this machine.");
       if (this.saving.has(id)) throw new HostCommandError("The secret is already being saved.");
+      const schedule = this.job(request.jobId).config.schedule;
+      const problem = webhookSecretProblem(schedule.kind === "webhook" ? schedule.format : undefined, value);
+      if (problem) throw new HostCommandError(problem);
       this.saving.add(id);
       const reference = randomUUID();
       const item = { service: SECRET_SERVICE, account: reference, label: `Webhook signature: ${this.job(request.jobId).config.name}` };

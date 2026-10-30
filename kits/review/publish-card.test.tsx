@@ -54,8 +54,9 @@ function setup(options: Options = {}) {
 const card = () => screen.findByRole("dialog", { name: "Commit, push & PR" });
 
 describe("the Commit, push & PR card", () => {
-  it("uses the writer effort for the request description", async () => {
-    const { client } = setup({ values: { "commit-model": "test/writer", "commit-effort": "high" } });
+  it("uses the description's model and effort from Text generation for the request description", async () => {
+    // Review's activation copies an older commit model here (`migrateTextGeneration`).
+    const { client } = setup({ values: { "pr-model": "test/writer", "pr-effort": "high" } });
     await waitFor(() => expect(client.describe).toHaveBeenCalledWith(expect.objectContaining({ model: { provider: "test", id: "writer" }, thinkingLevel: "high" })));
   });
 
@@ -185,4 +186,17 @@ describe("the Commit, push & PR card", () => {
     await waitFor(() => expect(screen.getByRole("dialog", { name: "Commit, push & MR" })).toBeTruthy());
     expect(within(dialog).getByRole("list", { name: "Progress" }).textContent).toBe("CommitPushCreate MR");
   });
+});
+
+it("defaults maintainer edits on for a confirmed personal fork and forwards an explicit opt-out", async () => {
+  const { requests } = setup({ status: { canChooseMaintainerEdits: true } });
+  const dialog = await card();
+  const toggle = await within(dialog).findByRole("checkbox", { name: /Allow edits from maintainers/ });
+  expect((toggle as HTMLInputElement).checked).toBe(true);
+  await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false));
+  fireEvent.click(toggle);
+  const confirm = within(dialog).getByRole("button", { name: "Commit, push & PR" });
+  await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(confirm);
+  await waitFor(() => expect(requests.create).toHaveBeenCalledWith(expect.objectContaining({ maintainerCanModify: false })));
 });

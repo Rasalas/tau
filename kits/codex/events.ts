@@ -17,7 +17,7 @@ export interface CodexTurnOutcome {
   status: "completed" | "interrupted" | "failed";
   error?: string;
   texts: string[];
-  /** Codex said a usage limit stopped the turn (`codexErrorInfo: "usageLimitExceeded"`). */
+  /** Codex said a usage or rate limit stopped the turn. */
   usageLimit?: boolean;
 }
 
@@ -42,6 +42,13 @@ const MAX_TOOL_OUTPUT_BYTES = 128 * 1024;
 const EMPTY_USAGE: UiThreadUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, costUsd: 0, turns: 0 };
 /** Items that are not tools: the user's own echo, text and reasoning, and bookkeeping. */
 const NOT_TOOLS = new Set(["userMessage", "agentMessage", "reasoning", "plan", "hookPrompt", "contextCompaction", "enteredReviewMode", "exitedReviewMode"]);
+
+function usageLimitError(info: unknown): boolean {
+  if (info === "usageLimitExceeded" || info === "rateLimitExceeded") return true;
+  if (!info || typeof info !== "object") return false;
+  const exhausted = (info as { responseTooManyFailedAttempts?: { httpStatusCode?: unknown } | null }).responseTooManyFailedAttempts;
+  return exhausted?.httpStatusCode === 429;
+}
 
 /** A finished MCP tool call that names an app; the owner of the translator reads the document. */
 export interface McpAppCapture extends McpAppRef {
@@ -368,7 +375,7 @@ export class CodexTurnTranslator {
       events.push({ type: "tool-end", tool: { ...tool, status: "error", output, endedAt: this.now() } });
     }
     const error = turn?.error?.message?.trim();
-    const usageLimit = status === "failed" && (turn?.error?.codexErrorInfo === "usageLimitExceeded" || /subscription_sharing_usage_(?:limit_exceeded|unavailable)/u.test(error ?? ""));
+    const usageLimit = status === "failed" && (usageLimitError(turn?.error?.codexErrorInfo) || /subscription_sharing_usage_(?:limit_exceeded|unavailable)/u.test(error ?? ""));
     this.outcome = { status, texts: [...this.texts], ...(error ? { error } : {}), ...(usageLimit ? { usageLimit } : {}) };
     return events;
   }

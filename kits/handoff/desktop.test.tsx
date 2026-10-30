@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, PlatformEnvironments, UiSession, WorkbenchActions } from "tau";
 import { createKitHarness, ThreadStore, ThreadStoreContext } from "../../src/renderer/test-support/kit-harness.js";
@@ -68,6 +68,21 @@ function draftSlot(initial?: unknown) {
   return { slot, draftState: { read: () => slot.value, write: (value: unknown) => { slot.value = value; } } };
 }
 
+describe("Switch runtime", () => {
+  it("switches the current conversation without creating a draft", async () => {
+    const { invoke, registry, drawTitle } = setup();
+    const actions = actionsFor();
+    const region = registry.getRegions("composer-above").find((entry) => entry.id === "handoff.switch-runtime")!;
+    render(<>{drawTitle("parent", actions)}<region.Component snapshot={snapshot("parent")} actions={actions} /></>);
+    fireEvent.click(screen.getByRole("button", { name: "Switch runtime" }));
+    const menu = screen.getByRole("group", { name: "Switch runtime in this conversation" });
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /Codex/u }));
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(HANDOFF_EXTENSION_ID, "switch-runtime", { threadId: "parent", target: "codex" }));
+    expect(actions.newSession).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+});
+
 describe("Continue in…", () => {
   it("opens a runtime menu before the title and starts a draft on the chosen runtime", async () => {
     const { invoke, preferences, command, drawTitle } = setup();
@@ -77,7 +92,7 @@ describe("Continue in…", () => {
 
     act(() => { void command("handoff.continue-in").run(actions); });
     expect(screen.getByRole("menuitem", { name: /Pi.*This thread/su }).textContent).toContain("the history comes along");
-    fireEvent.click(screen.getByRole("menuitem", { name: /Codex/u }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Continue in" })).getByRole("menuitem", { name: /Codex/u }));
 
     await vi.waitFor(() => expect(actions.newSession).toHaveBeenCalledWith({ workspace: "ws1" }));
     expect(invoke).toHaveBeenCalledWith(HANDOFF_EXTENSION_ID, "create-transfer", { threadId: "parent", target: "codex" });
@@ -124,7 +139,7 @@ describe("the fork's draft", () => {
     const actions = actionsFor();
     render(drawTitle("parent", actions));
     act(() => { void command("handoff.continue-in").run(actions); });
-    fireEvent.click(screen.getByRole("menuitem", { name: /Codex/u }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Continue in" })).getByRole("menuitem", { name: /Codex/u }));
     await vi.waitFor(() => expect(actions.newSession).toHaveBeenCalled());
 
     const scope = "new:/project:d1";

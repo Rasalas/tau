@@ -22,7 +22,7 @@ import type {
   RuntimeSessionInfo,
 } from "./host-extensions.js";
 import type { HostExecutionPolicy } from "./host-execution-policy.js";
-import type { ThreadRuntimeEvent } from "./runtime-types.js";
+import type { ThreadRuntimeEvent, ThreadRuntimeBackend } from "./runtime-types.js";
 import type { HostLifecycleInstrumentation } from "./host-lifecycle.js";
 import { mapMessage } from "./host-messages.js";
 import { createPiModelRuntime } from "./pi-model-runtime.js";
@@ -67,6 +67,8 @@ const SHUTDOWN_ABORT_MS = 3_000;
 
 export interface ThreadRuntimeLifecyclePort {
   safeMode: boolean;
+  canonicalPath?(path: string): string | undefined;
+  decorateBackend?(backend: ThreadRuntimeBackend): ThreadRuntimeBackend;
   agentDir: string;
   cwd(): string;
   /** The session file of the thread on screen, as the previous one of the next open. */
@@ -266,13 +268,13 @@ export class ThreadRuntimeLifecycle {
       permissionLevel: () => this.port.permissionLevel(threadId),
       onMessage: (message) => {
         const thread = this.port.currentRuntime(threadId);
-        if (thread && (!owned || !this.discarded.has(owned))) {
+        if (thread && (!owned || thread === owned && !this.discarded.has(owned))) {
           thread.adapterMessages = [...thread.adapterMessages, message];
           this.port.emitMessage(threadId, message);
         }
       },
       onEvent: (event) => {
-        if (owned && this.discarded.has(owned)) return;
+        if (owned && (this.discarded.has(owned) || this.port.currentRuntime(threadId) && this.port.currentRuntime(threadId) !== owned)) return;
         if (opening) pendingEvents.push(event);
         else this.port.emitRuntimeEvent(threadId, event);
       },
@@ -286,14 +288,14 @@ export class ThreadRuntimeLifecycle {
         this.port.currentRuntime(threadId),
       ),
     });
-    const thread = new ThreadRuntime(backend);
+    const thread = new ThreadRuntime(this.port.decorateBackend?.(backend) ?? backend);
     owned = thread;
-    thread.adapterMessages = await backend.transcript();
-    thread.adapterActivity = await backend.capabilities.activityHistory?.load().catch((error: unknown) => {
+    thread.adapterMessages = await thread.backend.transcript();
+    thread.adapterActivity = await thread.backend.capabilities.activityHistory?.load().catch((error: unknown) => {
       this.port.log("activity.load.failed", this.port.errorMessage(error));
       return [];
     }) ?? [];
-    const state = backend.state();
+    const state = thread.backend.state();
     thread.adapterTitle = state.title;
     thread.adapterTitleSource = state.titleSource;
     if (options.adopt !== false) {
@@ -364,7 +366,7 @@ export class ThreadRuntimeLifecycle {
         priceUsage: (tallies) => this.port.priceUsage(tallies),
       });
       marks.mark("create-runtime");
-      thread = new ThreadRuntime(backend, createdRuntime);
+      thread = new ThreadRuntime(this.port.decorateBackend?.(backend) ?? backend, createdRuntime);
       const preparedThread = thread;
       if (options.prepared ?? options.adopt === false) thread.beginEventBarrier();
       const cancelPrepared = () => {
@@ -415,6 +417,8 @@ export class ThreadRuntimeLifecycle {
     background = false,
     backendKind?: ThreadBackendKind,
   ): Promise<ThreadRuntime> {
+    const canonical = this.port.canonicalPath?.(path);
+    if (canonical && canonical !== path) return this.openForPath(canonical, reason, background);
     const live = this.liveForPath(path);
     if (live) return Promise.resolve(live);
     let pending = this.opening.get(path);

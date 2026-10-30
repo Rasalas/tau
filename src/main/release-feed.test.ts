@@ -67,6 +67,7 @@ describe("release feed", () => {
     expect(releaseInfoName("linux", "arm64")).toBe("latest-linux-arm64.yml");
     expect(releaseInfoName("darwin", "arm64")).toBe("latest-mac.yml");
     expect(releaseInfoName("win32", "x64")).toBe("latest.yml");
+    expect(releaseInfoName("win32", "arm64")).toBe("latest-arm64.yml");
   });
 
   it("picks the file each install takes, and nothing with a path in its name", () => {

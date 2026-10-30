@@ -118,7 +118,7 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     const { ref, provider } = target(input);
     // Checks move on their own, so they are never served from the cache.
     return provider.info.capabilities.checks ? provider.checks(ref) : [];
-  }, { access: "read" });
+  }, { access: "read", long: true });
 
   context.registerCommand("pr-pipeline", async (input): Promise<PipelineFacts> => {
     const { ref, provider } = target(input);
@@ -177,9 +177,13 @@ export function registerPullRequestCommands(context: HostExtensionContext, sourc
     const title = text(fields.title)?.trim();
     const body = text(fields.body);
     if (text(fields.title) !== undefined && !title) throw new HostCommandError("A title is required.");
-    if (title === undefined && body === undefined) throw new HostCommandError("Nothing to change.");
+    const access = fields.maintainerCanModify;
+    if (access !== undefined && typeof access !== "boolean") throw new HostCommandError("Maintainer access must be true or false.");
+    if (access !== undefined && (!provider.info.capabilities.maintainerEdits || typeof fields.expectedMaintainerCanModify !== "boolean")) throw new HostCommandError("Refresh an eligible GitHub fork request before changing maintainer access.");
+    if (access !== undefined && (title !== undefined || body !== undefined)) throw new HostCommandError("Save maintainer access separately from the title and description.");
+    if (title === undefined && body === undefined && access === undefined) throw new HostCommandError("Nothing to change.");
     if (!provider.info.capabilities.edit) throw lacks(provider, "edit a request");
-    await write(ref, provider, () => provider.update(ref, { ...(title !== undefined ? { title } : {}), ...(body !== undefined ? { body } : {}) }), "request.edited");
+    await write(ref, provider, () => provider.update(ref, { ...(title !== undefined ? { title } : {}), ...(body !== undefined ? { body } : {}), ...(typeof access === "boolean" ? { maintainerCanModify: access, expectedMaintainerCanModify: fields.expectedMaintainerCanModify as boolean } : {}) }), "request.edited");
     return detail(ref, true);
   }, { long: true });
 

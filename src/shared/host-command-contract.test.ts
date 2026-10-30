@@ -71,7 +71,10 @@ describe("shared turn command contracts", () => {
     expect(() => HOST_COMMANDS.prompt.decode([4])).toThrow("prompt: text must be a string");
     expect(() => HOST_COMMANDS["prepare-prompt"].decode(["hello", undefined, undefined, undefined, 4])).toThrow("prepare-prompt: workspace must be a non-empty string");
     expect(() => HOST_COMMANDS["move-queued"].decode(["t", "q", 1.5])).toThrow("move-queued: toIndex must be an integer.");
-    expect(() => HOST_COMMANDS["resume-limited"].decode(["t", "later"])).toThrow('resume-limited: "when" must be "now", "reset" or "cancel".');
+    expect(() => HOST_COMMANDS["resume-limited"].decode(["t", "later"])).toThrow('resume-limited: "when" must be "now", "reset", "at" or "cancel".');
+    expect(() => HOST_COMMANDS["resume-limited"].decode(["t", "at"])).toThrow('resume-limited: "at" needs a time in epoch milliseconds.');
+    expect(HOST_COMMANDS["resume-limited"].decode(["t", "at", 1_800_000_000_000])).toEqual(["t", "at", 1_800_000_000_000]);
+    expect(HOST_COMMANDS["resume-limited"].decode(["t", "reset", 5])).toEqual(["t", "reset", undefined]);
     expect(() => HOST_COMMANDS["compact-and-send"].decode(["t"])).toThrow("compact-and-send: prompt is required");
   });
 

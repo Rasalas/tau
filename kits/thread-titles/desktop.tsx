@@ -1,17 +1,25 @@
 import { errorMessage, type DesktopExtension, type HostExtensionClient, type PreferencesStore, type PromptSubmittedEvent, type WorkbenchActions } from "tau";
+import { textChoice, textChoiceInput } from "../_shared/text-generation.js";
 import { THREAD_TITLES_HOST_EXTENSION_ID, THREAD_TITLES_SERVICE, TITLE_FAILED_EVENT, type ThreadTitlesService } from "./protocol.js";
-
-const MODEL_OPTION = "model";
+import { TitleInstructionsRow } from "./settings.js";
 
 function automatic(preferences: PreferencesStore): boolean {
   return preferences.optionValue(THREAD_TITLES_HOST_EXTENSION_ID, "automatic", true);
 }
 
-/** The model chosen in the settings; without one the host picks a small model. */
+/**
+ * The model Text generation names for titles (Review's page: the titles' own,
+ * else the default; this kit's own option from before until then); without one
+ * the host picks a small model.
+ */
 export function titleModel(preferences: PreferencesStore): { provider: string; id: string } | undefined {
-  const stored = preferences.value(THREAD_TITLES_HOST_EXTENSION_ID, MODEL_OPTION) ?? "";
-  const at = stored.indexOf("/");
-  return at > 0 && at < stored.length - 1 ? { provider: stored.slice(0, at), id: stored.slice(at + 1) } : undefined;
+  return textChoice(preferences, "title")?.model;
+}
+
+/** What the host command reads for a title: the model, its effort and the runtime that writes it. */
+function titleRequest(preferences: PreferencesStore) {
+  const choice = textChoice(preferences, "title");
+  return { provider: choice?.model?.provider, modelId: choice?.model?.id, ...textChoiceInput(choice) };
 }
 
 /** The thread's model, whatever its runtime: the host's hint for a small model close to it, never the model that titles. */
@@ -32,11 +40,11 @@ async function generate(
   force: boolean,
   prompt?: string,
 ): Promise<void> {
-  const model = titleModel(preferences);
-  const prefer = model ? undefined : threadModel(thread);
+  const request = titleRequest(preferences);
+  const prefer = request.provider ? undefined : threadModel(thread);
   try {
     // Two commands, so the host tells a title the user asked for from one that followed a prompt.
-    await host.invoke(force ? "regenerate" : "generate", { provider: model?.provider, modelId: model?.id, ...(prefer ? { prefer } : {}), force, sessionId: thread?.sessionId, prompt });
+    await host.invoke(force ? "regenerate" : "generate", { ...request, ...(prefer ? { prefer } : {}), force, sessionId: thread?.sessionId, prompt });
   } catch (error) {
     actions.notify(errorMessage(error), "error");
   }
@@ -58,12 +66,25 @@ export const titleGeneratorExtension: DesktopExtension = {
       const message = (payload as { message?: unknown } | undefined)?.message;
       promptActions?.notify(`Could not name the thread: ${typeof message === "string" ? message : "Title generation failed."}`, "error");
     });
+    // The model that names threads is chosen with commit messages' and descriptions' under Extensions → Review.
     context.registerOptions([
       { id: "automatic", kind: "toggle", label: "Name a thread after its first prompt", defaultValue: true },
-      { id: MODEL_OPTION, kind: "model", label: "Model that names threads" },
     ]);
+    context.registerSettingsSection({
+      id: "thread-titles.instructions",
+      page: "threads",
+      card: "new-threads",
+      order: 50,
+      profiles: ["desktop", "web", "compact"],
+      Component: TitleInstructionsRow,
+      rows: [{ id: "setting-thread-title-instructions", label: "Thread title instructions", keywords: ["naming", "generated", "regenerate", "custom", "prompt", "language"] }],
+    });
     context.provideService<ThreadTitlesService>(THREAD_TITLES_SERVICE, {
       regenerate: (actions) => generate(context.host, actions, context.preferences, actions.activeThread(), true),
+      // The host knows each thread's own model, so only the settings' choice goes along.
+      regenerateThread: async (sessionId) => {
+        await context.host.invoke("regenerate", { ...titleRequest(context.preferences), force: true, sessionId });
+      },
     });
     context.registerCommand({
       id: "thread-titles.regenerate",

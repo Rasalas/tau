@@ -1,4 +1,5 @@
 import { gitEnvironment } from "tau/host-extension";
+import { parseNumstat as parseGitNumstat } from "./git-output.js";
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -392,16 +393,10 @@ export async function createAgentWorktree(options: {
 }
 
 function parseNumstat(stdout: string): { files: number; added: number; removed: number; paths: string[] } {
-  const paths: string[] = [];
-  let added = 0;
-  let removed = 0;
-  for (const line of stdout.split("\n")) {
-    const match = /^(\d+|-)\t(\d+|-)\t(.+)$/u.exec(line.trim());
-    if (!match) continue;
-    added += Number(match[1]) || 0;
-    removed += Number(match[2]) || 0;
-    paths.push(match[3]);
-  }
+  const counts = parseGitNumstat(stdout);
+  const paths = [...counts.keys()];
+  const added = [...counts.values()].reduce((total, entry) => total + entry.added, 0);
+  const removed = [...counts.values()].reduce((total, entry) => total + entry.removed, 0);
   return { files: paths.length, added, removed, paths };
 }
 
@@ -413,7 +408,7 @@ export async function readAgentWorktreeChanges(
   const base = await readBranchBase(worktree.path, worktree.branch, runGit);
   if (!base) throw new Error(`${worktree.branch} does not record the state it started from.`);
   const tree = await captureWorktreeTree(worktree.path, runGit);
-  const numstat = parseNumstat(await runGit(worktree.path, ["diff", "--numstat", base, tree]));
+  const numstat = parseNumstat(await runGit(worktree.path, ["diff", "--numstat", "-z", base, tree]));
   const commits = Number((await runGit(worktree.path, ["rev-list", "--count", `${base}..HEAD`])).trim()) || 0;
   const uncommitted = (await runGit(worktree.path, ["status", "--porcelain"]))
     .split("\n").filter((line) => line.trim().length > 0).length;

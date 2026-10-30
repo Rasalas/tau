@@ -23,6 +23,7 @@ import type {
   StackAction,
 } from "./protocol.js";
 import type { CliCall } from "./pull-request-cli.js";
+import type { WatchSnapshot } from "./pr-watch-protocol.js";
 import type { PipelineFacts } from "./pipeline.js";
 
 /*
@@ -50,6 +51,7 @@ export interface BranchTarget extends RepositoryTarget {
 }
 
 export interface CreateRequestInput {
+  maintainerCanModify?: boolean;
   title: string;
   body: string;
   base: string;
@@ -98,6 +100,7 @@ export interface SourceControlProvider {
 
   /** The request of a checkout's branch, open or not. */
   current(branch: BranchTarget): Promise<ReviewRequest | undefined>;
+  canChooseMaintainerEdits?(target: RepositoryTarget): Promise<boolean>;
   /** Opens a request; the URL the host answered with, when it said one. */
   create(target: RepositoryTarget & { cwd: string }, input: CreateRequestInput): Promise<string | undefined>;
   /**
@@ -119,6 +122,8 @@ export interface SourceControlProvider {
   list(target: RepositoryTarget & { cwd: string }, input: ListRequestsInput, viewer: string | undefined): Promise<{ entries: PullRequestListEntry[]; more: boolean }>;
 
   detail(ref: PullRequestRef, fresh: boolean): Promise<PullRequestDetail>;
+  /** Fresh complete coverage for a provider-specific PR watch. */
+  watchSnapshot?(ref: PullRequestRef): Promise<WatchSnapshot>;
   /** Never cached: checks move on their own. */
   checks(ref: PullRequestRef): Promise<PullRequestCheck[]>;
   /** The workflow files and usual job durations of the checks' runs, by run id; `names` (run id → workflow) reads the files on the default branch instead. */
@@ -136,7 +141,7 @@ export interface SourceControlProvider {
   comment(ref: PullRequestRef, body: string): Promise<void>;
   reply?(ref: PullRequestRef, threadId: string, body: string): Promise<void>;
   lineComment?(ref: PullRequestRef, input: LineCommentInput, known: PullRequestDetail): Promise<void>;
-  update(ref: PullRequestRef, input: { title?: string; body?: string }): Promise<void>;
+  update(ref: PullRequestRef, input: { title?: string; body?: string; maintainerCanModify?: boolean; expectedMaintainerCanModify?: boolean }): Promise<void>;
   review(ref: PullRequestRef, input: { event: PullRequestReviewEvent; body: string; comments: readonly PendingReviewComment[] }, known: PullRequestDetail): Promise<void>;
   resolve?(ref: PullRequestRef, threadId: string, resolved: boolean): Promise<void>;
   editComment?(ref: PullRequestRef, input: { id: string; kind: "comment" | "review" | "review-comment"; body: string }): Promise<void>;

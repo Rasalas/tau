@@ -117,6 +117,40 @@ function scriptedAdapter(filePath: string, script: Script, version = "2.1.263") 
 }
 
 describe("thread runtime backends", () => {
+  it("settles an unflagged final API failure as an error and reuses the SDK session for recovery", async () => {
+    const { filePath, store } = await scratchStore();
+    const detail = "API Error: 400 Request rejected by a safeguard.";
+    const signals: AbortSignal[] = [];
+    const query = ((params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => {
+      signals.push(params.options.abortController!.signal);
+      async function* run(): AsyncGenerator<SDKMessage> {
+        yield init();
+        for await (const message of params.prompt) {
+          yield message.message.content === "Retry"
+            ? result("Recovered", { user_message_uuids: [message.uuid] })
+            : result(`  ${detail}\n`, { terminal_reason: "api_error", api_error_status: 400, user_message_uuids: [message.uuid] });
+        }
+      }
+      return Object.assign(run(), { interrupt: async () => undefined }) as unknown as ReturnType<ClaudeQuery>;
+    }) as ClaudeQuery;
+    const adapter = createClaudeCodeRuntimeAdapter({ command: "unused", storePath: filePath, query });
+    const events: ThreadRuntimeEvent[] = [];
+    const backend = new ClaudeThreadRuntimeBackend("terminal-api-error", WORKSPACE, { adapter, store, projectName: "repo", onEvent: (event) => events.push(event) });
+    try {
+      await backend.start("create");
+      await expect(backend.prompt({ text: "Try", delivery: "prompt" })).rejects.toThrow(detail);
+      expect(events.filter((event) => event.type === "turn-settled")).toEqual([{ type: "turn-settled", status: "error", error: detail }]);
+      expect(signals[0]!.aborted).toBe(false);
+      expect((await store.get("terminal-api-error"))?.lastAttemptOutcome).toBe("failed");
+      await expect(backend.prompt({ text: "Retry", delivery: "prompt" })).resolves.toMatchObject({ assistantText: "Recovered" });
+      expect(signals).toHaveLength(1);
+      expect(events.filter((event) => event.type === "turn-settled")).toEqual([
+        { type: "turn-settled", status: "error", error: detail },
+        { type: "turn-settled", status: "completed" },
+      ]);
+    } finally { await backend.dispose(); }
+  });
+
   it("keeps the cumulative baseline across a resumed CLI and a reloaded store", async () => {
     const { filePath, store } = await scratchStore();
     let calls = 0;
@@ -1006,6 +1040,16 @@ describe("thread runtime backends", () => {
       { type: "text", text: "what is this?" },
     ]);
     expect(events.find((event) => event.type === "user-message")).toMatchObject({ message: { images: [{ mimeType: "image/png", data: "AAAA" }] } });
+  });
+
+  it("names the host's copy of an image between the image and the text, which keeps a slash command last", () => {
+    const image = { kind: "image" as const, name: "shot.png", mimeType: "image/png", data: "AAAA", size: 4 };
+    const copy = { kind: "file" as const, name: "abc-shot.png", mimeType: "image/png", path: "/data/prompt-images/t/abc-shot.png", size: 3 };
+    expect(promptContent("/review it", [image, copy])).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+      { type: "text", text: "Attached files:\n- /data/prompt-images/t/abc-shot.png" },
+      { type: "text", text: "/review it" },
+    ]);
   });
 
   it("lists the plan's models, and keeps the chosen model and effort for the live session and the next one", async () => {

@@ -95,34 +95,52 @@ function ErrorBar({ error = "", provider, onRetry, onSwitchModel, onReplaceKey }
   return <Bar tone="fail" icon={alert} title="Stopped with an error" text={detail}>{retry}</Bar>;
 }
 
-/** A provider's usage limit: when it resets, and whether to wait for it or continue now. */
+/** The waits a limit without a named reset offers: a guess the user picks, not a promise. */
+const RETRY_CHOICES = [{ label: "15 min", ms: 15 * 60_000 }, { label: "1 h", ms: 60 * 60_000 }, { label: "5 h", ms: 5 * 60 * 60_000 }] as const;
+
+/** A provider's usage limit: when it resets, and whether to wait for it, retry later or continue now. */
 function LimitBar({ sessionId, limit, provider, onSwitchModel }: ComposerNoticeProps & { limit: UiThreadLimit }) {
   const client = useHostClient();
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const [choosing, setChoosing] = useState(false);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  const resume = (when: "now" | "reset" | "cancel") => {
+  const resume = (when: "now" | "reset" | "cancel" | "at", at?: number) => {
     if (!client) return;
     setBusy(true);
     setProblem(undefined);
-    client.resumeLimited(sessionId, when)
+    setChoosing(false);
+    (when === "at" ? client.resumeLimited(sessionId, when, at) : client.resumeLimited(sessionId, when))
       .catch((error: unknown) => setProblem(errorMessage(error)))
       .finally(() => setBusy(false));
   };
   const future = limit.resetsAt !== undefined && limit.resetsAt > now;
-  const when = limit.resumeAt !== undefined ? ` · continues at ${clock(limit.resumeAt)}`
+  const scheduled = limit.resumeAt !== undefined;
+  const when = scheduled ? ` · continues at ${clock(limit.resumeAt!)}`
     : future ? ` · resets in ${formatWait(limit.resetsAt! - now)}` : "";
+  if (choosing) {
+    return <Bar tone="warn" icon={<Clock size={12} aria-hidden="true" />} title={`${rateLimit(provider)} · retry in`}
+      text={<span>The provider did not say when its limit resets. Tau continues the thread at the time you pick; messages you send meanwhile go with it.</span>}>
+      {RETRY_CHOICES.map((choice) => <button key={choice.label} type="button" disabled={busy} onClick={() => resume("at", Date.now() + choice.ms)}>{choice.label}</button>)}
+      <button type="button" className="secondary" onClick={() => setChoosing(false)}>Cancel</button>
+    </Bar>;
+  }
   return <Bar tone="warn" icon={<Clock size={12} aria-hidden="true" />} title={`${rateLimit(provider)}${when}`}
-    text={<><span title={limit.message}>{noticeHeadline(limit.message)}</span>{problem ? <em>{problem}</em> : null}</>}>
+    text={<>
+      <span title={limit.message}>{noticeHeadline(limit.message)}</span>
+      {scheduled ? <span className="composer-notice-hint"> Messages you send now wait and go with it.</span> : null}
+      {problem ? <em>{problem}</em> : null}
+    </>}>
     <SwitchModel onSwitchModel={onSwitchModel} />
     <button type="button" disabled={busy} onClick={() => resume("now")}>Resume now</button>
-    {limit.resumeAt !== undefined
+    {scheduled
       ? <button type="button" className="secondary" disabled={busy} onClick={() => resume("cancel")}>Don’t wait</button>
-      : future ? <button type="button" className="secondary" disabled={busy} onClick={() => resume("reset")}>Wait</button> : null}
+      : future ? <button type="button" className="secondary" disabled={busy} onClick={() => resume("reset")}>Wait</button>
+        : <button type="button" className="secondary" disabled={busy} onClick={() => setChoosing(true)}>Retry later…</button>}
   </Bar>;
 }
 

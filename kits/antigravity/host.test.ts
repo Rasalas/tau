@@ -56,6 +56,15 @@ async function harness(installed: boolean, customModels?: string) {
 }
 
 describe("Antigravity host half", () => {
+  it("tells Onboarding why the user's own Antigravity conversations cannot be imported, and is silent without any", async () => {
+    const { registry, geminiDir } = await harness(true);
+    let call!: (command: string) => Promise<unknown>;
+    await registry.activate({ id: "tau.onboarding", name: "Onboarding", activate(context) { call = (command) => context.invokeHostExtension("tau.antigravity", command); } } as HostExtension);
+    await expect(call("import-scan")).resolves.toEqual({ source: "antigravity", sessions: [], truncated: false });
+    await mkdir(join(geminiDir, "antigravity", "conversations"), { recursive: true });
+    await expect(call("import-scan")).resolves.toEqual({ source: "antigravity", sessions: [], truncated: false, unsupported: expect.stringContaining("a Gemini home of its own") });
+  });
+
   it("offers configured IDs in drafts and passes them to the session", async () => {
     const custom = "gateway/new-model";
     const { backends, directory, openSession } = await harness(true, custom);

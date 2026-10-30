@@ -694,7 +694,7 @@ describe("Thread Rail machine ownership", () => {
     const { invoke, events } = await harness({ machines: machines.services });
     await vi.waitFor(async () => expect((await invoke("state")).threads).toEqual({ "rex~t1": { settledAt: 1 } }));
     expect(machines.call).toHaveBeenCalledWith("rex", THREAD_RAIL_EXTENSION_ID, "state", { homeOnly: true });
-    expect((await invoke("state")).settings).toEqual({ onMerged: true, onClosed: false, workingSection: false });
+    expect((await invoke("state")).settings).toMatchObject({ onMerged: true, onClosed: false, workingSection: false });
     meta = { t1: { settledAt: 2 } };
     machines.index("rex");
     await vi.waitFor(async () => expect((await invoke("state")).threads["rex~t1"]).toEqual({ settledAt: 2 }));
@@ -954,4 +954,18 @@ it("notifies the declared Review command when a local thread is settled or resto
   await vi.waitFor(() => expect(shelf).toHaveBeenCalledWith({ settled: ["a"], restored: [] }, expect.anything()));
   await h.invoke("patch", { patches: { a: { settledAt: null, settledBy: null } } });
   await vi.waitFor(() => expect(shelf).toHaveBeenCalledWith({ settled: [], restored: ["a"] }, expect.anything()));
+});
+
+it("persists machine snooze options, publishes them and validates writes before committing", async () => {
+  const { invoke, stateDir, events } = await harness();
+  const presets = [{ id: "tea", kind: "at", day: "today", time: "16:00" }, { id: "later", kind: "after", amount: 2, unit: "days" }];
+  const state = await invoke("settings", { snoozePresets: presets });
+  expect(state.settings.snoozePresets).toEqual(presets);
+  expect(events.filter((event) => event.name === META_EVENT).at(-1)?.payload).toMatchObject({ settings: { snoozePresets: presets } });
+  await expect(invoke("settings", { snoozePresets: [] })).rejects.toThrow(/1 to 8/u);
+  expect((await invoke("state")).settings.snoozePresets).toEqual(presets);
+  await vi.waitFor(async () => expect(JSON.parse(await readFile(join(stateDir, THREAD_RAIL_EXTENSION_ID, "thread-meta.json"), "utf8")).settings.snoozePresets).toEqual(presets));
+  const restarted = await harness({ stateDir });
+  expect((await restarted.invoke("state")).settings.snoozePresets).toEqual(presets);
+  expect((await restarted.invoke("settings", { snoozePresets: null })).settings.snoozePresets).toHaveLength(5);
 });

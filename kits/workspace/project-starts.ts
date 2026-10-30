@@ -1,10 +1,11 @@
 import { gitEnvironment } from "tau/host-extension";
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { githubRepositoryPath, type NewProjectGithub, type NewProjectRepository, type RepositoryVisibility } from "./project-github.js";
 
 const execute = promisify(execFile);
 
@@ -18,10 +19,30 @@ export function projectFolderName(value: string): string {
   return name;
 }
 
-export function isScratchWorkspace(stateDir: string, path: string): boolean {
+export function isScratchAllocation(stateDir: string, path: string): boolean {
   const canonical = (value: string) => { try { return realpathSync(value); } catch { return resolve(value); } };
   const leaf = relative(canonical(join(stateDir, "scratch")), canonical(path));
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(leaf);
+}
+
+export interface PromotedProject { version: 1; path: string; name: string }
+
+export function promotionFile(stateDir: string, path: string): string {
+  if (!isScratchAllocation(stateDir, path)) throw new Error("Only a private thread folder can become a project.");
+  return join(stateDir, "promoted-projects", relative(realpathSync(join(stateDir, "scratch")), realpathSync(path)) + ".json");
+}
+
+/** Kept in host state, outside files a thread edits or commits. No in-memory-only classification. */
+export function readPromotedProject(stateDir: string, path: string): PromotedProject | undefined {
+  try {
+    const stored = JSON.parse(readFileSync(promotionFile(stateDir, path), "utf8")) as Partial<PromotedProject>;
+    if (stored.version === 1 && stored.path === realpathSync(path) && typeof stored.name === "string" && stored.name.trim()) return stored as PromotedProject;
+  } catch { /* An unregistered allocation stays private. */ }
+  return undefined;
+}
+
+export function isScratchWorkspace(stateDir: string, path: string): boolean {
+  return isScratchAllocation(stateDir, path) && !readPromotedProject(stateDir, path);
 }
 
 export async function createScratchWorkspace(stateDir: string, git = "git"): Promise<string> {
@@ -62,4 +83,43 @@ export async function createNamedProject(parentPath: string, value: string, git:
   } catch {
     return { path, warning: "Project created. Git setup could not finish; check Git and your commit identity." };
   }
+}
+
+/** Review Kit's `publish-repository`, as the host's own call reaches it. */
+export type PublishRepository = (input: { workspace: string; service: "github"; repository: string; visibility: RepositoryVisibility; confirm: true }) => Promise<unknown>;
+
+const sentence = (text: string): string => /[.!?]$/u.test(text.trim()) ? text.trim() : `${text.trim()}.`;
+const LATER = "Publish it later with \"Publish repository…\" in the Changes panel.";
+
+/**
+ * Creates the GitHub repository of a project just made, on the machine that made it,
+ * and pushes the first commit, which sets `main`'s upstream to `origin/main`. Every
+ * failure leaves the project as it is and comes back as a warning that says what to do.
+ */
+export async function publishNewProject(
+  publish: PublishRepository,
+  project: { workspace: string; name: string; warning?: string },
+  github: NewProjectGithub,
+): Promise<{ github?: NewProjectRepository; warning?: string }> {
+  // Without a first commit there is nothing to push and no upstream to set.
+  if (project.warning) return { warning: `${sentence(project.warning)} Its GitHub repository was not created; publish it with "Publish repository…" in the Changes panel once Git works.` };
+  const repository = githubRepositoryPath(project.name, github.owner);
+  if (!repository) return { warning: `Project created, but not its GitHub repository: GitHub needs a name with letters or digits. ${LATER}` };
+  let answer: Record<string, unknown>;
+  try {
+    const result = await publish({ workspace: project.workspace, service: "github", repository, visibility: github.visibility, confirm: true });
+    answer = result && typeof result === "object" ? result as Record<string, unknown> : {};
+  } catch (error) {
+    return { warning: `Project created, but not its GitHub repository: ${sentence(error instanceof Error ? error.message : String(error))} ${LATER}` };
+  }
+  const created: NewProjectRepository = {
+    repository: typeof answer.repository === "string" ? answer.repository : repository,
+    url: typeof answer.url === "string" ? answer.url : "",
+    pushed: answer.pushed === true,
+    ...(typeof answer.branch === "string" ? { branch: answer.branch } : {}),
+  };
+  if (typeof answer.pushProblem === "string") {
+    return { github: created, warning: `Created ${created.repository} on GitHub and added it as origin, but the first push failed. ${sentence(answer.pushProblem)}` };
+  }
+  return { github: created };
 }

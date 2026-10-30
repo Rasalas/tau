@@ -122,6 +122,7 @@ export interface AttachedSessionPort {
 
 /** What the host extension seam may ask of the host. */
 export interface ExtensionServicesPort {
+  readonly conversations?: HostExtensionServices["conversations"];
   readonly background?: HostExtensionServices["background"];
   runtimeChoices?: HostExtensionServices["runtimeChoices"];
   runtimeTools?(action: "state" | "update", input?: { kind: string }): Promise<UiRuntimeToolsState>;
@@ -138,9 +139,12 @@ export interface ExtensionServicesPort {
   admitWorkspace(path: string): WorkspaceRef;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): void;
+  refreshProject?(cwd: string): Promise<void>;
   /** Whether Tau or an attached Pi terminal owns the visible runtime. */
   runtimeOwner(): "tau" | "pi";
   thread(sessionId?: string): HostThread | undefined;
+  /** Reopens a released runtime off screen; see `HostExtensionServices.reopenThread`. */
+  reopenThread?(sessionId: string): Promise<HostThread | undefined>;
   complete(request: CompletionRequest, model?: { provider: string; id: string }): Promise<string>;
   completionModels(): Promise<UiModel[]>;
   priceUsage(tallies: readonly UsageTally[]): Promise<PricedUsage[]>;
@@ -165,6 +169,7 @@ export interface ExtensionServicesPort {
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   /** Creates a thread for a project, indexes it and delivers its first prompt, all off screen. */
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
+  switchThreadRuntime?(id: string, kind: string): Promise<void>;
   /** Writes a session another machine made as a thread of this one and indexes it. */
   importThread(options: HostThreadImportOptions): Promise<HostImportedThread>;
   exclusive<T>(work: () => Promise<T>): Promise<T>;
@@ -173,7 +178,7 @@ export interface ExtensionServicesPort {
   removeThread(sessionId: string): Promise<void>;
   restoreThread(sessionId: string): Promise<void>;
   purgeThread(sessionId: string): Promise<void>;
-  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; identity?: ClientTurnIdentity; from?: string; attachments?: UiPromptAttachment[]; wake?: UiWake }): Promise<void>;
+  sendToThread(sessionId: string, text: string, options: { delivery: "prompt" | "steer" | "queue"; beforeAdmit?: () => void; identity?: ClientTurnIdentity; from?: string; attachments?: UiPromptAttachment[]; wake?: UiWake }): Promise<void>;
   /** Changes a thread's model by id, on or off screen. */
   setThreadModel(sessionId: string, provider: string, id: string): Promise<void>;
   /** Stops a thread's running turn; nothing happens to a thread without a runtime. */
@@ -245,8 +250,14 @@ export interface HostExtensionSeam {
   readonly entryPins: ReadonlySet<(thread: HostThread) => Iterable<string>>;
   /** Tells every subscriber that a watched file moved; the host is the only caller. */
   notifyConfigChange(change: HostConfigChange): void;
-  /** What the user lets external runtimes do. */
+  /** What the user lets external runtimes do, never more than the thread's core ceiling. */
   permissionLevel(sessionId?: string): RuntimePermissionLevel;
+  /**
+   * Ceilings core holds for threads itself (an external MCP client's, ADR 0046):
+   * they clamp `permissionLevel` and, while no extension provides a level, keep
+   * Tau's MCP tools from those threads, whatever an extension's reload does.
+   */
+  setThreadCeiling(provider: ((sessionId: string) => RuntimePermissionLevel | undefined) | undefined): void;
   /** Wraps a session manager for extensions; a runtime prepared for the file shares the manager. */
   sessionFile(manager: SessionManager): HostSessionFile;
   /** The local MCP endpoint the `mcp` services front; the host closes it when it stops. */
@@ -275,13 +286,26 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   const configObservers = new Set<(change: HostConfigChange) => void>();
   const sessionFileManagers = new WeakMap<HostSessionFile, SessionManager>();
   let permissionLevelProvider: ((sessionId?: string) => RuntimePermissionLevel) | undefined;
+  let threadCeiling: ((sessionId: string) => RuntimePermissionLevel | undefined) | undefined;
+  const strictness: readonly RuntimePermissionLevel[] = ["read-only", "ask", "auto", "full"];
+  const permissionLevel = (sessionId?: string): RuntimePermissionLevel => {
+    // Without an access extension everything is allowed, up to a thread's core ceiling.
+    const level = permissionLevelProvider?.(sessionId) ?? "full";
+    const ceiling = sessionId ? threadCeiling?.(sessionId) : undefined;
+    return ceiling && strictness.indexOf(ceiling) < strictness.indexOf(level) ? ceiling : level;
+  };
+  const ceilingGate: HostMcpToolGate = (call) => {
+    const ceiling = threadCeiling?.(call.threadId);
+    return ceiling && ceiling !== "full" && !permissionLevelProvider
+      ? { block: true, reason: `Blocked by Tau: this thread runs under a "${ceiling}" ceiling and nothing enforces it right now.` } : undefined;
+  };
   const mcpProviders = new Set<HostMcpToolProvider>();
   const mcpGates: HostMcpToolGate[] = [];
   const mcpInstructions: HostMcpInstructionsProvider[] = [];
   const mcp = new McpEndpoint({
     providers: () => mcpProviders,
     instructions: () => mcpInstructions,
-    gates: () => mcpGates,
+    gates: () => threadCeiling ? [ceilingGate, ...mcpGates] : mcpGates,
     confirm: (threadId, title, message, signal) => port.confirmInThread(threadId, title, message, signal),
     log: (label, detail) => port.log(label, detail),
   });
@@ -345,6 +369,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
   });
 
   const services: HostExtensionServices = {
+    ...(port.conversations ? { conversations: port.conversations } : {}),
     ...(port.background ? { background: port.background } : {}),
     cwd: () => port.cwd(),
     agentDir: getAgentDir(),
@@ -359,11 +384,13 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     admitWorkspace: (path) => port.admitWorkspace(path),
     projectName: (cwd) => port.projectName(cwd),
     rememberProjectName: (cwd, name) => port.rememberProjectName(cwd, name),
+    ...(port.refreshProject ? { refreshProject: (cwd: string) => port.refreshProject!(cwd) } : {}),
     pickDirectory: (options) => port.platform.pickDirectory
       ? port.platform.pickDirectory(options)
       : Promise.reject(new Error("This host has no folder picker.")),
     runtimeOwner: () => port.runtimeOwner(),
     thread: (sessionId) => port.thread(sessionId),
+    ...(port.reopenThread ? { reopenThread: (sessionId: string) => port.reopenThread!(sessionId) } : {}),
     complete: (request, model) => port.complete(request, model),
     completionModels: () => port.completionModels(),
     runtimeChoices: port.runtimeChoices,
@@ -382,7 +409,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
     newPackage: (spec) => createNewPackage(spec, { record: (made) => port.recordOwnExtensionPackage(made) }),
     reviewPackage: (path) => port.reviewExtensionPackage(path),
     approvePackage: (path, fingerprint) => port.approveExtensionPackage(path, fingerprint, (() => { const principal = currentInvocationPrincipal(); return principal !== undefined && isHostOwner(principal); })()),
-    startOwnPackage: (path, fingerprint, threadId) => port.startOwnExtensionPackage(path, fingerprint, permissionLevelProvider?.(threadId) ?? "full", threadId),
+    startOwnPackage: (path, fingerprint, threadId) => port.startOwnExtensionPackage(path, fingerprint, permissionLevel(threadId), threadId),
     stopPackage: (id) => port.stopExtensionPackage(id, (() => { const principal = currentInvocationPrincipal(); return principal !== undefined && isHostOwner(principal); })()),
     globalExtensionsDirectory: () => globalExtensionsDirectory(),
     removePackage: (source, scope) => removeExtensionSource(source, scope, installer()),
@@ -415,6 +442,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         );
       },
       start: (options) => port.startThread(options),
+      switchRuntime: (id, kind) => port.switchThreadRuntime?.(id, kind) ?? Promise.reject(new Error("Runtime switching is unavailable.")),
       import: (options) => port.importThread(options),
       remove: (sessionId) => port.removeThread(sessionId),
       restore: (sessionId) => port.restoreThread(sessionId),
@@ -425,6 +453,7 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         if (sendOptions?.wake && sendOptions.delivery !== "queue") throw new HostCommandError("A wake waits in the queue: send it with delivery \"queue\".");
         return port.sendToThread(sessionId, text, {
           delivery: sendOptions?.delivery ?? "prompt",
+          ...(sendOptions?.beforeAdmit ? { beforeAdmit: sendOptions.beforeAdmit } : {}),
           ...(sendOptions?.from ? { from: sendOptions.from } : {}),
           ...(sendOptions?.attachments ? { attachments: [...sendOptions.attachments] } : {}),
           ...(sendOptions?.identity ? { identity: sendOptions.identity } : {}),
@@ -528,8 +557,8 @@ export function createHostExtensionSeam(port: ExtensionServicesPort): HostExtens
         try { observer(change); } catch (error) { port.log("host-extension.config-changed.failed", error instanceof Error ? error.message : String(error)); }
       }
     },
-    // Without an access extension everything is allowed.
-    permissionLevel: (sessionId) => permissionLevelProvider?.(sessionId) ?? "full",
+    permissionLevel,
+    setThreadCeiling: (provider) => { threadCeiling = provider; },
     sessionFile,
     mcp,
     executionPolicy: (cwd) => executionPolicy.for(cwd),

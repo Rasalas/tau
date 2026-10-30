@@ -5,7 +5,7 @@
   "icon": "Search",
   "version": "1.0.0",
   "engines": {
-    "api": "^1.59.0"
+    "api": "^1.80.0"
   },
   "permissions": [
     "workspace:read",

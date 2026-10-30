@@ -79,6 +79,8 @@ describe("self-hosted servers", () => {
     await expect(invoke("set-source-host", { host: "https://git.example.com:3000", service: "forgejo" })).resolves.toEqual({ "git.example.com:3000": "forgejo" });
     const stored = JSON.parse(await readFile(join(stateRoot, REVIEW_HOST_EXTENSION_ID, "source-hosts.json"), "utf8")) as { version: number; hosts: Record<string, string> };
     expect(stored).toEqual({ version: 1, hosts: { "git.example.com:3000": "forgejo" } });
+    // Only inspect requests made after choosing Forgejo, not the initial GitHub lookup.
+    calls.length = 0;
     const status = await invoke<ReviewRequestStatus>("pr-status");
     expect(status.service).toBe("forgejo");
     expect(status.problem).toBeUndefined();

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
 import { isDeepStrictEqual } from "node:util";
-import { readPersistedJson, THREAD_TEXT_CHARS, threadTextsDelta, tryProcessLock, writePersistedJson, type PersistedJsonLogger, type StoredThreadText, type ThreadText, type ThreadTextsAnswer } from "tau/host-extension";
+import { readPersistedJson, THREAD_TEXT_CHARS, threadTextsDelta, threadTextPage, threadTextsCatalog, tryProcessLock, writePersistedJson, type PersistedJsonLogger, type StoredThreadText, type ThreadText, type ThreadTextsAnswer, type ThreadTextsRequest } from "tau/host-extension";
 import { sessionStoreSqliteWorkerMain, type SqliteChanges, type SqliteDatabaseStats, type SqliteSessionChange, type SqliteStoreRead } from "./session-store-persistence-worker.js";
 import type { SessionDatabaseStatus } from "./session-database-protocol.js";
 import { sqliteRecoveryMessage } from "./session-database-errors.js";
@@ -113,7 +113,7 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     if (this.disposed) return Promise.reject(new Error("Session store is disposed"));
     clearTimeout(this.timer);
     if (!this.worker) {
-      const worker = new Worker(`import("node:module").then(({ createRequire }) => (${sessionStoreSqliteWorkerMain.toString()})(createRequire(process.execPath)))`, { eval: true, workerData: { path: this.databasePath, summaryVersion: this.options.summaryVersion } });
+      const worker = new Worker(`import("node:module").then(({ createRequire }) => (${sessionStoreSqliteWorkerMain.toString()})(createRequire(process.execPath), { page: ${threadTextPage.toString()}, catalog: ${threadTextsCatalog.toString()} }))`, { eval: true, workerData: { path: this.databasePath, summaryVersion: this.options.summaryVersion } });
       this.worker = worker;
       worker.on("message", (reply: { id: number; value?: unknown; error?: string; errcode?: unknown }) => {
         const pending = this.requests.get(reply.id);
@@ -331,10 +331,19 @@ export class SessionStorePersistence<T extends { tauThreadId: string }, M = neve
     });
   }
 
-  /** Select from the catalog first; the worker streams only the selected text prefixes. */
+  /** Legacy prefixes or versioned full exports; payloads stay in the text worker. */
   async threadTexts(records: Iterable<StoredThreadText>, input: unknown): Promise<ThreadTextsAnswer> {
     const catalog = Array.from(records);
     if (this.readOnlyData) return threadTextsDelta(catalog, input);
+    const fields = input && typeof input === "object" ? input as ThreadTextsRequest : {};
+    if (fields.protocol === 2) {
+      await this.writing;
+      return this.locked(async () => {
+        await this.checkMarker();
+        try { return await this.request("text-page", { input: fields, version: this.options.version }) as ThreadTextsAnswer; }
+        finally { await this.closeWorker(); }
+      });
+    }
     const answer = threadTextsDelta(catalog.map(record => ({ tauThreadId: record.tauThreadId, updatedAt: record.updatedAt, messages: [] })), input);
     if (!answer.threads.length) return answer;
     await this.writing;

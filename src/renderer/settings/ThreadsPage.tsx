@@ -58,6 +58,8 @@ export function ThreadsPage({ sections = [], onNotify = () => undefined }: {
     <div className="settings-page settings-cards">
       <SectionCard title="New threads" card="new-threads" sections={sections} onNotify={onNotify} />
       <SectionCard title="Rail" card="rail" sections={sections} onNotify={onNotify} />
+      <SectionCard title="Search" card="search" wide sections={sections} onNotify={onNotify} />
+      <SectionCard title="Snooze options" card="snooze" wide sections={sections} onNotify={onNotify} />
       <SectionCard title="Ask first" card="ask-first" sections={sections} onNotify={onNotify} />
       <SectionCard title="While a thread runs" card="running" own={own} sections={sections} onNotify={onNotify} />
       <SectionCard title="Long threads" card="long-threads" wide sections={sections} onNotify={onNotify} />

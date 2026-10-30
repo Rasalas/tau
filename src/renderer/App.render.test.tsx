@@ -928,34 +928,34 @@ describe("App render isolation", () => {
     } as unknown as DataTransfer;
 
     fireEvent.dragEnter(column, { dataTransfer });
-    expect(screen.getByRole("status").className).toContain("unknown");
+    expect(within(column).getByRole("status").className).toContain("unknown");
     fireEvent.dragOver(column, { dataTransfer });
     expect(dataTransfer.dropEffect).toBe("copy");
     liveFilesBacking.push(image);
     liveItems.push({ kind: "file", type: "image/png" });
     fireEvent.dragOver(column, { dataTransfer });
-    expect(screen.getByRole("status").className).toContain("valid");
+    expect(within(column).getByRole("status").className).toContain("valid");
     fireEvent.dragLeave(column, { dataTransfer, relatedTarget: null });
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(within(column).queryByRole("status")).toBeNull();
 
     fireEvent.dragEnter(column, { dataTransfer });
     fireEvent.dragEnter(column, { dataTransfer });
     fireEvent.dragLeave(column, { dataTransfer, relatedTarget: null });
-    expect(screen.getByRole("status")).toBeTruthy();
+    expect(within(column).getByRole("status")).toBeTruthy();
     fireEvent(window, createEvent("dragend", window));
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(within(column).queryByRole("status")).toBeNull();
 
     fireEvent.dragEnter(column, { dataTransfer });
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(within(column).queryByRole("status")).toBeNull();
     fireEvent.dragEnter(column, { dataTransfer });
     fireEvent(window, createEvent("blur", window));
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(within(column).queryByRole("status")).toBeNull();
 
     fireEvent.dragEnter(column, { dataTransfer });
     fireEvent.drop(column, { dataTransfer });
     liveFilesBacking.length = 0;
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(within(column).queryByRole("status")).toBeNull();
     expect(await screen.findByRole("button", { name: "Preview dropped.png" })).toBeTruthy();
     expect(plainChipText(draft.value)).toBe("keep this draft dropped.png ");
 

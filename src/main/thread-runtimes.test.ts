@@ -187,3 +187,16 @@ describe("thread runtime registry", () => {
     expect(reg.idleThreadIds(10_000)).toEqual(["recent"]);
   });
 });
+
+it("keeps the source alive until a staged replacement commits and restores it on rollback", async () => {
+  const disposed: string[] = [];
+  const reg = new ThreadRuntimeRegistry<Fake>({ dispose: async entry => { disposed.push(entry.runtime.name); } });
+  const original = record("same"); await reg.adopt(original); reg.setActive("same");
+  const staged = reg.stageReplacement({ ...original, runtime: { name: "target" } });
+  expect(disposed).toEqual([]); expect(reg.active?.runtime.name).toBe("target");
+  await staged.rollback();
+  expect(reg.active?.runtime.name).toBe("same"); expect(disposed).toEqual(["target"]);
+  const committed = reg.stageReplacement({ ...original, runtime: { name: "target-again" } });
+  await committed.commit(); await committed.commit();
+  expect(reg.active?.runtime.name).toBe("target-again"); expect(disposed).toEqual(["target", "same"]);
+});

@@ -180,6 +180,11 @@
   display: flex; align-items: center; gap: 8px; padding: var(--space-5) var(--space-2) var(--space-2);
   color: var(--faint); font: 500 var(--label-size) var(--label-font); letter-spacing: var(--label-tracking); text-transform: var(--label-case);
 }
+button.thread-group-label { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.thread-group-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
+.thread-group-toggle > i { flex: 1; height: 1px; background: var(--line); }
+.thread-group-label > b, .thread-group-toggle > b { display: grid; place-items: center; transition: transform var(--motion-fast) ease; }
+.thread-group-label[aria-expanded="false"] > b, .thread-group-toggle[aria-expanded="false"] > b { transform: rotate(-90deg); }
 .thread-group-label > i { flex: 1; height: 1px; background: var(--line); }
 .thread-group-new {
   width: 22px; height: 22px; margin: -4px 0; flex: none; display: grid; place-items: center;
@@ -797,6 +802,16 @@ body[data-profile="compact"] .folder-start-menu > button { min-height: var(--tou
 }
 .clone-project-destination > svg { flex: none; }
 .clone-project-destination > code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font: var(--text-sm) var(--mono); }
+.new-project-github { display: flex; flex-direction: column; gap: 8px; margin: 0 8px 8px; padding: 0 10px; color: var(--muted); font-size: calc(var(--text-sm) + .5px); }
+.new-project-github > label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.new-project-github-options { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.new-project-github-options > input {
+  width: 140px; min-width: 0; border: 1px solid var(--line-control); border-radius: 7px;
+  background: var(--sunken); color: var(--ink); padding: 4px 8px; font: var(--text-sm) var(--mono); outline: none;
+}
+.new-project-github-options > input:focus { border-color: var(--line-float); }
+.new-project-github-options > input[aria-invalid="true"] { border-color: var(--danger); }
+.new-project-github-options > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font: var(--text-sm) var(--mono); }
 
 /* Settings → Storage: the worktrees Tau made, one row each in the section's card. */
 .workspace-storage-list { list-style: none; margin: 0; padding: 0; }
@@ -1112,3 +1127,6 @@ body[data-profile="compact"] .turn-actions > button { min-height: 44px; padding:
 .rail-project-menu .project-switcher-results :is(.rail-project-pick, .rail-project-entry) { height: 45px; }
 .rail-project-menu .project-switcher-results .rail-project-name { display: flex; flex-direction: column; align-items: stretch; min-width: 0; }
 .rail-project-menu .project-switcher-results .rail-project-name small { display: flex; color: var(--muted); }
+.project-promotion-dialog form { display: grid; gap: 12px; }
+.project-promotion-name { display: grid; gap: 6px; }
+.project-promotion-name input { width: 100%; }

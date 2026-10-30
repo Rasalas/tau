@@ -1,5 +1,5 @@
 import { AlarmClock, AlarmClockOff, Archive, ArchiveRestore, ArrowDown, ArrowRightLeft, ArrowUp, ArrowUpDown, Check, Copy, CopyPlus, CornerUpLeft, Folder, Funnel, FunnelX, GitBranch, GitFork, Hash, ListTree, MessageSquareDot, MessageSquareText, Pencil, Pin, PinOff, ScrollText, Settings, Sparkles, SquareArrowOutUpRight, SquarePen, Trash2, type LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useMemo, useSyncExternalStore } from "react";
 import { ConfirmDialog, CUSTOM_WHEN, Dialog, errorMessage, getClientStorage, hostIsReadOnly, READ_ONLY_REASON, readWhenPick, rememberWhenPick, useClientStorage, useThreadStore, useWorkbenchShell, WhenPicker, type MenuItem, type MenuSection, type ThreadMenuLookup, type ToastHandle, type UiSession, type WhenPick, type WhenPreset, type WorkbenchActions } from "tau";
 import {
   UNARCHIVE_PATCH,
@@ -52,6 +52,10 @@ export interface RailOrganizerPort {
 }
 
 const EMPTY: RailSections = { pinned: [], active: [], working: [], snoozed: [], settled: [], archived: [] };
+
+/** Titles a selection regenerates at once: each is a model call, and a thread not open is reopened for it. */
+export const TITLE_CONCURRENCY = 2;
+const REGENERATE_TOAST = "tau.thread-rail.regenerate-titles";
 
 /** A menu item's icon; the OS's menu draws the same one by its name. */
 const glyph = (Icon: LucideIcon) => ({ icon: <Icon size={13} /> });
@@ -208,8 +212,11 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   const notify = (actions: WorkbenchActions | undefined, message: string, level?: "info" | "warning" | "error") => { if (level) actions?.notify(message, level); else actions?.notify(message); };
 
   /** The presets, the one last used marked as the menu marks a current choice. */
+  const shownSnooze = new Map<string, number>();
   const snoozeSubmenu = (): MenuSection[] => {
-    const presets = snoozePresets(new Date(now()));
+    const presets = snoozePresets(new Date(now()), store.getState().settings);
+    shownSnooze.clear();
+    for (const preset of presets) shownSnooze.set(preset.id, preset.until);
     const storage = getClientStorage();
     const remembered = storage ? readWhenPick(storage, SNOOZE_REMEMBER_KEY) : undefined;
     const marked = presets.some((preset) => snoozePick(preset.id) === remembered);
@@ -236,6 +243,46 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   };
   /** Titles are made from a thread's live runtime. */
   const regenerateTitle = (session: UiSession, actions: WorkbenchActions) => port.titles?.() && onThread(session, actions, () => port.titles?.()?.regenerate(actions));
+
+  /**
+   * A selection's titles, a few at a time, without opening any of the threads.
+   * A loading toast counts them and ends with what failed; as with one title,
+   * there is nothing to undo.
+   */
+  const regenerateTitles = async (sessions: readonly UiSession[], actions: WorkbenchActions) => {
+    const regenerate = port.titles?.()?.regenerateThread;
+    if (!regenerate || sessions.length === 0) return;
+    const total = sessions.length;
+    const plural = (count: number) => `${count} title${count === 1 ? "" : "s"}`;
+    const progress = actions.toast?.({ id: REGENERATE_TOAST, type: "loading", title: `Regenerating ${plural(total)}`, description: `0 of ${total}`, timeoutMs: 0 });
+    const failed: Array<{ session: UiSession; message: string }> = [];
+    const waiting = [...sessions];
+    let finished = 0;
+    const work = async () => {
+      for (let session = waiting.shift(); session; session = waiting.shift()) {
+        try {
+          // oxlint-disable-next-line no-await-in-loop
+          await regenerate(session.id);
+        } catch (error) {
+          failed.push({ session, message: errorMessage(error) });
+        }
+        finished += 1;
+        progress?.update({ type: "loading", title: `Regenerating ${plural(total)}`, description: `${finished} of ${total}`, timeoutMs: 0 });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(TITLE_CONCURRENCY, total) }, work));
+    if (failed.length === 0) {
+      if (progress) progress.update({ type: "success", title: `Regenerated ${plural(total)}`, description: undefined, timeoutMs: 3_000 });
+      else notify(actions, `Regenerated ${plural(total)}.`);
+      return;
+    }
+    const title = failed.length === total ? `Could not regenerate ${plural(total)}` : `Regenerated ${total - failed.length} of ${plural(total)}`;
+    const details = failed.map(({ session, message }) => `${session.title}: ${message}`).join("\n");
+    const first = failed[0]!;
+    const description = `${failed.length === 1 ? "" : `${failed.length} failed. `}${first.session.title}: ${first.message}`;
+    if (progress) progress.update({ type: failed.length === total ? "error" : "warning", title, description, copyText: details, timeoutMs: 0 });
+    else notify(actions, `${title}. ${description}`, "error");
+  };
 
   /** A running thread cannot be archived, and archiving the thread on screen opens a new one in its project. */
   const archive = async (session: UiSession, actions: WorkbenchActions | undefined, confirmed = false) => {
@@ -334,6 +381,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         {question ? <RailConfirmation key={question.sessions.map((session) => session.id).join()} question={question} onDone={() => store.ask(undefined)} /> : null}
         {sessions && sessions.length > 0 ? (
           <SnoozeDialog
+            settings={store.getState().settings}
             key={sessions.map((session) => session.id).join()}
             sessions={sessions}
             now={now}
@@ -511,8 +559,10 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       else if (itemId === "copy-chat") void onThread(session, actions, () => actions.copyChat?.());
       else if (itemId.startsWith("command:")) void onThread(session, actions, () => actions.executeCommand?.(itemId.slice("command:".length)));
       else {
-        const preset = snoozePresets(new Date(now())).find((entry) => entry.id === itemId);
-        if (preset) { rememberSnooze(preset.id); snooze(session.id, preset.until, actions); }
+        const preset = snoozePresets(new Date(now()), store.getState().settings).find((entry) => entry.id === itemId);
+        const until = preset?.until ?? shownSnooze.get(itemId);
+        if (until !== undefined && until > now()) { rememberSnooze(itemId); snooze(session.id, until, actions); }
+        else notify(actions, "That snooze time has passed. Choose another time.", "warning");
       }
     },
     // The selection menu: what fits every selected thread, with how many it touches.
@@ -521,6 +571,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       const pinned = sessions.filter((session) => meta(session.id)?.pinned).length;
       const snoozable = sessions.every((session) => ["pinned", "active"].includes(sectionOf(meta(session.id), now())));
       const idle = sessions.filter((session) => !port.running(session.id)).length;
+      const titles = Boolean(port.titles?.()?.regenerateThread);
       return lockWrites([
         {
           items: [
@@ -528,6 +579,8 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
             { id: "settle", label: `Settle (${count})`, ...glyph(Check) },
             ...(snoozable ? [{ id: "snooze", label: `Snooze (${count})`, ...glyph(AlarmClock), submenu: snoozeSubmenu() }] : []),
             { id: "mark-unread", label: `Mark unread (${count})`, ...glyph(MessageSquareDot) },
+            // A running thread's title waits for its run, as the row's own item does.
+            ...(titles ? [{ id: "regenerate-titles", label: `Regenerate titles (${idle})`, ...glyph(Sparkles), disabled: idle === 0, ...(idle < count ? { description: "Running threads stay." } : {}) }] : []),
           ],
         },
         {
@@ -555,6 +608,8 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         store.openSnooze(sessions);
       } else if (itemId === "mark-unread") {
         for (const session of sessions) store.threadStore?.markUnread(session.id);
+      } else if (itemId === "regenerate-titles") {
+        void regenerateTitles(sessions.filter((session) => !port.running(session.id)), actions);
       } else if (itemId === "archive" || itemId === "delete") {
         // One after another: each may move the reader off the thread on screen.
         const leaving = new Set(sessions.map((session) => session.id));
@@ -569,8 +624,10 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
           }
         })();
       } else {
-        const preset = snoozePresets(new Date(at)).find((entry) => entry.id === itemId);
-        if (preset) { rememberSnooze(preset.id); snoozeMany(sessions.map((session) => session.id), preset.until, actions); }
+        const preset = snoozePresets(new Date(at), store.getState().settings).find((entry) => entry.id === itemId);
+        const until = preset?.until ?? shownSnooze.get(itemId);
+        if (until !== undefined && until > now()) { rememberSnooze(itemId); snoozeMany(sessions.map((session) => session.id), until, actions); }
+        else notify(actions, "That snooze time has passed. Choose another time.", "warning");
       }
     },
     toggleSettled: (session) => toggleSettledById(session.id),
@@ -640,17 +697,19 @@ export const SNOOZE_REMEMBER_KEY = "thread-rail.snooze";
 const snoozePick = (presetId: string): WhenPick => presetId.replace(/^snooze:/, "");
 
 /** The list of times, as the composer's Plan sheet shows it; the picker opens on the last pick used. */
-export function SnoozeDialog({ sessions, now, onClose, onSnooze }: {
+export function SnoozeDialog({ sessions, now, settings, onClose, onSnooze }: {
   sessions: readonly UiSession[];
   now: () => number;
+  settings?: Pick<import("./protocol.js").RailSettings, "snoozePresets">;
   onClose(): void;
   onSnooze(until: number): void;
 }) {
   const storage = useClientStorage();
   // Fixed while the dialog is open: the picker reports a new time whenever a preset's changes.
-  const [presets] = useState<WhenPreset[]>(() => snoozePresets(new Date(now())).map(({ id, label, when, until }) => ({ id: snoozePick(id), label, when, at: until })));
+  const presets = useMemo<WhenPreset[]>(() => snoozePresets(new Date(now()), settings).map(({ id, label, when, until }) => ({ id: snoozePick(id), label, when, at: until })), [settings?.snoozePresets]);
   const [choice, setChoice] = useState<{ at: number | undefined; pick: WhenPick }>();
   const picker = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string>();
   const shown = choice !== undefined;
   // The dialog focuses its first control on opening, which may come before the list has loaded.
   useEffect(() => {
@@ -658,9 +717,11 @@ export function SnoozeDialog({ sessions, now, onClose, onSnooze }: {
   }, [shown]);
   const confirm = () => {
     if (!choice || choice.at === undefined) return;
-    rememberWhenPick(storage, SNOOZE_REMEMBER_KEY, choice.pick);
     // "In 1 hour" counts from the confirm, not from when the dialog opened.
-    const fresh = choice.pick === CUSTOM_WHEN ? undefined : snoozePresets(new Date(now())).find((preset) => snoozePick(preset.id) === choice.pick)?.until;
+    const fresh = choice.pick === CUSTOM_WHEN ? undefined : snoozePresets(new Date(now()), settings).find((preset) => snoozePick(preset.id) === choice.pick)?.until;
+    if ((fresh ?? choice.at) <= now()) { setError("That snooze time has passed. Choose another time."); return; }
+    setError(undefined);
+    rememberWhenPick(storage, SNOOZE_REMEMBER_KEY, choice.pick);
     onSnooze(fresh ?? choice.at);
   };
   return (
@@ -670,12 +731,14 @@ export function SnoozeDialog({ sessions, now, onClose, onSnooze }: {
         <WhenPicker
           presets={presets}
           rememberKey={SNOOZE_REMEMBER_KEY}
+          missingRemembered="none"
           label="Snooze until"
           now={now}
-          onChange={(at, pick) => setChoice({ at, pick })}
+          onChange={(at, pick) => { setError(undefined); setChoice({ at, pick }); }}
           onConfirm={confirm}
         />
       </div>
+      {error ? <p role="alert">{error}</p> : null}
       <footer>
         <button type="button" className="text-button" onClick={onClose}>Cancel</button>
         <button type="button" className="primary" disabled={choice?.at === undefined} onClick={confirm}>Snooze</button>

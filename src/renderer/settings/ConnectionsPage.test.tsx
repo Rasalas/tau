@@ -233,8 +233,10 @@ describe("the search's rows on Settings → Connections", () => {
       logPath: "/u/logs/host-service.log", problems: [],
       display: { supported: true, installed: true, display: ":99", xvfbRunning: true, windowRunning: false, idleMinutes: 10 },
     };
-    renderPage({ listConnections: async () => connections({ network, fingerprint: "AB:CD" }), serviceStatus: async () => linux });
+    const manageExternalMcp = async () => ({ enabled: false, listening: false, protocolVersion: "2025-11-25", tokens: [], projects: [] });
+    renderPage({ listConnections: async () => connections({ network, fingerprint: "AB:CD" }), serviceStatus: async () => linux, manageExternalMcp });
     await screen.findByText(":99 · window starts when needed");
+    await screen.findByText("MCP clients");
     // The command line row waits for this machine's window to answer, which a page without one never gets.
     const targets = settingsSearchEntries({ pages: [], extensions: [] }).filter((entry) => entry.page === "connections" && entry.target && entry.label !== "Command line");
     expect(targets.length).toBeGreaterThan(10);

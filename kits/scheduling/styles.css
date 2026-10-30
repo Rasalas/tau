@@ -41,6 +41,13 @@
 .scheduling-dialog :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select):not(.scheduling-repeat-row *) { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--inset); color: var(--ink); font: inherit; }
 .scheduling-dialog textarea { resize: vertical; line-height: 1.55; }
 .scheduling-dialog small { color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
+.scheduling-filters { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.scheduling-filters legend { padding: 0 4px; color: var(--ink-3); font-size: var(--text-xs); }
+.scheduling-filters p { margin: 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.55; }
+.scheduling-filter { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.scheduling-filter label { flex: 1 1 140px; min-width: 0; }
+.scheduling-filters button { align-self: flex-start; padding: 7px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--float); color: var(--ink); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.scheduling-filters button:disabled { opacity: .45; cursor: default; }
 .scheduling-checkbox { display: flex !important; flex-direction: row !important; align-items: center; gap: 8px; font-size: var(--text-xs); }
 .scheduling-checkbox input { accent-color: var(--acid); }
 .scheduling-time { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -58,6 +65,10 @@
 .scheduling-secret input { box-sizing: border-box; width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--inset); color: var(--ink); font: var(--text-sm) var(--mono); }
 .scheduling-secret small { display: block; margin-top: 7px; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
 .scheduling-secret footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.scheduling-proposal p strong { color: var(--ink); font-weight: 500; }
+.scheduling-proposal details { color: var(--muted); font-size: var(--text-xs); }
+.scheduling-proposal details > summary { cursor: pointer; }
+.scheduling-proposal pre { max-height: 160px; overflow: auto; margin: 6px 0 0; padding: 8px; border-radius: var(--radius-sm); background: var(--inset); color: var(--ink-3); font: var(--text-xs) var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .scheduling-summary { margin: 8px 0 0; padding: 12px 10px 8px; border-top: 1px solid var(--line); color: var(--ink); }
 .scheduling-summary header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .scheduling-summary h2 { margin: 0; padding-left: 3px; color: var(--muted); font-size: var(--text-xs); font-weight: 500; }
@@ -119,3 +130,8 @@
   .scheduling-secret .primary { flex: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .scheduling-switch span, .scheduling-repeat-cron > summary > svg { transition: none; } }
+.scheduling-sample { font-size: var(--text-xs); color: var(--muted); }
+.scheduling-sample > summary { cursor: pointer; }
+.scheduling-sample > label { margin-top: 10px; }
+.scheduling-sample textarea { font-family: var(--mono); }
+.scheduling-filters input[aria-invalid="true"] { border-color: var(--danger-line); }

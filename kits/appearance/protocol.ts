@@ -14,6 +14,7 @@ export const SETTING_KEYS = {
   codeFontSize: "code-font-size",
   timestamps: "timestamps",
   panelMotion: "panel-motion",
+  chatWidth: "chat-width",
 } as const;
 
 export type Appearance = "light" | "dark";

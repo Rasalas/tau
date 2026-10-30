@@ -176,3 +176,25 @@ describe("explicit branch deletion through the host registry", () => {
     expect(calls.some((call) => call.args.includes("DELETE"))).toBe(false);
   });
 });
+
+it("loads and saves explicit maintainer access through pr-update without editing a real PR", async () => {
+  let allow = true;
+  const { invoke, calls } = await harness({ answer: ({ args, input }) => {
+    const parsed = input ? JSON.parse(input) as { query?: string; variables?: { allow?: boolean } } : undefined;
+    const query = parsed?.query ?? args.find((arg) => arg.startsWith("query="))?.slice(6) ?? "";
+    if (!query.includes("maintainerCanModify")) return undefined;
+    if (query.startsWith("mutation")) {
+      allow = parsed?.variables?.allow === true;
+      return JSON.stringify({ data: { updatePullRequest: { pullRequest: { id: "PR_7", maintainerCanModify: allow } } } });
+    }
+    return JSON.stringify({ data: { viewer: { login: "octo" }, repository: { pullRequest: { id: "PR_7", state: "OPEN", maintainerCanModify: allow, viewerCanUpdate: true, author: { login: "octo" }, headRepository: { nameWithOwner: "octo/tau", owner: { __typename: "User", login: "octo" } } } } } });
+  } });
+  await expect(invoke("pr-view", { url: URL_7 })).resolves.toMatchObject({ maintainerCanModify: true, viewerCanAllowMaintainerEdits: true });
+  await expect(invoke("pr-update", { url: URL_7, maintainerCanModify: false, expectedMaintainerCanModify: true })).resolves.toMatchObject({ maintainerCanModify: false });
+  const mutations = calls.filter((call) => call.input?.includes("mutation MaintainerAccess"));
+  expect(mutations).toHaveLength(1);
+  expect(JSON.parse(mutations[0]!.input!).variables).toEqual({ id: "PR_7", allow: false });
+  await expect(invoke("pr-update", { url: URL_7, maintainerCanModify: true, expectedMaintainerCanModify: true })).rejects.toThrow("changed");
+  await expect(invoke("pr-update", { url: URL_7, title: "Title", maintainerCanModify: true, expectedMaintainerCanModify: false })).rejects.toThrow("separately");
+  await expect(invoke("pr-update", { url: "https://codeberg.org/acme/tau/pulls/7", maintainerCanModify: true, expectedMaintainerCanModify: false })).rejects.toThrow("eligible GitHub");
+});

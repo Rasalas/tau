@@ -2,8 +2,10 @@ import { FilePen } from "lucide-react";
 import { errorMessage, type DesktopExtension, type StageTabHandle, type WorkbenchActions } from "tau";
 import type { FileDocument } from "./document.js";
 import { DocumentRegistry } from "./documents.js";
-import { fileEditorParams, fileName, FileEditorTab, MediaTab, saveDocument, UnknownProjectTab } from "./editor-tab.js";
+import { fileEditorParams, fileName, FileEditorTab, MediaTab, PassiveTab, saveDocument, UnknownProjectTab } from "./editor-tab.js";
+import { passiveKind } from "./passive-preview.js";
 import { fileViewKind } from "./file-kind.js";
+import { HostedNotebookPreview } from "./notebook-preview.js";
 import { AUTOSAVE_OPTION, autosaveDelay, kit, WRAP_OPTION, workspaceRelative, type WorkspaceStoreLike } from "./kit.js";
 import { createFilesHost, FILE_EDITOR_TAB, FILES_KIT_ID, UNKNOWN_PROJECT, WORKSPACE_STORE_SERVICE, type FileEditorParams } from "./protocol.js";
 
@@ -77,9 +79,13 @@ export const filesExtension: DesktopExtension = {
         const workspace = from?.workspace;
         if (!workspace) return <UnknownProjectTab path={params.path} />;
         const key = `${workspace}\u0000${params.path}`;
+        if (passiveKind(params.path)) return <PassiveTab key={key} params={params} handle={handle} workspace={workspace} host={host} fallback={/\.db$/iu.test(params.path) ? () => {
+          const document = bindTab(handle, params, workspace);
+          return document ? <FileEditorTab key={key} params={params} handle={handle} actions={actions} document={document} notebookHost={host} /> : null;
+        } : undefined} />;
         if (fileViewKind(params.path) !== "text") return <MediaTab key={key} params={params} handle={handle} actions={actions} />;
         const document = bindTab(handle, params, workspace);
-        return document ? <FileEditorTab key={key} params={params} handle={handle} actions={actions} document={document} /> : null;
+        return document ? <FileEditorTab key={key} params={params} handle={handle} actions={actions} document={document} notebookHost={host} /> : null;
       },
     });
 
@@ -87,8 +93,12 @@ export const filesExtension: DesktopExtension = {
       if (kit.current) kit.current.workspace = store;
       announce();
       const offer = store.registerFileEditor?.((relPath, actions) => openFileEditor(actions, relPath));
+      const reader = store.registerFilePreview?.((path, from) => passiveKind(path)
+        ? <PassiveTab key={`${from.workspace}\0${path}`} host={host} workspace={from.workspace} params={{ path }} />
+        : /\.ipynb$/iu.test(path) ? <HostedNotebookPreview key={`${from.workspace}\0${path}`} host={host} workspace={from.workspace} path={path} /> : undefined);
       return () => {
         offer?.();
+        reader?.();
         if (kit.current?.workspace === store) kit.current.workspace = undefined;
         announce();
       };

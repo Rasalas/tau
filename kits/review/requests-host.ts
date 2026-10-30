@@ -12,6 +12,7 @@ import {
 import type { RepositoryTarget, SourceControlProvider } from "./provider.js";
 import type { SourceControl } from "./provider-registry.js";
 import { withInstructions } from "./writing.js";
+import { modelEffort, readTextRuntime, threadWritingModel, writingBudget } from "../_shared/text-generation-host.js";
 import { attachmentReader, embedMedia } from "./evidence-upload.js";
 import { findEvidenceTokens } from "./local-request.js";
 import { SERVICES, type CliRunner } from "./request-cli.js";
@@ -179,7 +180,13 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     };
     return { current, git, provider, target: target ?? { host: "", repo: "", cwd: git.root } };
   };
-  const status = async (fresh: boolean) => (await inspect(fresh)).current;
+  const status = async (fresh: boolean) => {
+    const { current, provider, target } = await inspect(fresh);
+    if (!current.problem && current.request?.state !== "open" && provider.canChooseMaintainerEdits) {
+      current.canChooseMaintainerEdits = await provider.canChooseMaintainerEdits(target).catch(() => false);
+    }
+    return current;
+  };
 
   /** Status for a step that needs everything in place; refuses with what is missing. */
   const ready = async (): Promise<Inspected> => {
@@ -249,10 +256,20 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const modelId = text(fields.modelId);
     // Pi attached to the runtime owns the model; the commits alone make the draft then.
     if (services.runtimeOwner() === "pi") return { ...fallbackDraft(git), base: git.base, generated: false };
-    services.log("request-draft.started", provider && modelId ? `${provider}/${modelId}` : "default model");
+    const chosen = provider && modelId ? { provider, id: modelId } : undefined;
+    const system = withInstructions(draftSystemPrompt(info.noun), fields.instructions);
     let answer: string;
     try {
-      answer = await services.complete({ system: withInstructions(draftSystemPrompt(info.noun), fields.instructions), prompt: buildDraftPrompt(git), maxTokens: 900 }, provider && modelId ? { provider, id: modelId } : undefined);
+      if (readTextRuntime(fields.runtime) === "thread") {
+        const thread = services.thread();
+        const own = await threadWritingModel(thread, chosen);
+        services.log("request-draft.started", `${own.provider}/${own.id} on the thread's runtime`);
+        answer = await thread!.complete(own.provider, own.id, { system, prompt: buildDraftPrompt(git), maxTokens: 900, timeoutMs: 120_000 });
+      } else {
+        services.log("request-draft.started", chosen ? `${chosen.provider}/${chosen.id}` : "default model");
+        const effort = await modelEffort(services, chosen ? `${chosen.provider}/${chosen.id}` : "", fields.thinkingLevel, git.root);
+        answer = await services.complete({ system, prompt: buildDraftPrompt(git), ...writingBudget(effort, 900), ...(effort ? { thinkingLevel: effort } : {}) }, chosen);
+      }
     } catch (error) {
       services.log("request-draft.failed", message(error));
       return { ...fallbackDraft(git), base: git.base, generated: false };
@@ -276,6 +293,8 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const base = text(fields.base)?.trim() || git.base;
     if (base === git.branch) throw new HostCommandError(`The ${info.noun} would merge ${base} into itself; choose another base branch.`);
     const draft = fields.draft === true && info.capabilities.draft;
+    const access = fields.maintainerCanModify;
+    if (access !== undefined && (typeof access !== "boolean" || !provider.canChooseMaintainerEdits || !await provider.canChooseMaintainerEdits(target))) throw new HostCommandError("Refresh an eligible GitHub fork before choosing maintainer access.");
     // Pictures named in the body go up first; a failed upload creates nothing.
     const written = text(fields.body) ?? "";
     if (findEvidenceTokens(written).length > 0 && fields.uploadConfirmed !== true) throw new HostCommandError("Confirm what is uploaded first.");
@@ -283,7 +302,7 @@ export function registerRequestCommands(context: HostExtensionContext, sources: 
     const beforePush = await workspace<ReviewRequestContext>("review-request-context");
     if (beforePush.branch !== git.branch || beforePush.remote?.url !== git.remote?.url) throw new HostCommandError("The branch or remote changed; refresh before creating the request.");
     await workspace("push");
-    const created = await provider.create(target, { title, body: embedded.body, base, head: git.branch!, draft });
+    const created = await provider.create(target, { title, body: embedded.body, base, head: git.branch!, draft, ...(typeof access === "boolean" ? { maintainerCanModify: access } : {}) });
     services.log("request.created", created ?? title);
     const next = await status(true);
     const url = created ?? next.request?.url;

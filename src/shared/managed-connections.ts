@@ -8,8 +8,10 @@ export interface ManagedRoute {
 export function decodeManagedRoute(value: unknown): ManagedRoute | undefined {
   const item = value as ManagedRoute | undefined;
   if (!item || typeof item !== "object") return undefined;
-  if (item.ssh && typeof item.ssh.target === "string" && /^[\w][\w.@:[\]-]{0,254}$/u.test(item.ssh.target) && ["linux", "darwin"].includes(item.ssh.platform) && validPort(item.ssh.port)) return { ssh: item.ssh };
-  if (item.connect && validConnectRoute(item.connect)) return { connect: item.connect };
+  const ssh = item.ssh && typeof item.ssh.target === "string" && /^[\w][\w.@:[\]-]{0,254}$/u.test(item.ssh.target) && ["linux", "darwin"].includes(item.ssh.platform) && validPort(item.ssh.port) ? item.ssh : undefined;
+  // Tau Connect is one more route beside a machine's own: an SSH forward may have it too.
+  const connect = item.connect && typeof item.connect === "object" && validConnectRoute(item.connect) ? item.connect : undefined;
+  if (ssh || connect) return { ...(ssh ? { ssh } : {}), ...(connect ? { connect } : {}) };
   if (typeof item.wsl === "string" && item.wsl.length <= 100 && item.wsl.trim() && !/[\r\n\0]/u.test(item.wsl)) return { wsl: item.wsl };
   return undefined;
 }

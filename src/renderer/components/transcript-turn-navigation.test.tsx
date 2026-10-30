@@ -354,14 +354,14 @@ describe("TranscriptViewport turn navigation", () => {
     await waitFor(() => expect(minimap.tabIndex).toBe(0));
   });
 
-  it("places rail controls before the transcript and composer in tab order", async () => {
+  it("keeps the rail in tab order and the transcript available to area focus", async () => {
     const view = render(<Fixture messages={userMessages(8)} />);
     const navigation = await waitFor(() => view.getByRole("navigation", { name: "Transcript turns" }));
     const transcript = view.getByRole("log");
     const composer = view.getByRole("textbox", { name: "Composer" });
     const minimap = view.getByRole("button", { name: /Jump to turn:/ });
     expect(minimap.tabIndex).toBe(0);
-    expect(transcript.tabIndex).toBe(0);
+    expect(transcript.tabIndex).toBe(-1);
     expect(Boolean(navigation.compareDocumentPosition(transcript) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(Boolean(transcript.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     minimap.focus();

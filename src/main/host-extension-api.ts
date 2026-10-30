@@ -10,6 +10,9 @@
 export type * from "./host-extension-contracts.js";
 // Preserve legacy registry/helper types exposed by the original type-only barrel.
 export type * from "./host-extensions.js";
+export { sanitizePublicToolOutput, type HostPublicTool, type HostPublicTools, type HostPublicToolOptions } from "./public-thread-tools.js";
+// In-process routes on existing opted-in listeners.
+export type { HostHttpRoute } from "./host-http-route.js";
 export type { WindowExtension, WindowExtensionContext, WindowExtensionFactory } from "./window-extensions.js";
 // What `WindowExtensionContext.showContextMenu` takes and answers (next API version).
 export type { MenuPoint, NativeMenuEntry } from "../shared/context-menu.js";
@@ -67,6 +70,7 @@ export type * from "../shared/workspace-kit-types.js";
 export { assistantAnchorForBranch } from "./session-entries.js";
 export { readBoundedImagePreview } from "./image-preview.js";
 export { gitExecutable, findExecutable, type FindExecutableOptions } from "./shell-environment.js";
+export { resolveProjectIcon } from "./project-icon.js";
 /** Starting a command the way the platform needs: `.cmd` shims through `cmd.exe`, process trees ended whole. */
 export { commandInvocation, killProcessTree, type CommandInvocation, type CommandInvocationOptions } from "./platform-process.js";
 /** Agent CLIs and terminals in their own systemd scopes on Linux, and the message of one that ran out of memory. New in API 1.59.0. */
@@ -121,6 +125,13 @@ export {
   THREAD_TEXT_CHARS,
   THREAD_TEXTS_COMMAND,
   threadTextsDelta,
+  threadTextsCatalog,
+  threadTextPage,
+  type ThreadTextCatalogEntry,
+  type ThreadTextPageRequest,
+  type ThreadTextChunk,
+  type ThreadTextPage,
+  type ThreadTextsPagedAnswer,
   type StoredThreadText,
   type ThreadText,
   type ThreadTextMessage,

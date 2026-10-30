@@ -11,6 +11,8 @@ export interface PiTurnCheckpointExtensionOptions<Snapshot> {
   findAssistantAnchor(ctx: ExtensionContext, message: unknown): string | undefined;
   /** Binds a turn created by a Pi-native prompt to the context that received it. */
   bindTurnContext?(turnId: string, ctx: ExtensionContext): void;
+  /** Private workspaces can become projects without replacing their live runtime. */
+  enabled?(): boolean;
 }
 
 /**
@@ -34,6 +36,7 @@ export function createPiTurnCheckpointExtension<Snapshot>(
 ): ExtensionFactory {
   return (pi) => {
     pi.on("input", async (event, ctx) => {
+      if (options.enabled?.() === false) return;
       const id = options.lifecycle.nextInputTurnId() ?? options.nextTurnId();
       options.bindTurnContext?.(id, ctx);
       // Pi emits `input` when a streaming prompt is queued, not when that

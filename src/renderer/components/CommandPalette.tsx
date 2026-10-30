@@ -2,6 +2,7 @@ import { useContext, useEffect, useId, useMemo, useRef, useState, useSyncExterna
 import { ArrowLeft, ChevronRight, Search, SquareChevronRight } from "lucide-react";
 import type { ExtensionRegistry, PaletteItem, PaletteMenu, PaletteSearchContext, WorkbenchActions } from "../extension-system";
 import { menuRows, PALETTE_SCOPES, PALETTE_SOURCE_LIMIT, paletteRows, paletteScope, readOnlyCommands, readOnlySources, rowEntry, stepRow, withoutIdleStop, type PaletteCommand, type PaletteRow, type PaletteSourceResult } from "../palette-results";
+import { menuHitRows, searchPaletteMenus, type MenuHit } from "../palette-menu-search";
 import { searchSettings, settingsSearchEntries } from "../settings/settings-search";
 import { settingsTarget } from "../settings/settings-nav";
 import { commandRefusal, useHostCapabilities } from "../use-host-capabilities";
@@ -69,6 +70,9 @@ export function CommandPalette({
 }) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  const selected = useRef<{ scope: string; key: string } | undefined>(undefined);
+  const [menuFound, setMenuFound] = useState<{ key: string; hits: readonly MenuHit[] }>({ key: "", hits: [] });
+  const [statuses, setStatuses] = useState<readonly string[]>([]);
   const [found, setFound] = useState<{ key: string; results: PaletteSourceResult[] }>({ key: "", results: [] });
   const [levels, setLevels] = useState<readonly PaletteLevel[]>([]);
   const [reply, setReply] = useState<LevelAnswer>();
@@ -78,6 +82,7 @@ export function CommandPalette({
   const listId = useId();
   const threads = useContext(ThreadStoreContext);
   const { readOnly } = useHostCapabilities();
+  const indexSnapshot = useSyncExternalStore(threads?.subscribe ?? NO_ACTIVITY, () => threads?.getSnapshot());
   // The thread on screen has a run to stop: it streams, or waits for an answer.
   const running = useSyncExternalStore(threads?.subscribeToActivity ?? NO_ACTIVITY, () => {
     if (!threads) return false;
@@ -114,36 +119,58 @@ export function CommandPalette({
   // the next keystroke is dropped, and the source sees its signal abort.
   // A source with a scope is asked for an empty query too, in All and in its tab.
   useEffect(() => {
+    setStatuses([]);
     if (!open || !registry || level || scope === "commands") return;
     const controller = new AbortController();
     const context = contextRef.current(controller.signal);
     const sources = registry.getPaletteSources().filter((source) => (scope === "all" ? needle || source.scope : source.scope === scope));
     const answers = new Map<string, PaletteSourceResult>();
     const publish = () => {
-      if (!controller.signal.aborted) setFound({ key: foundKey, results: sources.flatMap((source) => answers.get(source.id) ?? []) });
+      if (controller.signal.aborted) return;
+      setFound({ key: foundKey, results: sources.flatMap((source) => answers.get(source.id) ?? []) });
+      if (needle.length >= 3 && (scope === "all" || scope === "threads")) setStatuses(sources.flatMap(source => {
+        try { const status = source.status?.(needle, context); return status ? [status] : []; } catch { return []; }
+      }));
     };
-    for (const source of sources) {
+    const sequences = new Map<string, number>();
+    const searchSource = (source: typeof sources[number]) => {
+      const sequence = (sequences.get(source.id) ?? 0) + 1;
+      sequences.set(source.id, sequence);
       let answer: ReturnType<typeof source.search>;
       try {
         answer = source.search(needle, context);
       } catch (error) {
         console.warn(`Palette source ${source.id} failed`, error);
-        continue;
+        return;
       }
       if (Array.isArray(answer)) {
         answers.set(source.id, { id: source.id, label: source.label, items: answer });
-        continue;
+        publish();
+        return;
       }
       void Promise.resolve(answer).then(
-        (items) => { answers.set(source.id, { id: source.id, label: source.label, items }); publish(); },
+        (items) => { if (sequences.get(source.id) !== sequence) return; answers.set(source.id, { id: source.id, label: source.label, items }); publish(); },
         (error: unknown) => { if (!controller.signal.aborted) console.warn(`Palette source ${source.id} failed`, error); },
       );
-    }
+    };
+    sources.forEach(searchSource);
+    const stops = sources.map(source => needle.length >= 3 && (scope === "all" || scope === "threads") ? source.subscribeStatus?.(() => { if (!controller.signal.aborted) { searchSource(source); publish(); } }) : undefined);
     publish();
-    return () => controller.abort();
-  }, [level, needle, open, registry, scope]);
+    return () => { controller.abort(); stops.forEach(stop => stop?.()); };
+  }, [level, needle, open, registry, scope, indexSnapshot?.threads, indexSnapshot?.projects, indexSnapshot?.activeThreadId]);
 
-  // A level is asked when it opens and on every keystroke, under the same rules as a source.
+  useEffect(() => {
+    if (!open || level || needle.length < 2 || (scope !== "all" && scope !== "commands")) return;
+    const controller = new AbortController();
+    let dispose: (() => void) | undefined;
+    const timer = setTimeout(() => {
+      dispose = searchPaletteMenus(commands, needle, contextRef.current(controller.signal), (hits) => {
+        if (!controller.signal.aborted) setMenuFound({ key: foundKey, hits });
+      });
+    }, 120);
+    return () => { clearTimeout(timer); controller.abort(); dispose?.(); };
+  }, [commands, foundKey, level, needle, open, scope]);
+
   useEffect(() => {
     if (!open || !level) return;
     const controller = new AbortController();
@@ -171,6 +198,7 @@ export function CommandPalette({
   }, [level, typed, open]);
 
   const results = found.key === foundKey ? found.results : NO_RESULTS;
+  const menuHits = menuFound.key === foundKey && !level ? menuFound.hits : [];
   const levelAnswer = level && reply?.key === level.key ? reply : undefined;
   const rows = useMemo(() => {
     if (level) return menuRows(levelAnswer?.items ?? [], needle, level.menu.searches);
@@ -178,8 +206,13 @@ export function CommandPalette({
     const offered = withoutIdleStop(commands, running);
     const shown = !wide ? [] : readOnly ? readOnlyCommands(offered) : offered;
     const settings = registry && needle && wide ? settingsItems(registry, needle) : [];
-    return paletteRows(shown, needle, readOnly ? readOnlySources(results) : results, scope === "all" ? PALETTE_SOURCE_LIMIT : SCOPED_LIMIT, settings);
-  }, [commands, level, levelAnswer, needle, readOnly, registry, results, running, scope]);
+    const base = paletteRows(shown, needle, readOnly ? readOnlySources(results) : results, scope === "all" ? PALETTE_SOURCE_LIMIT : SCOPED_LIMIT, settings);
+    const at = base.findIndex((row) => row.kind === "head" && row.label === "Commands");
+    // Commands are currently last; locate the next heading to keep this true if sources move.
+    const end = at < 0 ? 0 : base.findIndex((row, index) => index > at && row.kind === "head");
+    const insert = at < 0 ? 0 : end < 0 ? base.length : end;
+    return [...base.slice(0, insert), ...menuHitRows(menuHits), ...base.slice(insert)];
+  }, [commands, level, levelAnswer, menuFound, needle, readOnly, registry, results, running, scope]);
   // Rows are windowed, so each option says where it stands; a heading names the group its options follow.
   const layout = useMemo(() => {
     let count = 0;
@@ -197,7 +230,10 @@ export function CommandPalette({
   // A heading is never a stop.
   const usable = (index: number) => rows[index]?.kind !== "head" && Boolean(rows[index]) && !refusal(rows[index]);
   // The cursor never rests on a row this device may not run.
-  const next = usable(cursor) ? cursor : stepRow(rows.length, cursor - 1, 1, usable);
+  const cursorScope = `${foundKey}:${level?.key ?? "root"}`;
+  const remembered = selected.current?.scope === cursorScope ? rows.findIndex((row) => row.key === selected.current!.key) : -1;
+  const heldCursor = selected.current?.scope !== cursorScope ? 0 : remembered >= 0 ? remembered : cursor;
+  const next = usable(heldCursor) ? heldCursor : stepRow(rows.length, heldCursor - 1, 1, usable);
   const current = usable(next) ? next : -1;
 
   useEffect(() => {
@@ -212,6 +248,15 @@ export function CommandPalette({
   }, [open, menu]);
 
   useEffect(() => setCursor(0), [foundKey, level]);
+  useEffect(() => {
+    // Let the first synchronous source batch establish the default row. The
+    // previous query's empty results must not anchor a temporary Settings row.
+    if ((level || scope === "commands" || !registry || found.key === foundKey) && current >= 0 && rows[current]) selected.current = { scope: cursorScope, key: rows[current]!.key };
+  }, [current, cursorScope, rows, level, scope, registry, found.key, foundKey]);
+  const point = (index: number) => {
+    setCursor(index);
+    if (rows[index]) selected.current = { scope: cursorScope, key: rows[index]!.key };
+  };
 
   if (!open) return null;
 
@@ -232,7 +277,14 @@ export function CommandPalette({
   const run = (row: PaletteRow, inStage = false) => {
     if (row.kind === "head" || refusal(row)) return;
     const submenu = row.kind === "command" ? row.command.submenu : row.item.submenu;
-    if (submenu) { enter(submenu); return; }
+    if (submenu) {
+      const hit = menuHits.find((entry) => entry.key === row.key);
+      if (hit) {
+        setLevels([{ key: ++levelKey.current, menu: hit.parent, parentQuery: query }, { key: ++levelKey.current, menu: submenu, parentQuery: "" }]);
+        setQuery(""); input.current?.focus();
+      } else enter(submenu);
+      return;
+    }
     const item = row.kind === "item" ? row.item : undefined;
     const done = row.kind === "command" ? row.command.run(actions) : inStage && item?.stage ? item.stage(actions) : item?.run?.(actions);
     void Promise.resolve(done).catch((error: unknown) => actions.notify(errorMessage(error), "error"));
@@ -243,7 +295,7 @@ export function CommandPalette({
     if (isImeComposing(event.nativeEvent)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (current >= 0) setCursor(stepRow(rows.length, current, event.key === "ArrowDown" ? 1 : -1, usable));
+      if (current >= 0) point(stepRow(rows.length, current, event.key === "ArrowDown" ? 1 : -1, usable));
     }
     if (event.key === "Enter" && rows[current]) {
       // Cancelling the keydown drops its keypress, which would submit a dialog the command opens.
@@ -278,8 +330,10 @@ export function CommandPalette({
   /** What a screen reader says for a row: its label and detail, then what the eye reads in the margin. */
   const spokenName = (row: PaletteRow & { kind: "command" | "item" }) => {
     const item = row.kind === "item" ? row.item : undefined;
-    return [
-      item?.label ?? (row.kind === "command" ? row.command.label : undefined),
+    const hit = menuHits.find((entry) => entry.key === row.key);
+    return item?.ariaLabel ?? [
+      hit?.label ?? item?.label ?? (row.kind === "command" ? row.command.label : undefined),
+      hit ? `in ${hit.parent.title}` : undefined,
       item?.detail,
       item?.current ? "Current" : undefined,
       refusal(row) ? (readOnly ? "Read only" : "Unavailable") : undefined,
@@ -292,7 +346,7 @@ export function CommandPalette({
     const reason = refusal(row);
     return reason
       ? { "aria-disabled": true as const, ...tooltipProps(reason, { side: "left" }) }
-      : { onMouseMove: () => setCursor(index) };
+      : { onMouseMove: () => point(index) };
   };
 
   return (
@@ -376,10 +430,11 @@ export function CommandPalette({
               onClick={(event) => run(row, event.metaKey || event.ctrlKey)}
             >
               {Icon ? <i className="palette-icon"><Icon size={13} /></i> : item?.icon ? <i className="palette-icon">{item.icon}</i> : null}
-              <span>{item?.label ?? command?.label}{item?.detail ? <em>{item.detail}</em> : null}</span>{trailing(row)}
+              <span>{item?.label ?? command?.label}{item?.detail ? <em>{item.detailContent ?? item.detail}</em> : null}</span>{trailing(row)}
             </button>;
           }}
         />
+        {statuses.length ? <div role="status" aria-live="polite" className="palette-index-status">{statuses.join(" ")}</div> : null}
         <footer className="keyboard-hint">
           <span>↑↓ move</span>
           <span>⏎ {level ? "select" : "open"}</span>

@@ -148,3 +148,129 @@ it("creates a repeating automation in local time and shows an existing one with 
   await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("create", expect.objectContaining({ name: "Monthly report", schedule: { kind: "cron", expression: "0 9 15 * *", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } })));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "New automation" })).toBeNull());
 });
+
+it("creates typed payload filters through the webhook editor", async () => {
+  const h = setup({ jobs: [], secretStore: "Test OS store" });
+  fireEvent.click(await screen.findByRole("button", { name: "New automation" }));
+  const dialog = await screen.findByRole("dialog", { name: "New automation" });
+  fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "CI webhook" } });
+  fireEvent.change(within(dialog).getByLabelText("Prompt"), { target: { value: "Inspect CI" } });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "When" }), { target: { value: "webhook" } });
+  fireEvent.change(within(dialog).getByLabelText(/Webhook signature key/u), { target: { value: "private-key-0123456789-0123456789-0123456789" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add payload filter" }));
+  fireEvent.change(within(dialog).getByLabelText("Payload path 1"), { target: { value: "action" } });
+  fireEvent.change(within(dialog).getByLabelText("Expected value 1"), { target: { value: "completed" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add payload filter" }));
+  fireEvent.change(within(dialog).getByLabelText("Payload path 2"), { target: { value: "check.number" } });
+  fireEvent.change(within(dialog).getByLabelText("Value type 2"), { target: { value: "number" } });
+  fireEvent.change(within(dialog).getByLabelText("Expected value 2"), { target: { value: "7" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add payload filter" }));
+  fireEvent.change(within(dialog).getByLabelText("Payload path 3"), { target: { value: "check.detail" } });
+  fireEvent.change(within(dialog).getByLabelText("Condition 3"), { target: { value: "exists" } });
+  expect(within(dialog).queryByLabelText("Expected value 3")).toBeNull();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save automation" }));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("create", expect.objectContaining({ schedule: { kind: "webhook", includePayload: true, filters: [{ path: "action", op: "equals", value: "completed" }, { path: "check.number", op: "equals", value: 7 }, { path: "check.detail", op: "exists" }] } })));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "New automation" })).toBeNull());
+  expect(h.invoke).toHaveBeenCalledWith("set-webhook-secret", { id: "job-1", value: "private-key-0123456789-0123456789-0123456789" });
+  expect(h.invoke).toHaveBeenCalledWith("enable", { id: "job-1" });
+});
+
+it("round-trips saved JSON scalar types and explicitly clears removed filters", async () => {
+  const filters = [
+    { path: "check.success", op: "equals" as const, value: false },
+    { path: "check.detail", op: "equals" as const, value: null },
+    { path: "check.title", op: "equals" as const, value: "" },
+  ];
+  const webhook = { ...job, secretRef: "saved-key", config: { ...job.config, schedule: { kind: "webhook" as const, filters } } };
+  const h = setup({ jobs: [webhook], secretStore: "Test OS store" }, false, { edit: "job-1" });
+  const dialog = await screen.findByRole("dialog", { name: "Edit automation" });
+  expect(await screen.findByText(/Signed webhook · 3 payload filters/u)).toBeTruthy();
+  expect((within(dialog).getByLabelText("Expected value 1") as HTMLSelectElement).value).toBe("false");
+  expect((within(dialog).getByLabelText("Value type 2") as HTMLSelectElement).value).toBe("null");
+  expect((within(dialog).getByLabelText("Expected value 3") as HTMLInputElement).value).toBe("");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save automation" }));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("update", expect.objectContaining({ config: expect.objectContaining({ schedule: { kind: "webhook", filters } }) })));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit automation" })).toBeNull());
+  h.reopen();
+  const reopened = await screen.findByRole("dialog", { name: "Edit automation" });
+  for (let index = 0; index < filters.length; index++) fireEvent.click(within(reopened).getByRole("button", { name: "Remove filter 1" }));
+  fireEvent.click(within(reopened).getByRole("button", { name: "Save automation" }));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("update", expect.objectContaining({ config: expect.objectContaining({ schedule: { kind: "webhook", filters: [] } }) })));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit automation" })).toBeNull());
+});
+
+it("rejects unsupported filter paths before saving any webhook configuration", async () => {
+  const webhook = { ...job, secretRef: "saved-key", config: { ...job.config, schedule: { kind: "webhook" as const } } };
+  const h = setup({ jobs: [webhook], secretStore: "Test OS store" }, false, { edit: "job-1" });
+  const dialog = await screen.findByRole("dialog", { name: "Edit automation" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Add payload filter" }));
+  fireEvent.change(within(dialog).getByLabelText("Payload path 1"), { target: { value: "labels[nope].name" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save automation" }));
+  const field = within(dialog).getByLabelText("Payload path 1");
+  expect(field.getAttribute("aria-invalid")).toBe("true");
+  expect(document.getElementById(field.getAttribute("aria-describedby")!)?.textContent).toContain("Use names");
+  expect(h.invoke.mock.calls.some(([command]) => command === "update" || command === "create")).toBe(false);
+});
+
+it("checks wildcard rules locally against an unsaved sample and shows inline path errors", async () => {
+  const webhook = { ...job, secretRef: "saved-key", config: { ...job.config, schedule: { kind: "webhook" as const, filters: [{ path: "labels[].name", op: "equals" as const, value: "bug" }] } } };
+  const h = setup({ jobs: [webhook], secretStore: "Test OS store" }, false, { edit: "job-1" });
+  const dialog = await screen.findByRole("dialog", { name: "Edit automation" });
+  const sampleSection = within(dialog).getByText("Check against a sample payload").closest("details")!;
+  expect(sampleSection.open).toBe(false);
+  fireEvent.click(within(dialog).getByText("Check against a sample payload"));
+  const before = h.invoke.mock.calls.length;
+  const sample = within(dialog).getByLabelText("Sample JSON (not saved)");
+  fireEvent.change(sample, { target: { value: '{"labels":[{"name":"bug"}],"private":"sample-private"}' } });
+  expect(await within(dialog).findByText("Rule 1: Matches")).toBeTruthy();
+  expect(within(dialog).getByText("This delivery would start a run.")).toBeTruthy();
+  fireEvent.change(sample, { target: { value: '{"labels":[]}' } });
+  expect(within(dialog).getByText("Rule 1: Doesn't match")).toBeTruthy();
+  expect(within(dialog).getByText("This delivery would be ignored.")).toBeTruthy();
+  fireEvent.change(sample, { target: { value: "broken" } });
+  expect(within(dialog).getByText("Not valid JSON.")).toBeTruthy();
+  expect(h.invoke.mock.calls).toHaveLength(before);
+  fireEvent.change(within(dialog).getByLabelText("Payload path 1"), { target: { value: "labels[0].name" } });
+  expect(within(dialog).getByText("Use names, numbers or [] separated by dots, such as issue.labels[].name.")).toBeTruthy();
+  expect((within(dialog).getByRole("button", { name: "Save automation" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(within(dialog).getByLabelText("Payload path 1"), { target: { value: "labels[].name" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save automation" }));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("update", expect.objectContaining({ config: expect.objectContaining({ schedule: webhook.config.schedule }) })));
+  expect(JSON.stringify(h.invoke.mock.calls)).not.toContain("sample-private");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit automation" })).toBeNull());
+});
+
+it("loads and saves burst settings and explicitly clears combining", async () => {
+  const schedule = { kind: "webhook" as const, filters: [], coalescing: { keyPath: "pull_request.number", waitSeconds: 120 } };
+  const webhook = { ...job, secretRef: "saved-key", config: { ...job.config, schedule } };
+  const h = setup({ jobs: [webhook], secretStore: "Test OS store" }, false, { edit: "job-1" });
+  const dialog = await screen.findByRole("dialog", { name: "Edit automation" });
+  expect(await screen.findByText(/Signed webhook · combines bursts \(2 min\)/u)).toBeTruthy();
+  expect((within(dialog).getByLabelText("Deliveries") as HTMLSelectElement).value).toBe("combine");
+  expect((within(dialog).getByLabelText("Key path") as HTMLInputElement).value).toBe("pull_request.number");
+  fireEvent.change(within(dialog).getByLabelText("Wait in seconds"), { target: { value: "10" } });
+  fireEvent.change(within(dialog).getByLabelText("Key path"), { target: { value: "issue.id" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save automation" }));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("update", expect.objectContaining({ config: expect.objectContaining({ schedule: { ...schedule, coalescing: { keyPath: "issue.id", waitSeconds: 10 } } }) })));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit automation" })).toBeNull());
+  h.reopen();
+  const reopened = await screen.findByRole("dialog", { name: "Edit automation" });
+  fireEvent.change(within(reopened).getByLabelText("Deliveries"), { target: { value: "each" } });
+  expect(within(reopened).queryByLabelText("Key path")).toBeNull();
+  fireEvent.click(within(reopened).getByRole("button", { name: "Save automation" }));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("update", expect.objectContaining({ config: expect.objectContaining({ schedule: { kind: "webhook", filters: [], coalescing: null } }) })));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit automation" })).toBeNull());
+});
+
+it("keeps waiting metadata visible without a live region and turns off pending work explicitly from the editor", async () => {
+  const schedule = { kind: "webhook" as const, coalescing: { keyPath: "issue.id", waitSeconds: 120 } };
+  const webhook = { ...job, nextAt: undefined, secretRef: "saved-key", config: { ...job.config, schedule }, webhookBursts: [{ id: "window", at: new Date().toISOString(), dueAt: new Date(Date.now() + 120_000).toISOString(), count: 3 }] };
+  const h = setup({ jobs: [webhook], secretStore: "Test OS store" }, false, { edit: "job-1" });
+  const waiting = await screen.findByText(/Combining 3 deliveries · starts in/u);
+  expect(waiting.getAttribute("aria-live")).toBe("off");
+  const dialog = await screen.findByRole("dialog", { name: "Edit automation" });
+  fireEvent.click(within(dialog).getByRole("checkbox", { name: "Start on signed delivery" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save automation" }));
+  await waitFor(() => expect(h.invoke).toHaveBeenCalledWith("disable", { id: "job-1" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit automation" })).toBeNull());
+});

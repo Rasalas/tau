@@ -6,6 +6,7 @@ import { DEFAULT_RUNTIME, threadOnPlan } from "../runtime-marks";
 import { MiddleTruncate } from "./ui/MiddleTruncate";
 import { tooltipProps } from "./ui/Tooltip";
 import { ProjectIcon } from "./ProjectIcon";
+import { McpClientMark } from "./McpClientMark";
 import type { ThreadActivity } from "../../workbench/thread-row-status";
 import { threadAge } from "../../workbench/thread-supervision";
 import { useMinuteClock } from "../use-minute-clock";
@@ -146,6 +147,7 @@ export const ThreadRow = memo(function ThreadRow({
           {projectMark}
           <span className="thread-title" {...titleTip}>{session.title}</span>
           {accessory}
+          <McpClientMark client={session.mcpClient} />
           {!settled && machine ? <MachineMark machine={machine} /> : null}
           {showStatus
             ? <ThreadStatus activity={activity} label={working ? "Working" : label} hint={activityHint} icon={activityIcon} startedAt={startedAt ?? session.modifiedAt} />
@@ -181,6 +183,7 @@ export const ThreadRow = memo(function ThreadRow({
         {/* Drawn right to left, so what comes first here stays longest when the card is narrow (see styles.css). */}
         <span className="thread-meta-line">
           <span className="thread-meta-end">
+            <McpClientMark client={session.mcpClient} />
             {machine ? <MachineMark machine={machine} /> : null}
             <ProviderIconStack modelProvider={modelProvider ?? display.modelProvider} runtimeProvider={display.backendKind ?? DEFAULT_RUNTIME} plan={threadOnPlan(session.usage)} />
           </span>

@@ -22,7 +22,7 @@ export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmi
   /** What was pasted before a failed attempt; a failure never throws the link away. */
   initialText?: string;
   onBack(): void;
-  onScan(): void;
+  onScan(text: string): void;
   onSubmit(payload: MobilePairingPayload, text: string): void;
 }) {
   const [text, setText] = useState(initialText);
@@ -42,7 +42,7 @@ export function AddHostScreen({ error, initialText = "", onBack, onScan, onSubmi
     <div className="shell-scroll shell-form">
       <p>On the machine running Tau, open Settings → Connections, choose Pair a device and create a link. Scan its QR code, or paste the link here.</p>
       {error ? <p className="shell-notice" role="alert">{error}</p> : null}
-      <button type="button" className="shell-primary" onClick={onScan}><QrCode size={20} />Scan QR code</button>
+      <button type="button" className="shell-primary" onClick={() => onScan(text)}><QrCode size={20} />Scan QR code</button>
       <form onSubmit={(event) => { event.preventDefault(); if (payload) onSubmit(payload, text); }}>
         <label className="shell-field">
           <span>Pairing link</span>

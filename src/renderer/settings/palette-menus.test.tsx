@@ -74,15 +74,15 @@ describe("the model rows", () => {
 });
 
 describe("the new-thread runtime rows", () => {
-  it("draws each runtime as its icon, says whether a thread can start there, and marks the draft's", async () => {
+  it("names each runtime, keeps its readiness in the detail and marks the draft's", async () => {
     const { actions } = context({ backendKind: "codex", draftPending: false });
     const items = await runtimeItems(actions);
     expect(items.map((item) => [item.id, item.label, item.detail ?? "", item.current])).toEqual([
-      ["pi", "Ready", "2 models", false],
-      ["codex", "Ready", "2 models · starts on GPT-5.6 Luna", true],
-      ["antigravity", "Not installed", "", false],
+      ["pi", "Pi", "Ready · 2 models", false],
+      ["codex", "Codex", "Ready · 2 models · starts on GPT-5.6 Luna", true],
+      ["antigravity", "Antigravity", "Not installed", false],
     ]);
-    expect(items.every((item) => !item.label.includes(item.keywords![0]!))).toBe(true);
+    expect(items.every((item) => item.label === item.keywords![0])).toBe(true);
     items[2]!.run!(actions);
     expect(actions.startThreadOn).toHaveBeenCalledWith("antigravity");
   });

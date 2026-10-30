@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { WorkerHostExtension, WorkerHostExtensionContext } from "tau/host";
 import { recallablePrompt } from "./history.js";
 import {
+  MAX_OTHER_STASH_ENTRIES,
   MAX_STASH_ENTRIES,
   MAX_STASH_IMAGE_CHARS,
   PROJECT_HISTORY_PROMPTS,
@@ -49,8 +50,11 @@ function readImages(value: unknown, withData: boolean): StashedImage[] {
 function readEntry(value: unknown): StashEntry | undefined {
   const entry = record(value);
   if (typeof entry.id !== "string" || typeof entry.createdAt !== "number") return undefined;
-  return { id: entry.id, createdAt: entry.createdAt, text: text(entry.text), chips: readChips(entry.chips), images: readImages(entry.images, false) };
+  const project = text(entry.project);
+  return { id: entry.id, createdAt: entry.createdAt, text: text(entry.text), chips: readChips(entry.chips), images: readImages(entry.images, false), ...(project ? { project } : {}) };
 }
+
+const ENTRY_ID = /^[\w-]+$/u;
 
 async function writeAtomically(path: string, value: unknown): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`;
@@ -100,8 +104,12 @@ export class StashFolder {
     await rm(this.imagesPath(id), { force: true });
   }
 
+  async holds(id: string): Promise<boolean> {
+    try { return (await stat(this.entryPath(id))).isFile(); } catch { return false; }
+  }
+
   private entryPath(id: string): string {
-    if (!/^[\w-]+$/u.test(id)) throw refuse(`"${id}" is not a stash entry.`);
+    if (!ENTRY_ID.test(id)) throw refuse(`"${id}" is not a stash entry.`);
     return join(this.folder, `${id}.json`);
   }
 
@@ -139,7 +147,8 @@ export interface PromptToolsHostOptions {
 /**
  * The host half of `tau.prompt-tools`, in a worker: the stash under the kit's
  * own state folder, one folder per project, and the prompts of a project's
- * threads read from their session files.
+ * threads read from their session files. Another project's entries are listed
+ * and taken from here too, so a draft can be brought back anywhere.
  */
 export function createPromptToolsHostExtension(options: PromptToolsHostOptions = {}): WorkerHostExtension & { permissions: string[] } {
   const now = options.now ?? Date.now;
@@ -149,22 +158,58 @@ export function createPromptToolsHostExtension(options: PromptToolsHostOptions =
     permissions: ["sessions"],
     activate(context: WorkerHostExtensionContext) {
       const services = context.services;
+      const stashRoot = join(services.stateDir, "stash");
+      const folderName = (project: string) => createHash("sha256").update(project).digest("hex").slice(0, 16);
       const folderOf = (project: string) => {
         if (!project) throw refuse("A stash belongs to a project.");
-        return new StashFolder(join(services.stateDir, "stash", createHash("sha256").update(project).digest("hex").slice(0, 16)));
+        return new StashFolder(join(stashRoot, folderName(project)));
+      };
+      const folders = async (): Promise<string[]> => {
+        try { return (await readdir(stashRoot)).filter((name) => /^[0-9a-f]{16}$/u.test(name)); } catch { return []; }
       };
       // One project's writes in order; a list never reads half an eviction.
       const queues = new Map<string, Promise<unknown>>();
-      const serially = <T>(project: string, work: () => Promise<T>): Promise<T> => {
-        const next = (queues.get(project) ?? Promise.resolve()).then(work, work);
-        queues.set(project, next.catch(() => undefined));
+      const serially = <T>(folder: StashFolder, work: () => Promise<T>): Promise<T> => {
+        const next = (queues.get(folder.folder) ?? Promise.resolve()).then(work, work);
+        queues.set(folder.folder, next.catch(() => undefined));
         return next;
       };
       const changed = (project: string) => context.emit(STASH_CHANGED_EVENT, { project });
+      /** The folder of whichever project's stash holds the entry; ids are random, so at most one does. */
+      const holding = async (id: string): Promise<StashFolder | undefined> => {
+        if (!ENTRY_ID.test(id)) throw refuse(`"${id}" is not a stash entry.`);
+        for (const name of await folders()) {
+          const folder = new StashFolder(join(stashRoot, name));
+          // oxlint-disable-next-line no-await-in-loop
+          if (await folder.holds(id)) return folder;
+        }
+        return undefined;
+      };
+      /** The folder an entry is named in: the project's, or with `anyProject` the one holding the id. */
+      const folderFor = async (fields: Record<string, unknown>) => fields.anyProject === true
+        ? await holding(text(fields.id))
+        : folderOf(text(fields.project));
 
       context.registerCommand("stash-list", (input) => {
+        const folder = folderOf(text(record(input).project));
+        return serially(folder, () => folder.list());
+      }, { access: "read" });
+
+      // An entry written before it named its project is named by a thread of this machine that still works there.
+      context.registerCommand("stash-list-others", async (input) => {
         const project = text(record(input).project);
-        return serially(project, () => folderOf(project).list());
+        const skip = project ? folderName(project) : undefined;
+        const others = (await folders()).filter((name) => name !== skip);
+        if (others.length === 0) return [];
+        const known = new Map<string, string>();
+        for (const session of await services.sessions.list().catch(() => [])) known.set(folderName(session.cwd), session.cwd);
+        const lists = await Promise.all(others.map(async (name) => {
+          const folder = new StashFolder(join(stashRoot, name));
+          const entries = await serially(folder, () => folder.list());
+          const named = known.get(name);
+          return entries.map((entry) => entry.project || !named ? entry : { ...entry, project: named });
+        }));
+        return lists.flat().sort((a, b) => b.createdAt - a.createdAt).slice(0, MAX_OTHER_STASH_ENTRIES);
       }, { access: "read" });
 
       context.registerCommand("stash-add", (input) => {
@@ -174,32 +219,35 @@ export function createPromptToolsHostExtension(options: PromptToolsHostOptions =
         if (images.reduce((sum, image) => sum + (image.data?.length ?? 0), 0) > MAX_STASH_IMAGE_CHARS) {
           throw refuse("These images are too large to stash; remove some and try again.");
         }
-        const entry: StashEntry = { id: randomUUID(), createdAt: now(), text: text(fields.text), chips: readChips(fields.chips), images };
+        const folder = folderOf(project);
+        const entry: StashEntry = { id: randomUUID(), createdAt: now(), text: text(fields.text), chips: readChips(fields.chips), images, project };
         if (!entry.text.trim() && entry.chips.length === 0 && entry.images.length === 0) throw refuse("There is nothing to stash.");
-        return serially(project, async () => {
-          const evicted = await folderOf(project).add(entry);
+        return serially(folder, async () => {
+          const evicted = await folder.add(entry);
           changed(project);
           const listed = { ...entry, images: entry.images.map(({ data: _data, ...meta }) => meta) };
           return evicted ? { entry: listed, evicted } : { entry: listed };
         });
       });
 
-      context.registerCommand("stash-take", (input) => {
+      context.registerCommand("stash-take", async (input) => {
         const fields = record(input);
-        const project = text(fields.project);
-        return serially(project, async () => {
-          const entry = await folderOf(project).take(text(fields.id));
-          changed(project);
+        const folder = await folderFor(fields);
+        if (!folder) return undefined;
+        return serially(folder, async () => {
+          const entry = await folder.take(text(fields.id));
+          changed(entry?.project ?? text(fields.project));
           return entry;
         });
       });
 
-      context.registerCommand("stash-drop", (input) => {
+      context.registerCommand("stash-drop", async (input) => {
         const fields = record(input);
-        const project = text(fields.project);
-        return serially(project, async () => {
-          await folderOf(project).drop(text(fields.id));
-          changed(project);
+        const folder = await folderFor(fields);
+        if (!folder) return;
+        await serially(folder, async () => {
+          await folder.drop(text(fields.id));
+          changed(text(fields.project));
         });
       });
 

@@ -285,6 +285,10 @@ const services: WorkerHostServices = {
   runtimeOwner: () => rpc(C["runtimeOwner"]),
   thread: (sessionId) => rpc(C["thread"], sessionId),
   transcript: (sessionId) => rpc(C["transcript"], sessionId),
+  conversations: {
+    list: () => rpc(C["conversations.list"]),
+    page: (id, version, cursor) => rpc(C["conversations.page"], id, version, cursor),
+  },
   setThreadTitle: (sessionId, title, source) => rpc(C["setThreadTitle"], sessionId, title, source),
   noteSubprocess: () => rpc(C["noteSubprocess"]),
   findCommand: (name) => rpc(C["findCommand"], name),

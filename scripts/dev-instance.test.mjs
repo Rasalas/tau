@@ -54,7 +54,13 @@ describe("findFreePort", () => {
 });
 
 describe("parseArgs", () => {
-  it("defaults every flag to off", () => {
+  it("isolates the macOS keychain by default, including installed-mode tests", () => {
+    expect(parseArgs([]).mockKeychain).toBe(true);
+    expect(parseArgs(["--as-installed"]).mockKeychain).toBe(true);
+    expect(parseArgs(["--mock-keychain"]).mockKeychain).toBe(true);
+  });
+
+  it("defaults optional flags to off and keychain isolation to on", () => {
     expect(parseArgs([])).toEqual({
       build: false,
       safe: false,
@@ -63,6 +69,7 @@ describe("parseArgs", () => {
       realAgentDir: false,
       asInstalled: false,
       onboarding: false,
+      mockKeychain: true,
       port: undefined,
       workspace: undefined,
       agentDir: undefined,
@@ -78,6 +85,7 @@ describe("parseArgs", () => {
       realAgentDir: true,
       asInstalled: false,
       onboarding: false,
+      mockKeychain: true,
       port: undefined,
       workspace: undefined,
       agentDir: undefined,

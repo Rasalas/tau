@@ -18,6 +18,8 @@ import {
   settlePatch,
   snoozePatch,
   snoozePresets,
+  DEFAULT_SNOOZE_PRESETS,
+  decodeSnoozePresets,
   settlingRequests,
   sweepPatches,
   createWorkingClock,
@@ -44,7 +46,7 @@ describe("thread meta store", () => {
       threads: { a: { pinned: true, pinOrder: 2, settledBy: "nonsense" }, b: { junk: 1 }, c: "no" },
       settings: { inactiveDays: 3, onMerged: false },
     });
-    expect(decoded).toEqual({ threads: { a: { pinned: true, pinOrder: 2 } }, settings: { inactiveDays: 3, onMerged: false, onClosed: false, workingSection: false } });
+    expect(decoded).toEqual({ threads: { a: { pinned: true, pinOrder: 2 } }, settings: { inactiveDays: 3, onMerged: false, onClosed: false, workingSection: false, snoozePresets: DEFAULT_SNOOZE_PRESETS } });
     expect(decodeState(undefined)).toEqual(EMPTY_STATE);
   });
 
@@ -270,7 +272,7 @@ describe("snooze presets", () => {
 
   it("offers the snooze presets, in local time", () => {
     const wednesday = new Date(2026, 8, 23, 15, 30);
-    expect(snoozePresets(wednesday).map((preset) => preset.label)).toEqual(["In 1 hour", "In 3 hours", "This evening", "Tomorrow", "Next week"]);
+    expect(snoozePresets(wednesday).map((preset) => preset.label)).toEqual(["In 1 hour", "This evening", "In 3 hours", "Tomorrow", "Monday"]);
     expect(until(wednesday, "snooze:1h")! - wednesday.getTime()).toBe(60 * 60 * 1_000);
     expect(until(wednesday, "snooze:3h")! - wednesday.getTime()).toBe(3 * 60 * 60 * 1_000);
     expect(new Date(until(wednesday, "snooze:evening")!)).toEqual(new Date(2026, 8, 23, 18, 0));
@@ -279,11 +281,18 @@ describe("snooze presets", () => {
     expect(new Date(until(new Date(2026, 8, 28, 8, 0), "snooze:next-week")!)).toEqual(new Date(2026, 9, 5, 9, 0));
   });
 
-  it("drops the evening within its last hour and next week when that is tomorrow", () => {
-    expect(until(new Date(2026, 8, 23, 17, 30), "snooze:evening")).toBeUndefined();
+  it("drops today within its last fifteen minutes and next week when that is tomorrow", () => {
+    expect(until(new Date(2026, 8, 23, 17, 46), "snooze:evening")).toBeUndefined();
     const sunday = new Date(2026, 8, 27, 12, 0);
     expect(until(sunday, "snooze:next-week")).toBeUndefined();
     expect(new Date(until(sunday, "snooze:tomorrow")!)).toEqual(new Date(2026, 8, 28, 9, 0));
+  });
+
+  it("orders presets by their actual wake time throughout the day", () => {
+    for (let hour = 0; hour < 24; hour++) {
+      const presets = snoozePresets(new Date(2026, 8, 23, hour, 30));
+      expect(presets.map((preset) => preset.until)).toEqual(presets.map((preset) => preset.until).sort((a, b) => a - b));
+    }
   });
 });
 
@@ -431,4 +440,28 @@ it("keeps working ranks when an attention row is manually reordered", () => {
   const reordered = applyPatches(initial, patches);
   const off = { ...reordered, settings: { ...reordered.settings, workingSection: false } };
   expect(ids(railSections(threads, off, NOW).active)).toEqual(["b", "a", "busy"]);
+});
+
+describe("machine snooze options", () => {
+  it("migrates states without options and rejects invalid or duplicate IDs", () => {
+    expect(decodeState({}).settings.snoozePresets).toEqual(DEFAULT_SNOOZE_PRESETS);
+    for (const invalid of [[], Array(9).fill(DEFAULT_SNOOZE_PRESETS[0]), [{ id: "custom", kind: "after", amount: 1, unit: "hours" }],
+      [{ id: "a", kind: "after", amount: 31, unit: "days" }], [{ id: "a", kind: "at", day: 8, time: "09:00" }],
+      [{ id: "a", kind: "at", day: "today", time: "24:01" }], [{ id: "a", kind: "after", amount: 1.5, unit: "hours" }]]) {
+      expect(decodeSnoozePresets(invalid)).toBeUndefined();
+    }
+  });
+  it("sorts custom options, deduplicates target times and keeps stable IDs", () => {
+    const now = new Date(2026, 8, 23, 17, 30);
+    const presets = snoozePresets(now, { snoozePresets: [
+      { id: "long", kind: "after", amount: 30, unit: "days" },
+      { id: "tea", kind: "at", day: "today", time: "18:00" },
+      { id: "same", kind: "after", amount: 30, unit: "minutes" },
+      { id: "short", kind: "after", amount: 15, unit: "minutes" },
+    ] });
+    expect(presets.map(({ id }) => id)).toEqual(["snooze:short", "snooze:tea", "snooze:long"]);
+    expect(presets.map(({ label }) => label)).toEqual(["In 15 minutes", "This evening", "In 30 days"]);
+    expect(snoozePresets(new Date(2026, 8, 23, 17, 45)).some(({ id }) => id === "snooze:evening")).toBe(true);
+    expect(snoozePresets(new Date(2026, 8, 23, 17, 46)).some(({ id }) => id === "snooze:evening")).toBe(false);
+  });
 });

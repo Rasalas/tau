@@ -53,6 +53,7 @@ interface ScanResult {
 export interface ThreadIndexPort {
   /** A thread in the trash is neither listed nor announced as deleted until it is purged. */
   inTrash?(sessionId: string): boolean;
+  canonicalSession?(session: UiSession): UiSession | undefined;
   cwd(): string;
   safeMode: boolean;
   /** PI_CODING_AGENT_SESSION_DIR, or undefined for Pi's own sessions layout. */
@@ -119,6 +120,7 @@ export class ThreadIndex {
   private readonly turnErrors = new Map<string, string>();
   /** Why a thread's runtime could not start, until it does. */
   private readonly runtimeErrors = new Map<string, string>();
+  private readonly mcpClients = new Map<string, NonNullable<UiSession["mcpClient"]>>();
   /** Threads a provider limit stopped, until they run again. */
   private readonly limits = new Map<string, UiThreadLimit>();
   private readonly goals = new Map<string, UiThreadGoal>();
@@ -328,6 +330,7 @@ export class ThreadIndex {
       if (this.disposed) return;
       const before = this.sessions;
       this.sessions = mergeSessionIndexScan([...partial.values()], this.sessions, scanStartedAt, this.liveThreadIds())
+        .flatMap(session => { const canonical = this.port.canonicalSession ? this.port.canonicalSession(session) : session; return canonical ? [canonical] : []; })
         .filter((session) => !this.port.inTrash?.(session.id));
       if (progress === "none") return;
       // A partial index that shows nothing new would only send every client the whole index again.
@@ -357,9 +360,10 @@ export class ThreadIndex {
       return before?.name !== project.name || before?.icon !== project.icon || before?.listed !== project.listed;
     });
     const byId = new Map(scanned.map((session) => [session.id, session] as const));
-    for (const session of external) if (!byId.has(session.id)) byId.set(session.id, session);
+    for (const session of external) if (!byId.has(session.id) || this.port.canonicalSession?.(session)) byId.set(session.id, session);
     const trashed = (id: string) => this.port.inTrash?.(id) === true;
     const next = mergeSessionIndexScan([...byId.values()], this.sessions, scanStartedAt, this.liveThreadIds())
+      .flatMap(session => { const canonical = this.port.canonicalSession ? this.port.canonicalSession(session) : session; return canonical ? [canonical] : []; })
       .filter((session) => !trashed(session.id));
     if (this.disposed) return { previous, published, next: this.sessions, projectsChanged: false, indexChanged: false };
     this.sessions = next;
@@ -666,6 +670,13 @@ export class ThreadIndex {
     this.setMark(this.queues, sessionId, queue);
   }
 
+  /** The MCP client that started the thread (ADR 0046); kept by the host's registry, set again on every start. */
+  setMcpClient(sessionId: string, client: UiSession["mcpClient"]): void {
+    const current = this.mcpClients.get(sessionId);
+    if (client && current?.name === client.name && current.ceiling === client.ceiling) return;
+    this.setMark(this.mcpClients, sessionId, client);
+  }
+
   private setMark<T>(marks: Map<string, T>, sessionId: string, value: T | undefined): void {
     if (value === marks.get(sessionId)) return;
     if (value === undefined) marks.delete(sessionId); else marks.set(sessionId, value);
@@ -690,6 +701,7 @@ export class ThreadIndex {
       ...(this.goals.has(session.id) ? { goal: this.goals.get(session.id) } : {}),
       ...(this.backgrounds.has(session.id) ? { background: this.backgrounds.get(session.id) } : {}),
       ...(this.queues.has(session.id) ? { queued: this.queues.get(session.id)!.messages, ...(this.queues.get(session.id)!.held ? { queueHeld: true } : {}) } : {}),
+      ...(this.mcpClients.has(session.id) ? { mcpClient: this.mcpClients.get(session.id) } : {}),
     };
   }
 

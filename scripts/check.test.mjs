@@ -122,7 +122,7 @@ describe("checks across worktrees", () => {
     expect(await second.exited).toEqual({ code: 0, signal: null });
   });
 
-  it("selects TypeScript 7 for checks and keeps the emitting compiler on 5.9", () => {
+  it("selects TypeScript 7 for checks and keeps the watching compiler on 5.9", () => {
     const version = execFileSync(process.execPath, [fileURLToPath(runner), "typecheck", "--version"], { cwd: main, encoding: "utf8" });
     expect(version.trim()).toBe("Version 7.0.2");
     const root = new URL("../", import.meta.url);
@@ -130,7 +130,8 @@ describe("checks across worktrees", () => {
     expect(api.version).toMatch(/^5\.9\./u);
     const pkg = JSON.parse(readFileSync(new URL("package.json", root), "utf8"));
     expect(pkg.scripts.dev).toContain("node node_modules/typescript/bin/tsc -p tooling/tsconfig.electron.json --watch");
-    expect(readFileSync(new URL("scripts/build.mjs", root), "utf8")).toContain('run("typescript/bin/tsc",');
+    // The build emits the host with esbuild (scripts/build-host.mjs), not with either compiler.
+    expect(readFileSync(new URL("scripts/build.mjs", root), "utf8")).toContain('run("../scripts/build-host.mjs",');
   });
 
   it("waits before loading a second check and preserves its arguments, cwd and exit code", async () => {

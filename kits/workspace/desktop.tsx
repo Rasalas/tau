@@ -6,7 +6,6 @@ import {
   UPDATE_CENTER_SERVICE,
   type UpdateCoordinator,
   errorMessage,
-  hostHasLocalFiles,
   type DesktopExtension,
   type FileNode,
   type PanelProps,
@@ -51,6 +50,9 @@ import { OpenRequests } from "./open-requests.js";
 import { NewThreadRows, SOURCE_CONTROL_SETTINGS_ROWS, SourceControlPage, ThisMachineRows, TraceTabsRow } from "./source-control-page.js";
 import { presentRead, presentWrite, READ_TOOLS, WRITE_TOOLS } from "./tool-cards.js";
 import { createProjectApprovalDialog } from "./project-approval-dialog.js";
+import { EditorPlacement } from "./editor-placement.js";
+import { createEditorMachinesSection, EDITOR_MACHINES_ROWS } from "./editor-machines-section.js";
+import { createProjectPromotionRegion } from "./project-promotion-dialog.js";
 
 /** No need to poll every 30 s; a tick, a focus and a project switch are enough here. */
 const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
@@ -58,16 +60,17 @@ const AUTO_PULL_INTERVAL_MS = 5 * 60_000;
 /** Stable object per (changes, editors, editor preference) so the stage's store snapshot does not churn. */
 function documentStates(store: WorkspaceStore): () => { changes: UiWorkspaceChanges; editor?: UiEditor; fileManager?: UiEditor } {
   let last: { changes: UiWorkspaceChanges; editor?: UiEditor; fileManager?: UiEditor } | undefined;
-  let inputs: [unknown, unknown, string | undefined] | undefined;
+  let inputs: [unknown, unknown, string | undefined, boolean] | undefined;
   return () => {
     const state = store.getSnapshot();
-    // An editor of the host's machine is no use to a client whose files are elsewhere (a phone, a tablet).
-    const local = hostHasLocalFiles();
+    // An editor of the host's machine is no use to a client whose files are elsewhere (a phone, a tablet),
+    // unless the window placed this device's own editors for another machine's project.
+    const local = store.editorsHere();
     const editor = local ? store.activeEditor() : undefined;
-    const next: [unknown, unknown, string | undefined] = [state.changes, state.editors, editor?.id];
+    const next: [unknown, unknown, string | undefined, boolean] = [state.changes, state.editors, editor?.id, local];
     if (!last || !inputs || inputs.some((value, index) => value !== next[index])) {
       inputs = next;
-      const fileManager = local ? state.editors.find((entry) => entry.id === FILE_MANAGER_ID) : undefined;
+      const fileManager = local ? state.editors.find((entry) => entry.id === FILE_MANAGER_ID && !entry.unsupported) : undefined;
       last = { changes: state.changes, editor, ...(fileManager ? { fileManager } : {}) };
     }
     return last;
@@ -85,10 +88,15 @@ export const workspaceExtension: DesktopExtension = {
   name: "Workspace",
   activate(context) {
     const host = createWorkspaceHostClient((command, input) => context.host.invoke(command, input));
-    const store = new WorkspaceStore(context.preferences, host);
+    const store = new WorkspaceStore(context.preferences, host, context.host.resourceUrl ? (path) => context.host.resourceUrl!(path) : undefined, context.host.readResource ? (path) => context.host.readResource!(path) : undefined);
+    // A desktop window opens another machine's project in its own editors over SSH (a browser or a phone has no window machine).
+    const machines = context.environments;
+    const placement = machines ? new EditorPlacement(host, (command, input) => context.host.invoke(command, input), machines) : undefined;
+    const stopPlacement = placement && machines ? store.setEditorPlacement(placement, machines) : undefined;
     const stopTopics = [WORKSPACE_HEAD_TOPIC, WORKSPACE_CLONE_TOPIC, WORKSPACE_CHECKPOINT_TOPIC].map((topic) => context.host.watch?.(topic));
     const bind = <P extends object>(Component: Parameters<typeof withWorkspaceStore<P>>[1]) => withWorkspaceStore(store, Component);
     context.provideService(WORKSPACE_STORE_SERVICE, store);
+    context.registerRegion({ id: "workspace.project-promotion", placement: "composer-above", profiles: ["desktop", "web", "compact"], Component: createProjectPromotionRegion(context, store, host) });
     context.useService<UpdateCoordinator>(UPDATE_CENTER_SERVICE, (updates) => {
       store.update({ updateCoordinator: updates });
       return () => store.update({ updateCoordinator: undefined });
@@ -164,6 +172,9 @@ export const workspaceExtension: DesktopExtension = {
       rows: [{ id: "setting-new-thread-workspace", label: "New threads run in" }, { id: "setting-branch-name", label: "Branch name", keywords: ["worktree", "from prompt", "random"] }] });
     context.registerSettingsSection({ id: "workspace.this-machine", page: "connections", card: "this-machine", order: 10, profiles: ["desktop"], Component: bind(ThisMachineRows),
       rows: [{ id: "setting-editor", label: "Editor", keywords: ["open in editor", "vscode", "zed"] }] });
+    // Settings → Machines: how this device reaches each other machine for an editor.
+    if (placement && machines) context.registerSettingsSection({ id: "workspace.editor-machines", page: "environments.machines", order: 30, profiles: ["desktop"],
+      Component: createEditorMachinesSection(store, placement, machines), rows: EDITOR_MACHINES_ROWS });
     context.registerSettingsSection({ id: "workspace.trace-tabs", page: "general", card: "transcript", order: 30, profiles: ["desktop"], Component: TraceTabsRow,
       rows: [{ id: "setting-trace-tabs", label: "Trace tabs", keywords: ["files the agent touches", "tabs"] }] });
     // The design's Editor button at the stage strip's right end.
@@ -183,6 +194,7 @@ export const workspaceExtension: DesktopExtension = {
     context.registerDocumentSource({
       profiles: ["desktop", "web", "compact"],
       id: "workspace.documents",
+      renderPreview: (path, from) => store.renderFilePreview(path, from),
       // The stage names the project its tabs belong to; a caller that does not means the followed one.
       loadFile: (relPath, from) => host.readFile(relPath, from?.workspace ?? store.workspace()),
       loadVisualization: async (path, from, theme = "light") => {
@@ -482,6 +494,7 @@ export const workspaceExtension: DesktopExtension = {
     const stopDefault = store.followDefaultChanges();
     return () => {
       stopTopics.forEach((stop) => stop?.());
+      stopPlacement?.();
       stopDefault();
       window.clearInterval(autoPullTimer);
       window.removeEventListener("focus", autoPull);

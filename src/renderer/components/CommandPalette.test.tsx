@@ -480,3 +480,90 @@ describe("command palette semantics", () => {
     expect(within(list).getByRole("option", { name: "Light, Bright, Current" })).toBeTruthy();
   });
 });
+
+describe("direct menu search", () => {
+  const actions = () => ({ notify: vi.fn(), focusComposer: vi.fn() }) as unknown as WorkbenchActions;
+  it("debounces opted-in children, speaks their parent and preserves the cursor when a source arrives", async () => {
+    const registry = new ExtensionRegistry();
+    const late = deferred<PaletteItem[]>();
+    const run = vi.fn();
+    const read = vi.fn((_query: string, _context: PaletteSearchContext) => [{ id: "sonnet", label: "Sonnet", current: true, access: "read" as const, run }]);
+    registry.activate({ id: "test", name: "Test", activate(context) {
+      context.registerCommand({ id: "model", label: "Set model", group: "View", access: "read", run: vi.fn(), submenu: { title: "Set model", searchable: true, items: read } });
+      context.registerPaletteSource({ id: "late", label: "Threads", search: () => late.promise });
+    } });
+    render(<CommandPalette open commands={registry.getCommands()} registry={registry} actions={actions()} onClose={vi.fn()} />);
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "sonnet" } });
+    expect(read).not.toHaveBeenCalled();
+    const child = await screen.findByRole("option", { name: "Sonnet, in Set model, Current" });
+    expect(child.textContent).toContain("Set model: Sonnet");
+    expect(run).not.toHaveBeenCalled();
+    fireEvent.mouseMove(child);
+    await act(async () => late.resolve([{ id: "thread", label: "Sonnet thread", access: "read" }]));
+    expect(screen.getByRole("option", { selected: true }).textContent).toContain("Set model: Sonnet");
+    fireEvent.keyDown(input, { key: "Enter" }); expect(run).toHaveBeenCalledOnce();
+  });
+  it("keeps the complete parent breadcrumb when a found child opens another level", async () => {
+    const commands: PaletteCommand[] = [{ id: "model", label: "Set model", group: "View", extensionId: "test", extensionName: "Test", access: "read", run: vi.fn(),
+      submenu: { title: "Set model", searchable: true, items: () => [{ id: "anthropic", label: "Anthropic", access: "read", submenu: { title: "Anthropic", items: () => [{ id: "sonnet", label: "Sonnet", access: "read" }] } }] } }];
+    render(<CommandPalette open commands={commands} actions={actions()} onClose={vi.fn()} />);
+    const input = screen.getByRole("combobox"); fireEvent.change(input, { target: { value: "anthropic" } });
+    fireEvent.click(await screen.findByRole("option", { name: "Anthropic, in Set model" }));
+    const crumbs = screen.getByRole("navigation", { name: "Palette levels" });
+    expect(crumbs.textContent).toBe("CommandsSet modelAnthropic");
+    await screen.findByRole("option", { name: "Sonnet" });
+  });
+  it.each(["#sonnet", "/sonnet"])("leaves scoped search alone (%s)", async (query) => {
+    const read = vi.fn(() => []);
+    const commands: PaletteCommand[] = [{ id: "model", label: "Set model", group: "View", extensionId: "test", extensionName: "Test", run: vi.fn(), submenu: { title: "Set model", searchable: true, items: read } }];
+    const view = render(<CommandPalette open commands={commands} actions={actions()} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: query } });
+    // Unmounting also proves the pending debounce is cancelled.
+    view.unmount(); expect(read).not.toHaveBeenCalled();
+  });
+  it("shows an optional source status below results, follows changes and removes its subscription", async () => {
+    const registry = new ExtensionRegistry();
+    let status = "Indexing messages · 1 of 2 threads. Some results may be missing.";
+    let changed: (() => void) | undefined;
+    const unsubscribe = vi.fn();
+    registry.activate({ id: "test", name: "Test", activate(context) { context.registerPaletteSource({ id: "threads", label: "Threads", scope: "threads", search: () => [], status: () => status, subscribeStatus: (listener) => { changed = listener; return unsubscribe; } }); } });
+    const view = render(<CommandPalette open commands={[]} registry={registry} actions={actions()} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "#abc" } });
+    expect((await screen.findByRole("status")).textContent).toContain("Indexing messages");
+    act(() => { status = ""; changed?.(); }); expect(screen.queryByRole("status")).toBeNull();
+    view.unmount(); expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+});
+
+it("keeps a direct menu child's Current marker and Read-only refusal", async () => {
+  const run = vi.fn();
+  const commands: PaletteCommand[] = [{ id: "theme", label: "Change theme", group: "View", extensionId: "test", extensionName: "Test", access: "read", run: vi.fn(), submenu: {
+    title: "Change theme", searchable: true, items: () => [{ id: "read", label: "Dark local", access: "read", current: true, run }, { id: "write", label: "Dark shared", access: "write", run }],
+  } }];
+  const client = createFakeHostClient({ isReadOnly: () => true });
+  render(<HostClientProvider client={client}><CommandPalette open commands={commands} actions={{ notify: vi.fn() } as unknown as WorkbenchActions} onClose={vi.fn()} /></HostClientProvider>);
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "dark" } });
+  await screen.findByRole("option", { name: "Dark local, in Change theme, Current" });
+  const locked = screen.getByRole("option", { name: "Dark shared, in Change theme, Read only" });
+  expect(locked.getAttribute("aria-disabled")).toBe("true"); fireEvent.click(locked); expect(run).not.toHaveBeenCalled();
+});
+
+it("refreshes partial source rows on the existing status subscription and preserves rich spoken snippets", async () => {
+  const registry = new ExtensionRegistry();
+  let changed = () => {};
+  let items: PaletteItem[] = [];
+  registry.activate({ id: "fixture.messages", name: "Messages", activate(context) {
+    context.registerPaletteSource({ id: "messages", label: "Threads", scope: "threads", search: () => items,
+      status: () => "Indexing messages · 1 of 2 threads. Some results may be missing.",
+      subscribeStatus: listener => { changed = listener; return () => {}; },
+    });
+  } });
+  render(<CommandPalette open commands={[]} registry={registry} actions={{ notify: vi.fn() } as unknown as WorkbenchActions} onClose={vi.fn()} />);
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "#beacon" } });
+  await screen.findByRole("status");
+  items = [{ id: "one", label: "An older thread", detail: "You: beacon", detailContent: <>You: <mark>beacon</mark></>, ariaLabel: "An older thread, You said: beacon", access: "read", run: vi.fn() }];
+  act(() => changed());
+  const row = await screen.findByRole("option", { name: "An older thread, You said: beacon" });
+  expect(row.querySelector("mark")?.textContent).toBe("beacon");
+});

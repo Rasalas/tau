@@ -11,6 +11,8 @@ export const WORKSPACE_STORE_SERVICE = "tau.workspace/store";
 export const THREAD_TITLES_SERVICE = "tau.thread-titles/titles";
 export interface ThreadTitlesSlice {
   regenerate(actions: WorkbenchActions): Promise<void>;
+  /** Names a thread again by id without opening it; absent on an older Thread Titles. */
+  regenerateThread?(sessionId: string): Promise<void>;
 }
 /** Review Kit's host entry; its `pr-status` names Thread Rail as a caller. */
 export const REVIEW_EXTENSION_ID = "tau.review";
@@ -76,7 +78,13 @@ export interface RailQuestion {
 /** A field set to `null` is removed; a patch of `null` forgets the thread. */
 export type ThreadMetaPatch = { [Key in keyof ThreadMeta]?: ThreadMeta[Key] | null };
 
+/** Stable machine-wide choices, shared by menus and every client. */
+export type SnoozePreset =
+  | { id: string; kind: "after"; amount: number; unit: "minutes" | "hours" | "days" }
+  | { id: string; kind: "at"; day: "today" | "tomorrow" | number; time: string };
+
 export interface RailSettings {
+  snoozePresets?: readonly SnoozePreset[];
   /** Settle a thread that has been quiet this many days; absent means never. */
   inactiveDays?: number;
   /** Settle a thread whose pull or merge request merged. */

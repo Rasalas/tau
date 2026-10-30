@@ -107,7 +107,8 @@ describe("one content frame for the conversation", () => {
 
   it("sets its width and inset once, on the column, from the column's own width", () => {
     const column = rule(STYLES, ".conversation-column");
-    expect(column).toMatch(/--content-max: 780px/u);
+    // 780 px unless Appearance's chat width sets the root's --chat-max-width.
+    expect(column).toMatch(/--content-max: var\(--chat-max-width, 780px\)/u);
     expect(column).toMatch(/--content-inset: clamp\(12px, \(100% - 560px\) \* 1000, 32px\)/u);
     expect(column).toMatch(/--composer-inset: max\(var\(--content-inset\), calc\(\(100% - var\(--content-max\)\) \/ 2\)\)/u);
     // No window-width rule decides the conversation's inset any more.

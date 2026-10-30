@@ -28,14 +28,16 @@ const measureBuild = async () => {
   const referenceSamplesMs = reference ? measureReference() : [];
   const started = performance.now();
   // `npm run typecheck` checks every target separately, including in CI. Build emits
-  // the host as the editable-source build already does, without repeating that check.
+  // the host file by file with esbuild, without repeating that check.
+  // Its emit config omits test entrypoints, which packaging already excludes.
+  // Typechecks and the development watcher keep the full Electron config.
   // The renderer reads source files only. Start it alongside the host, while kits
   // still wait for the compiled host modules they import.
   await parallel([
     run("vite/bin/vite.js", ["build"]),
     (async () => {
       await parallel([
-        run("typescript/bin/tsc", ["-p", "tooling/tsconfig.electron.json", "--noCheck"]),
+        run("../scripts/build-host.mjs", []),
         run("../scripts/build-preload.mjs", []),
         run("../scripts/build-host-worker.mjs", []),
         run("../scripts/prepare-customization-source.mjs", []),

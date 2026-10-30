@@ -152,5 +152,8 @@ describe("models across runtimes (K142)", () => {
     expect(carriedLevel("high", ["off", "high", "max"])).toBe("high");
     expect(carriedLevel("low", ["high", "max"])).toBe("high");
     expect(carriedLevel("max", [])).toBe("max");
+    // Codex's "none" ranks with "off": a model without it carries the lowest it has.
+    expect(carriedLevel("none", ["minimal", "low"])).toBe("minimal");
+    expect(carriedLevel("low", ["none", "medium"])).toBe("none");
   });
 });

@@ -1,0 +1,11 @@
+{
+  "id": "tau.acp",
+  "name": "ACP agents",
+  "description": "Muse Code and other ACP agents from the registry or your own command.",
+  "version": "1.0.0",
+  "engines": { "api": "^1.79.0" },
+  "permissions": ["process", "sessions", "runtime:extend", "network"],
+  "isolation": "in-process",
+  "desktop": "./desktop.tsx",
+  "host": "./host.ts"
+}

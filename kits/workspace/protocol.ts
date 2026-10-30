@@ -35,9 +35,26 @@ import type { CommitFilesInput, CommitFilesResult, MergeBranchResult } from "./b
 import type { CheckoutTurn } from "./checkout-turns.js";
 import type { ThreadChangesCount } from "./thread-changes.js";
 import type { GitHostService } from "../_git-hosts/hosts.js";
+import type { RemoteLocation, RemoteLocationSource, RemotePlatform } from "./remote-editors.js";
+import type { NewProjectGithub, NewProjectRepository } from "./project-github.js";
+
+/** A project made from a name: its workspace, its GitHub repository when one was asked for, and what went wrong. */
+export interface CreatedProject {
+  workspace: WorkspaceRef;
+  github?: NewProjectRepository;
+  warning?: string;
+}
 
 /** `workspace-info`; a private "No project" folder says so, being no repository and no project to open. */
 export type WorkspaceReport = WorkspaceInfo & { projectless?: boolean };
+
+export interface ProjectPromotionInfo {
+  workspace: WorkspaceRef;
+  title: string;
+  otherThreads: number;
+  promoted: boolean;
+}
+export interface ProjectPromotionResult { workspace: WorkspaceRef; name: string }
 
 /** Keep the default branch current by fast-forward; off by default. */
 export const AUTO_PULL_OPTION = "auto-pull-default-branch";
@@ -60,6 +77,43 @@ export const FILE_MANAGER_ID = "file-manager";
 export interface EditorPosition {
   line?: number;
   column?: number;
+}
+
+/**
+ * A project, or a file in it, as its home machine names it for an editor
+ * elsewhere (`editor-target`). The paths are that machine's: a client hands
+ * them to an editor that reaches it over SSH and never reads them as its own.
+ */
+export interface EditorTarget {
+  root: string;
+  /** The file asked for, inside `root`. */
+  path?: string;
+  isFile: boolean;
+  platform: RemotePlatform;
+  /** The machine that answered, by its host id; absent from a host that cannot name itself. */
+  machine?: { id: string; name: string };
+}
+
+/** Where "Open in editor" opens a project of another machine: this device's editor over SSH, or that machine's own. */
+export type EditorOpenOn = "here" | "machine";
+
+/** What this device keeps for one other machine: how it reaches it over SSH, and where its projects open. */
+export interface EditorMachineSetting {
+  ssh?: string;
+  openOn?: EditorOpenOn;
+}
+
+/** An editor of this device, and why it cannot open the shown project of another machine when it cannot. */
+export type UiPlacedEditor = UiEditor & { unsupported?: string };
+
+/** The shown project is on another machine and its editors open here (`WorkspaceKitState.editorRemote`). */
+export interface EditorRemoteState {
+  machine: string;
+  name: string;
+  location?: RemoteLocation;
+  source?: RemoteLocationSource;
+  /** Why no editor here can open it: no SSH destination is known. */
+  problem?: string;
 }
 
 export type BranchNaming = "prompt" | "random";
@@ -272,6 +326,10 @@ export interface UiFolderIndex {
   truncated: boolean;
 }
 
+/** Matches the existing authenticated browser-resource/native bridge response limit. */
+export const FILE_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
+export interface WorkspaceFileDownload { path: string; name: string; size: number }
+
 /**
  * Workspace Kit's commands. A file inside a workspace travels as `relPath`, a
  * POSIX path relative to the workspace root; a workspace itself travels as the
@@ -281,7 +339,10 @@ export interface UiFolderIndex {
 export interface WorkspaceHostCommands {
   /** Browses folders for the local-folder project source. */
   "create-scratch": { input: undefined; output: WorkspaceRef };
-  "create-project": { input: { name: string; parentPath?: string }; output: { workspace: WorkspaceRef; warning?: string } | undefined };
+  /** With `github` the host also asks Review Kit to create and push the repository; a failure is a `warning`. */
+  "create-project": { input: { name: string; parentPath?: string; github?: NewProjectGithub }; output: CreatedProject | undefined };
+  "promotion-info": { input: { workspace: string; sessionId: string }; output: ProjectPromotionInfo };
+  "promote-scratch": { input: { workspace: string; sessionId: string; name: string; git: boolean }; output: ProjectPromotionResult };
   "list-directories": { input: { path?: string } | undefined; output: UiDirectoryListing };
   /** Indexes the folders below `path` (the home folder without one) for the picker's finder. */
   "find-folders": { input: { path?: string } | undefined; output: UiFolderIndex };
@@ -307,6 +368,8 @@ export interface WorkspaceHostCommands {
   "stage-all": { input: { workspace?: string } | undefined; output: UiWorkspaceChanges };
   "revert-file": { input: { relPath: string; workspace?: string }; output: UiWorkspaceChanges };
   "read-visualization": { input: { relPath: string; workspace: string }; output: { html: string } };
+  "publish-file-download": { input: { path: string; workspace: string }; output: WorkspaceFileDownload };
+  "release-file-download": { input: { path: string; workspace: string }; output: void };
   "publish-visualization": { input: { html: string; theme: "light" | "dark" }; output: { path: string } };
   "release-visualization": { input: { path: string }; output: void };
   "read-file": { input: { relPath: string; workspace?: string }; output: UiFileContent };
@@ -359,6 +422,16 @@ export interface WorkspaceHostCommands {
   /** A new branch at the checkout's HEAD, switched to in place. */
   "create-branch": { input: { branch: string; workspace?: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
+  /** The project or file on its home machine, for an editor of another (routed there like any workspace call). */
+  "editor-target": { input: { relPath?: string; workspace?: string }; output: EditorTarget };
+  /** This device's editors and whether each opens a project at `location` (stays on the window's machine). */
+  "remote-editors": { input: { location: RemoteLocation }; output: UiPlacedEditor[] };
+  /** Opens another machine's project in an editor of this device (stays on the window's machine). */
+  "open-remote-editor": { input: { editorId: string; location: RemoteLocation; root: string; path?: string; platform?: RemotePlatform } & EditorPosition; output: void };
+  /** What this device keeps per other machine for its editors, by host id. */
+  "editor-machines": { input: undefined; output: Record<string, EditorMachineSetting> };
+  /** `null` clears a field. */
+  "set-editor-machine": { input: { machine: string; ssh?: string | null; openOn?: EditorOpenOn | null }; output: Record<string, EditorMachineSetting> };
   /** `file-manager` reveals the file in Finder, Explorer or Files; a line reaches editors that take one. */
   "open-in-editor": { input: { editorId: string; relPath?: string; workspace?: string } & EditorPosition; output: void };
   "list-terminals": { input: undefined; output: UiTerminal[] };
@@ -387,7 +460,9 @@ export type HostExtensionInvoke = (command: string, input?: unknown) => Promise<
 
 export interface WorkspaceHostClient {
   createScratch(): Promise<WorkspaceRef>;
-  createProject(name: string, parentPath?: string): Promise<{ workspace: WorkspaceRef; warning?: string } | undefined>;
+  createProject(name: string, parentPath?: string, github?: NewProjectGithub): Promise<CreatedProject | undefined>;
+  promotionInfo(workspace: string, sessionId: string): Promise<ProjectPromotionInfo>;
+  promoteScratch(workspace: string, sessionId: string, name: string, git: boolean): Promise<ProjectPromotionResult>;
   listDirectories(path?: string): Promise<UiDirectoryListing>;
   findFolders(path?: string): Promise<UiFolderIndex>;
   pickFolder(): Promise<WorkspaceRef | undefined>;
@@ -403,6 +478,8 @@ export interface WorkspaceHostClient {
   stageAll(workspace?: string): Promise<UiWorkspaceChanges>;
   revertFile(relPath: string, workspace?: string): Promise<UiWorkspaceChanges>;
   readVisualization(relPath: string, workspace: string): Promise<{ html: string }>;
+  publishFileDownload(path: string, workspace: string): Promise<WorkspaceFileDownload>;
+  releaseFileDownload(path: string, workspace: string): Promise<void>;
   publishVisualization(html: string, theme: "light" | "dark"): Promise<{ path: string }>;
   releaseVisualization(path: string): Promise<void>;
   readFile(relPath: string, workspace?: string): Promise<UiFileContent>;
@@ -428,6 +505,8 @@ export interface WorkspaceHostClient {
   createBranch(branch: string, workspace?: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string, workspace?: string, position?: EditorPosition): Promise<void>;
+  /** Routed to the project's home machine like `openInEditor`. */
+  editorTarget(relPath?: string, workspace?: string): Promise<EditorTarget>;
   listTerminals(): Promise<UiTerminal[]>;
   openTerminal(terminalId?: string, workspace?: string): Promise<void>;
   checkpoints(sessionId: string): Promise<WorkspaceCheckpointList>;
@@ -447,7 +526,9 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     invoke(command, input) as Promise<WorkspaceHostCommands[K]["output"]>;
   return {
     createScratch: () => call("create-scratch", undefined),
-    createProject: (name, parentPath) => call("create-project", { name, ...(parentPath ? { parentPath } : {}) }),
+    createProject: (name, parentPath, github) => call("create-project", { name, ...(parentPath ? { parentPath } : {}), ...(github ? { github } : {}) }),
+    promotionInfo: (workspace, sessionId) => call("promotion-info", { workspace, sessionId }),
+    promoteScratch: (workspace, sessionId, name, git) => call("promote-scratch", { workspace, sessionId, name, git }),
     listDirectories: (path) => call("list-directories", path === undefined ? undefined : { path }),
     findFolders: (path) => call("find-folders", path === undefined ? undefined : { path }),
     pickFolder: () => call("pick-folder", undefined),
@@ -465,6 +546,8 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     readVisualization: (relPath, workspace) => call("read-visualization", { relPath, workspace }),
     publishVisualization: (html, theme) => call("publish-visualization", { html, theme }),
     releaseVisualization: (path) => call("release-visualization", { path }),
+    publishFileDownload: (path, workspace) => call("publish-file-download", { path, workspace }),
+    releaseFileDownload: (path, workspace) => call("release-file-download", { path, workspace }),
     readFile: (relPath, workspace) => call("read-file", workspace ? { relPath, workspace } : { relPath }),
     readLinkedFile: (path, workspace) => call("read-linked-file", { path, workspace }),
     statFile: (relPath) => call("file-stat", { relPath }),
@@ -488,6 +571,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     createBranch: (branch, workspace) => call("create-branch", workspace ? { branch, workspace } : { branch }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath, workspace, position) => call("open-in-editor", { editorId, relPath, workspace, ...position }),
+    editorTarget: (relPath, workspace) => call("editor-target", { ...(relPath ? { relPath } : {}), ...(workspace ? { workspace } : {}) }),
     listTerminals: () => call("list-terminals", undefined),
     openTerminal: (terminalId, workspace) => call("open-terminal", { terminalId, workspace }),
     checkpoints: (sessionId) => call("checkpoints", { sessionId }),
@@ -534,7 +618,12 @@ export interface WorkspaceKitState {
   changes: UiWorkspaceChanges;
   workspace?: WorkspaceInfo;
   workspaceBusy: boolean;
-  editors: UiEditor[];
+  /** This machine's editors; for a project of another machine, this device's, each with why it cannot open it. */
+  editors: UiPlacedEditor[];
+  /** Set while the shown project is on another machine and opens in an editor of this device. */
+  editorRemote?: EditorRemoteState;
+  /** The project's home machine, whose own editors are listed because its Settings say its projects open there. */
+  editorOnMachine?: string;
   terminals: UiTerminal[];
   fileTree: FileNode[];
   /** The project's root listing is on its way; an empty tree then means "not yet", not "no files". */
@@ -600,6 +689,7 @@ export interface WorkspaceKitState {
   railProjectGroups: readonly { id: string; name: string; projects: readonly string[] }[];
   /** The project whose settings dialog is open. */
   projectSettings?: UiProject;
+  projectPromotion?: UiSession;
   /** Each thread's last file-changing turn, for the row's `+N −N`. */
   turnStats: Readonly<Record<string, TurnStat>>;
 }
@@ -829,6 +919,8 @@ export interface ThreadWorktreeRequest {
 
 /** Opens a workspace file, by its path inside the workspace, where it can be edited. */
 export type WorkspaceFileEditor = (relPath: string, actions: WorkbenchActions) => void;
+/** An extension's passive reader for the tab's explicit project, including phones. */
+export type WorkspaceFilePreview = (path: string, from: { workspace: string }) => ReactNode | undefined;
 
 export type CommitMessageSuggester = (request: {
   changes: UiWorkspaceChanges;
@@ -869,6 +961,9 @@ export interface WorkspaceStoreApi {
   refresh(): Promise<void>;
   /** An extension offers to open a file for editing: a double-click in the Files panel asks it. The last one wins. */
   registerFileEditor(editor: WorkspaceFileEditor): () => void;
+  registerFilePreview(reader: WorkspaceFilePreview): () => void;
+  renderFilePreview(path: string, from: { workspace: string }): ReactNode | undefined;
+  downloadFile(path: string, from: { workspace: string }, signal: AbortSignal): Promise<{ blob: Blob; name: string }>;
   /** Brings the Files panel forward on All with a project folder (relative to its root) opened (API 1.75.0). */
   revealFolder?(relPath: string): void;
   /** A section drawn at the top of the Changes panel, clean worktree or not. */

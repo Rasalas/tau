@@ -14,6 +14,8 @@ import { CERTIFICATE_ACCEPT, CERTIFICATE_DEFAULT, CERTIFICATE_REJECT } from "./h
 import { WindowEnvironments, answerEnvironmentCommand, type EnvironmentConnection, type WindowEnvironmentsOptions } from "./window-environments.js";
 import { EnvironmentCatalog } from "./environment-catalog.js";
 import type { ManagedSshTunnel, ManagedSshTunnelEvents, SshTunnelState } from "./managed-ssh.js";
+import { encodeConnectOffer, type ConnectRoute } from "../shared/managed-connections.js";
+import { pairingUrl } from "../shared/connections.js";
 
 const directories: string[] = [];
 const opened: WindowEnvironments[] = [];
@@ -62,7 +64,8 @@ async function setup(pairResult?: PairEnvironmentResult, extra: Partial<WindowEn
     publish: (list) => published.push(list),
     show: async (connection) => { shown.push(connection); },
     monitor: (options) => {
-      const key = options.urls()[0]!;
+      // A machine reached only through a bridge that does not listen yet has no address; its token names it then.
+      const key = options.urls()[0] ?? options.token;
       let state: MonitorState = { status: "connecting", running: new Set() };
       const entry = {
         options,
@@ -746,5 +749,168 @@ describe("core's window half for `tau machines`", () => {
     const { environments, pairCalls } = await setup(undefined, { agents: { add: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) } });
     await answerEnvironmentCommand(environments, "pair-environment", { text: "https://192.168.1.4:7788/#pair=abc" });
     expect(pairCalls[0]?.companion).toBeUndefined();
+  });
+});
+
+describe("a machine reached several ways", () => {
+  const LAN = "wss://192.168.1.4:7788/";
+  const TAILNET = "wss://100.64.0.9:7788/";
+  const keyed: SavedEnvironment = { ...studio, fingerprint: undefined, publicKey: KEY };
+  const route = (port: number): ConnectRoute => ({ relay: "https://relay.example", id: "0123abcd-0123-4567-89ab-0123456789ab", token: "A".repeat(43), port });
+  const relayUrl = (port: number) => `wss://127.0.0.1:${port}/`;
+  const withConnect = (port: number, entry: SavedEnvironment = keyed): SavedEnvironment => ({
+    ...entry, endpoints: [...entry.endpoints, { url: `https://127.0.0.1:${port}/` }], managed: { connect: route(port) },
+  });
+  const offer = encodeConnectOffer({
+    version: 1, relay: "https://relay.example", id: "0123abcd-0123-4567-89ab-0123456789ab", token: "A".repeat(43),
+    link: pairingUrl("https://127.0.0.1:9/", { code: "c", publicKey: KEY, hostId: keyed.id, hostName: keyed.name }),
+  });
+
+  function bridges(options: { failing?: boolean } = {}) {
+    const started: Array<{ route: ConnectRoute; close: ReturnType<typeof vi.fn> }> = [];
+    return {
+      started,
+      connectBridge: (bridgeRoute: ConnectRoute) => {
+        const close = vi.fn();
+        started.push({ route: bridgeRoute, close });
+        return { start: async () => { if (options.failing) throw new Error("port in use"); }, close };
+      },
+    };
+  }
+
+  async function saved(entry: SavedEnvironment) {
+    const directory = mkdtempSync(join(tmpdir(), "tau-window-environments-"));
+    directories.push(directory);
+    const catalog = await EnvironmentCatalog.open(join(directory, "environments.json"), box, logger);
+    await catalog.save(entry);
+    return directory;
+  }
+
+  it("adds Tau Connect beside the addresses it had, as the last route, and keeps both after a restart", async () => {
+    const relay = bridges();
+    const { environments, monitors, directory } = await setup({ state: "approved", environment: keyed }, { connectBridge: relay.connectBridge });
+    await environments.pair({ text: "link" });
+    expect(await environments.pair({ text: offer })).toMatchObject({ state: "added", environment: { id: keyed.id } });
+    const port = relay.started[0]!.route.port;
+    const monitor = monitors.get(LAN)!;
+    expect(monitor.options.urls()).toEqual([LAN, TAILNET, relayUrl(port)]);
+    expect(monitor.options.fallback!(relayUrl(port))).toBe(true);
+    expect(monitor.options.fallback!(LAN)).toBe(false);
+    expect(monitor.options.hostId).toBe(keyed.id);
+    // The relay is pinned to the machine's one key, as its own addresses are.
+    expect(monitor.options.trust!(relayUrl(port))).toEqual({ pin: { publicKey: KEY } });
+    expect(monitor.options.trust!(LAN)).toEqual({ pin: { publicKey: KEY } });
+    const machine = () => environments.snapshot().environments.find((entry) => entry.id === keyed.id)!;
+    expect(machine()).toMatchObject({ route: { kind: "direct", hosts: ["100.64.0.9", "192.168.1.4"] } });
+    expect(machine().via).toBeUndefined();
+    monitor.set({ status: "connected", address: relayUrl(port) });
+    expect(machine().via).toBe("connect");
+    monitor.set({ status: "connected", address: TAILNET });
+    expect(machine().via).toBe("direct");
+    // The relay's credentials stay in this process: the page's list never holds them.
+    expect(JSON.stringify(environments.snapshot())).not.toContain("A".repeat(43));
+
+    await environments.settled();
+    const restarted = bridges();
+    const again = await setup(undefined, { directory, connectBridge: restarted.connectBridge });
+    expect(restarted.started.map((entry) => entry.route)).toEqual([route(port)]);
+    expect(again.monitors.get(LAN)!.options.urls()).toEqual([LAN, TAILNET, relayUrl(port)]);
+  });
+
+  it("keeps Tau Connect when paired again over its own address, and forgets it when the machine shows another key", async () => {
+    const directory = await saved(withConnect(41000));
+    const relay = bridges();
+    const results: PairEnvironmentResult[] = [
+      { state: "approved", environment: { ...keyed, token: "tau_client_again" } },
+      { state: "approved", environment: { ...keyed, publicKey: OTHER, token: "tau_client_new" } },
+    ];
+    const { environments, monitors } = await setup(undefined, { directory, connectBridge: relay.connectBridge, pair: async () => results.shift()! });
+    expect(relay.started).toHaveLength(1);
+
+    await environments.pair({ text: "https://192.168.1.4:7788/#pair=abc" });
+    expect(monitors.get(LAN)!.options.token).toBe("tau_client_again");
+    expect(monitors.get(LAN)!.options.urls()).toEqual([LAN, TAILNET, relayUrl(41000)]);
+    expect(relay.started[0]!.close).not.toHaveBeenCalled();
+
+    await environments.pair({ text: "https://192.168.1.4:7788/#pair=abc" });
+    expect(monitors.get(LAN)!.options.token).toBe("tau_client_new");
+    expect(monitors.get(LAN)!.options.urls()).toEqual([LAN, TAILNET]);
+    expect(relay.started[0]!.close).toHaveBeenCalled();
+    const stored = (await EnvironmentCatalog.open(join(directory, "environments.json"), box, logger)).get(keyed.id);
+    expect(stored?.managed).toBeUndefined();
+  });
+
+  it("falls back to Tau Connect when its own addresses fail, and keeps them for when they answer again", async () => {
+    const directory = await saved(withConnect(41000));
+    const { environments, monitors } = await setup(undefined, { directory, connectBridge: bridges().connectBridge });
+    const monitor = monitors.get(LAN)!;
+    monitor.set({ status: "offline", detail: `${TAILNET} could not be reached.` });
+    monitor.set({ status: "connected", address: relayUrl(41000) });
+    monitor.options.onReached!(relayUrl(41000), { protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 1 } as never, undefined);
+    await environments.settled();
+    const stored = (await EnvironmentCatalog.open(join(directory, "environments.json"), box, logger)).get(keyed.id);
+    // The relay never becomes the address tried first.
+    expect(stored?.lastUrl).toBeUndefined();
+    expect(monitor.options.urls()).toEqual([LAN, TAILNET, relayUrl(41000)]);
+  });
+
+  it("moves the page it shows onto Tau Connect and back, but not between its own addresses", async () => {
+    const directory = await saved(withConnect(41000));
+    const { environments, monitors, shown } = await setup(undefined, { directory, connectBridge: bridges().connectBridge });
+    const monitor = monitors.get(LAN)!;
+    monitor.set({ status: "connected", address: LAN });
+    await environments.open(keyed.id);
+    expect(shown.map((entry) => entry?.url)).toEqual([LAN]);
+    monitor.set({ status: "connected", address: TAILNET });
+    monitor.set({ status: "connected", address: relayUrl(41000) });
+    await vi.waitFor(() => expect(shown.map((entry) => entry?.url)).toEqual([LAN, relayUrl(41000)]));
+    expect(shown.at(-1)).toMatchObject({ token: keyed.token, trust: { pin: { publicKey: KEY } } });
+    monitor.set({ status: "connecting", address: relayUrl(41000) });
+    monitor.set({ status: "connected", address: TAILNET });
+    await vi.waitFor(() => expect(shown.map((entry) => entry?.url)).toEqual([LAN, relayUrl(41000), TAILNET]));
+  });
+
+  it("learns the own addresses of a machine added through Tau Connect from its hello, never a loopback one", async () => {
+    const directory = await saved({ ...withConnect(41000, { ...keyed, endpoints: [] }), lastUrl: "https://127.0.0.1:41000/" });
+    const { environments, monitors } = await setup(undefined, { directory, connectBridge: bridges().connectBridge });
+    const monitor = monitors.get(relayUrl(41000))!;
+    const machine = () => environments.snapshot().environments.find((entry) => entry.id === keyed.id)!;
+    expect(machine()).toMatchObject({ route: { kind: "connect" }, via: "connect" });
+    monitor.set({ status: "connected", address: relayUrl(41000) });
+    monitor.options.onReached!(relayUrl(41000), {
+      protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 1,
+      host: { id: keyed.id, name: keyed.name, endpoints: [{ url: "https://192.168.1.4:7788/", kind: "lan" }, { url: "https://127.0.0.1:7788/", kind: "loopback" }] },
+    } as never, undefined);
+    await environments.settled();
+    expect(monitor.options.urls()).toEqual([LAN, relayUrl(41000)]);
+    expect(machine()).toMatchObject({ route: { kind: "direct", hosts: ["192.168.1.4"] }, via: "connect" });
+  });
+
+  it("never learns or tries a plaintext address for a machine reached through Tau Connect or pinned to a key", async () => {
+    const directory = await saved({ ...withConnect(41000, { ...keyed, endpoints: [] }), lastUrl: "https://127.0.0.1:41000/" });
+    const { environments, monitors } = await setup(undefined, { directory, connectBridge: bridges().connectBridge });
+    const monitor = monitors.get(relayUrl(41000))!;
+    const reply = (endpoints: PairingEndpoint[]) => ({ protocol: 1, hostVersion: "1", capabilities: [], resync: false, missed: [], nextSeq: 1, host: { id: keyed.id, name: keyed.name, endpoints } }) as never;
+    monitor.options.onReached!(relayUrl(41000), reply([{ url: "http://192.168.1.4:7788/", kind: "lan" }, { url: "https://192.168.1.4:7788/", kind: "lan" }]), undefined);
+    await environments.settled();
+    expect(monitor.options.urls()).toEqual([LAN, relayUrl(41000)]);
+    // Only plaintext named: nothing is learned, the relay stays the only route.
+    monitor.options.onReached!(relayUrl(41000), reply([{ url: "http://10.0.0.7:7788/", kind: "lan" }]), undefined);
+    await environments.settled();
+    expect(monitor.options.urls().every((url) => url.startsWith("wss:"))).toBe(true);
+    const stored = (await EnvironmentCatalog.open(join(directory, "environments.json"), box, logger)).get(keyed.id);
+    expect(stored?.endpoints.some((endpoint) => endpoint.url.startsWith("http:"))).toBe(false);
+  });
+
+  it("tries no plaintext address beside Tau Connect, even one saved before", async () => {
+    const directory = await saved(withConnect(41000, { ...keyed, endpoints: [{ url: "http://192.168.1.9:7788/", kind: "lan" }] }));
+    const { monitors } = await setup(undefined, { directory, connectBridge: bridges().connectBridge });
+    expect(monitors.get(relayUrl(41000))!.options.urls()).toEqual([relayUrl(41000)]);
+  });
+
+  it("leaves Tau Connect out while its bridge cannot listen", async () => {
+    const directory = await saved(withConnect(41000));
+    const { monitors } = await setup(undefined, { directory, connectBridge: bridges({ failing: true }).connectBridge });
+    expect(monitors.get(LAN)!.options.urls()).toEqual([LAN, TAILNET]);
   });
 });

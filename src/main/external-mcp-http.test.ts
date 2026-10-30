@@ -9,6 +9,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { ThreadIndexSnapshot } from "../shared/contracts.js";
 import type { TranscriptPage } from "../shared/host-protocol.js";
 import { ExternalMcpHttp } from "./external-mcp-http.js";
+import type { ExternalMcpControlHost } from "./external-mcp-control-tools.js";
+import { ExternalMcpThreads } from "./external-mcp-threads.js";
 import { hostHttpListener } from "./host-http-route.js";
 import { createSelfSignedCertificate } from "./self-signed-certificate.js";
 import { HOST_CORE_PRINCIPAL, type HostInvocationPrincipal } from "./host-invocation.js";
@@ -23,7 +25,7 @@ const cleanup: Array<() => Promise<unknown>> = [];
 
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-async function fixture() {
+async function fixture(options: { threads?: boolean } = {}) {
   const userData = await mkdtemp(join(tmpdir(), "tau-mcp-http-"));
   cleanup.push(() => rm(userData, { recursive: true, force: true }));
   const index: ThreadIndexSnapshot = {
@@ -36,7 +38,8 @@ async function fixture() {
   };
   const loadTranscript = vi.fn(async (threadId: string): Promise<TranscriptPage> => ({ sessionId: threadId, hasMore: false, messages: [{ id: "m", role: "user", text: "Allowed conversation", timestamp: 1, thinking: "not exported", images: [{ data: "private attachment", mimeType: "image/png" }] }] }));
   let now = Date.now();
-  const service = await ExternalMcpHttp.open({ userData, issuer, browserOrigins: ["https://client.fixture.test"], host: async () => ({ threadIndexSnapshot: () => index, loadTranscript }), version: "test", now: () => now });
+  const threads = options.threads ? await ExternalMcpThreads.open({ path: join(userData, "threads.json") }) : undefined;
+  const service = await ExternalMcpHttp.open({ userData, issuer, ...(threads ? { threads } : {}), browserOrigins: ["https://client.fixture.test"], host: async () => ({ threadIndexSnapshot: () => index, loadTranscript }) as unknown as ExternalMcpControlHost, version: "test", now: () => now });
   cleanup.push(() => service.close());
   const material = createSelfSignedCertificate({ commonName: "tau.fixture.test", dnsNames: ["tau.fixture.test"], ipAddresses: ["127.0.0.1"], days: 1 });
   const tls = httpsServer(material, hostHttpListener((request, response, trust) => service.handle(request, response, trust), "loopback", (_request, response) => { response.end("fallback"); }));
@@ -313,5 +316,38 @@ describe("external MCP HTTPS", () => {
     expect(batch.status).toBe(400);
     const missingVersion = await f.send("/mcp", { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }) });
     expect(missingVersion.status).toBe(400);
+  });
+
+  it("grants thread control only as the owner's explicit choice, with an execution ceiling", async () => {
+    const f = await fixture({ threads: true });
+    expect(await (await f.send("/.well-known/oauth-protected-resource/mcp")).json()).toMatchObject({ scopes_supported: ["tau:read", "tau:threads"] });
+    const flow = async (approval: Record<string, unknown>) => {
+      const waiting = await f.authorize({ scope: "tau:read tau:threads" });
+      expect(waiting.status).toBe(303);
+      const location = waiting.headers.get("location")!;
+      const requestId = new URL(location, issuer).searchParams.get("request_id")!;
+      await f.manage({ action: "approve", requestId, projectIds: ["a"], ...approval });
+      const code = new URL((await f.send(location)).headers.get("location")!).searchParams.get("code")!;
+      const tokens = await (await f.form({ grant_type: "authorization_code", client_id: f.registered.id, redirect_uri: callback, resource, code, code_verifier: verifier })).json() as { access_token: string; scope: string };
+      f.advance(60_000);
+      return tokens;
+    };
+    const waiting = await f.authorize({ scope: "tau:read tau:threads" });
+    const requestId = new URL(waiting.headers.get("location")!, issuer).searchParams.get("request_id")!;
+    await expect(f.manage({ action: "approve", requestId, projectIds: ["a"], execution: "full" })).rejects.toThrow("invalid_request");
+    await expect(f.manage({ action: "approve", requestId, projectIds: ["a"], scope: "tau:read tau:threads", execution: "root" })).rejects.toThrow("invalid_request");
+    f.advance(60_000);
+    const readOnly = await flow({});
+    expect(readOnly.scope).toBe("tau:read");
+    expect((await (await f.sdk(readOnly.access_token)).listTools()).tools).toHaveLength(3);
+    const control = await flow({ scope: "tau:read tau:threads" });
+    expect(control.scope).toBe("tau:read tau:threads");
+    const status = await f.manage({ action: "status" }) as { scopes: string[]; grants: Array<{ scopes: string[]; execution: string }> };
+    expect(status.scopes).toEqual(["tau:read", "tau:threads"]);
+    expect(status.grants.map((grant) => grant.execution)).toEqual(["read-only", "ask"]);
+    const tools = (await (await f.sdk(control.access_token)).listTools()).tools.map((tool) => tool.name);
+    expect(tools).toEqual(expect.arrayContaining(["tau_start_thread", "tau_send_message", "tau_stop_thread", "tau_thread_status"]));
+    await flow({ scope: "tau:read tau:threads", execution: "full" });
+    expect((await f.manage({ action: "status" }) as { grants: Array<{ execution: string }> }).grants.map((grant) => grant.execution)).toEqual(["read-only", "ask", "full"]);
   });
 });

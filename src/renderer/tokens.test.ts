@@ -37,6 +37,8 @@ const RUNTIME_PROPERTIES = [
   // How far Run on rises over the composer and moves to its edge (kits/environments/run-on.tsx).
   "--run-on-up",
   "--run-on-left",
+  // The reading width a person picks in Appearance (kits/appearance/apply.ts).
+  "--chat-max-width",
   // The unfolded dock's height, kept free at the transcript's end (components/ComposerReserve.tsx).
   "--composer-reserve",
   // Actual dock coverage for the transcript mask, including when folded.

@@ -223,12 +223,24 @@ describe("ThreadRuntimeLifecycle", () => {
         return externalBackend("thread");
       },
     };
-    const live = { adapterMessages: [] as unknown[] };
-    const { lifecycle, emitted } = makeLifecycle({ currentRuntime: () => live as never }, { test: provider });
-    await lifecycle.openExternal("test", "thread", "/repo");
+    let live: ThreadRuntime | undefined;
+    const { lifecycle, emitted } = makeLifecycle({ currentRuntime: () => live }, { test: provider });
+    live = await lifecycle.openExternal("test", "thread", "/repo");
     deliver({ role: "assistant", text: "done" });
     expect(live.adapterMessages).toHaveLength(1);
     expect(emitted).toEqual([{ threadId: "thread" }]);
+  });
+
+  it("does not deliver a replaced runtime's late messages into its successor", async () => {
+    let deliver!: (message: { role: string; text: string }) => void;
+    let report!: (event: { type: string }) => void;
+    let live: ThreadRuntime | undefined;
+    const provider = { open: async (_id: string, _cwd: string, _options: unknown, context: { onMessage: typeof deliver; onEvent: typeof report }) => { deliver = context.onMessage; report = context.onEvent; return externalBackend("thread"); } };
+    const { lifecycle, emitted } = makeLifecycle({ currentRuntime: () => live }, { test: provider });
+    live = await lifecycle.openExternal("test", "thread", "/repo");
+    live = new ThreadRuntime(externalBackend("thread") as never);
+    deliver({ role: "assistant", text: "late source reply" }); report({ type: "turn-started" });
+    expect(live.adapterMessages).toEqual([]); expect(emitted).toEqual([]);
   });
 
   it("routes a streamed backend's runtime events to the host under the thread's id", async () => {

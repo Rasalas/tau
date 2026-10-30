@@ -21,7 +21,8 @@ import { VirtualTranscript, type TranscriptVisibleRange } from "./VirtualTranscr
 import type { JumpToLatestStore } from "./JumpToLatest";
 import { composerReserve } from "./ComposerReserve";
 import { useTranscriptFind, useTranscriptReveal } from "./use-transcript-reveal";
-import { answerFind, answerLatest } from "./transcript-reveal";
+import type { TranscriptFindMode } from "../../workbench/transcript-find";
+import { answerLatest, answerTranscriptFind } from "./transcript-reveal";
 
 export type { TranscriptNavigationScope, TranscriptTurnStart } from "../../workbench/transcript-navigation";
 export { useTranscriptNavigation } from "./transcript-navigation-dom";
@@ -373,11 +374,22 @@ export const TranscriptViewport = memo(function TranscriptViewport({
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [findToken, setFindToken] = useState(0);
+  const [findQuery, setFindQuery] = useState<string>();
+  const [findMode, setFindMode] = useState<TranscriptFindMode>();
+  const [findSessionId, setFindSessionId] = useState(sessionId);
+  useLayoutEffect(() => {
+    setSearchOpen(false);
+    setFindQuery(undefined);
+    setFindMode(undefined);
+  }, [sessionId]);
   // `thread.find` and the `findInThread` action arrive as an event on the node, from outside the viewport.
-  useEffect(() => {
-    const node = scrollRef.current;
-    return node ? answerFind(node, () => { setSearchOpen(true); setFindToken((token) => token + 1); }) : undefined;
-  }, [scrollRef]);
+  useLayoutEffect(() => answerTranscriptFind(scrollRef, sessionId, (query, mode) => {
+    setFindSessionId(sessionId);
+    setFindQuery(query);
+    setFindMode(mode);
+    setSearchOpen(true);
+    setFindToken(token => token + 1);
+  }), [scrollRef, sessionId]);
   const reveal = useTranscriptReveal({ scrollRef, sessionId, messages, jumpToMessage: navigation.jumpToMessage, loadThrough });
   const { find, onActive } = useTranscriptFind(scrollRef, sessionId);
 
@@ -390,6 +402,8 @@ export const TranscriptViewport = memo(function TranscriptViewport({
     // The find chord is `thread.find`'s, so rebinding it moves it; the bare `/` is the transcript's own.
     if (event.key === "/") {
       event.preventDefault();
+      setFindSessionId(sessionId);
+      setFindMode(undefined);
       setSearchOpen(true);
       return;
     }
@@ -495,13 +509,16 @@ export const TranscriptViewport = memo(function TranscriptViewport({
         onWheel={forwardRailWheel}
       />
     ) : null}
-    {searchOpen ? (
+    {searchOpen && findSessionId === sessionId ? (
       <TranscriptSearch
+        key={sessionId}
         messages={messages}
         find={find}
         onJump={reveal}
         onActive={onActive}
         focusToken={findToken}
+        initialQuery={findQuery}
+        initialMode={findMode}
         onClose={() => {
           setSearchOpen(false);
           scrollRef.current?.focus();
@@ -512,9 +529,9 @@ export const TranscriptViewport = memo(function TranscriptViewport({
       className="transcript"
       ref={scrollRef}
       id={TRANSCRIPT_ID}
-      tabIndex={0}
+      tabIndex={-1}
       role="log"
-      aria-label="Thread transcript"
+      aria-label="Conversation"
       onKeyDown={handleKeyDown}
     >
       <div className="transcript-inner">

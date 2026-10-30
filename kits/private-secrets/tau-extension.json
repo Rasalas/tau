@@ -1,0 +1,13 @@
+{
+  "id": "tau.private-secrets",
+  "name": "Private secrets",
+  "description": "Private, short-lived secret files for CLI commands in a thread.",
+  "icon": "LockKeyhole",
+  "version": "1.0.0",
+  "engines": { "api": "^1.80.0" },
+  "permissions": ["sessions", "runtime:extend"],
+  "isolation": "in-process",
+  "host": "./host.ts",
+  "desktop": "./desktop.tsx",
+  "styles": "./styles.css"
+}

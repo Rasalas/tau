@@ -30,24 +30,27 @@ function composer(initial: { text?: string; images?: UiPromptImageAttachment[] }
   return { state, chips, actions };
 }
 
-/** A host half that keeps the stash in memory. */
+const listed = (entry: StashEntry): StashEntry => ({ ...entry, images: entry.images.map(({ data: _data, ...meta }) => meta) });
+
+/** A host half that keeps the stash in memory; an entry without a project is `/repo`'s. */
 function fakeHost(prompts: string[] = []) {
   const stash: StashEntry[] = [];
   let next = 0;
   const invoke = vi.fn(async (_id: string, command: string, input?: unknown): Promise<unknown> => {
     const fields = input as Record<string, unknown>;
     switch (command) {
-      case "stash-list": return stash.map((entry) => ({ ...entry, images: entry.images.map(({ data: _data, ...meta }) => meta) }));
+      case "stash-list": return stash.filter((entry) => (entry.project ?? "/repo") === fields.project).map(listed);
+      case "stash-list-others": return stash.filter((entry) => (entry.project ?? "/repo") !== fields.project).map(listed);
       case "stash-add": {
-        const entry = { id: `e${next++}`, createdAt: Date.now(), text: fields.text, chips: fields.chips, images: fields.images } as StashEntry;
+        const entry = { id: `e${next++}`, createdAt: Date.now(), text: fields.text, chips: fields.chips, images: fields.images, project: fields.project } as StashEntry;
         stash.unshift(entry);
         return { entry };
       }
       case "stash-take": {
-        const index = stash.findIndex((entry) => entry.id === fields.id);
+        const index = stash.findIndex((entry) => entry.id === fields.id && (fields.anyProject === true || (entry.project ?? "/repo") === fields.project));
         return index < 0 ? undefined : stash.splice(index, 1)[0];
       }
-      case "stash-drop": stash.splice(stash.findIndex((entry) => entry.id === fields.id), 1); return undefined;
+      case "stash-drop": { const index = stash.findIndex((entry) => entry.id === fields.id); if (index >= 0) stash.splice(index, 1); return undefined; }
       case "project-prompts": return prompts;
       default: throw new Error(`unexpected ${command}`);
     }
@@ -121,6 +124,54 @@ describe("Prompt Tools: the stash", () => {
     await screen.findByRole("group", { name: "Stash" });
     expect(host.stash).toEqual([]);
     expect(state.text).toBe("");
+  });
+
+  it("brings back a draft stashed in another project with its images and attachments, a file as its path there", async () => {
+    const { registry, host, state, actions } = activate({ composer: composer() });
+    host.stash.push({ id: "mine", createdAt: 2, text: "this project's", chips: [], images: [], project: "/repo" });
+    host.stash.push({
+      id: "away",
+      createdAt: 1,
+      project: "/work/api",
+      text: "fix the parser",
+      images: [image],
+      chips: [
+        { kind: "file", label: "parse.ts", payload: { path: "src/parse.ts" } },
+        { kind: "attachment", label: "log.txt", payload: { name: "log.txt", mimeType: "text/plain", size: 4, path: "/state/attachments/t9/log.txt" } },
+      ],
+    });
+    const Control = registry.getComposerControls().find((control) => control.id === "prompt-tools.stash")!.Component;
+    render(<Control actions={actions} />);
+    await screen.findByRole("group", { name: "Stashed prompts · 1" });
+    // Folded until asked for: the other project's entry shows only once the row is opened.
+    expect(screen.queryByRole("button", { name: /^fix the parser/u })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: /^From other projects/u }));
+    const away = await screen.findByRole("button", { name: /^fix the parser/u });
+    expect(away.textContent).toContain("api ·");
+    fireEvent.click(away);
+    await waitFor(() => expect(state.text).toBe("@/work/api/src/parse.ts\n\nfix the parser"));
+    expect(host.invoke).toHaveBeenCalledWith(PROMPT_TOOLS_ID, "stash-take", { project: "/work/api", id: "away" });
+    expect(state.images).toEqual([image]);
+    expect(state.chips).toEqual([{ id: "c0", kind: "attachment", label: "log.txt", payload: { name: "log.txt", mimeType: "text/plain", size: 4, path: "/state/attachments/t9/log.txt" } }]);
+    expect(state.notices).toEqual(["A file from api came back as its path there."]);
+    expect(host.stash.map((entry) => entry.id)).toEqual(["mine"]);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^From other projects/u })).toBeNull());
+  });
+
+  it("takes an entry by its id when its project is not known any more, and deletes another project's entry", async () => {
+    const { registry, host, state, actions } = activate({ composer: composer() });
+    host.stash.push({ id: "lost", createdAt: 2, text: "orphaned draft", chips: [], images: [], project: "" });
+    host.stash.push({ id: "gone", createdAt: 1, text: "not wanted", chips: [], images: [], project: "/work/api" });
+    const Control = registry.getComposerControls().find((control) => control.id === "prompt-tools.stash")!.Component;
+    render(<Control actions={actions} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^From other projects/u }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete stashed prompt from api: not wanted" }));
+    await waitFor(() => expect(host.stash.map((entry) => entry.id)).toEqual(["lost"]));
+    const orphan = await screen.findByRole("button", { name: /^orphaned draft/u });
+    expect(orphan.textContent).toContain("another project ·");
+    fireEvent.click(orphan);
+    await waitFor(() => expect(state.text).toBe("orphaned draft"));
+    expect(host.invoke).toHaveBeenCalledWith(PROMPT_TOOLS_ID, "stash-take", { id: "lost", anyProject: true });
   });
 
   it("brings chips back as text when Composer Context is off", async () => {

@@ -32,14 +32,14 @@ import {
 } from "tau";
 import { repositoryFolderName, WORKSPACE_HOST_EXTENSION_ID, type RailExternalThread, type ThreadRailSection, type ThreadRailOrganizer, type ThreadRailRowAction } from "./protocol.js";
 import { homeRelative } from "./folder-finder.js";
+import { githubRepositoryName, githubRepositoryPath, isGithubOwner, type RepositoryVisibility } from "./project-github.js";
 import { railActivity } from "./rail-activity.js";
 import { useRailDrag } from "./rail-drag.js";
 import { mergeByTime, useRailExternalThreads } from "./rail-external.js";
 import { ThreadCard, ThreadCardLayer, type ThreadCardTarget } from "./thread-card.js";
 import { groupThreads, railAnchor, readRailOrder, sortThreads, type RailOrder } from "./rail-order.js";
 import { NO_SELECTION, selectRange, selectedInOrder, toggleSelected, type RailSelection } from "./rail-selection.js";
-import { readProjectIcon, writeProjectIcon } from "./project-icons.js";
-import { ProjectSettingsDialog } from "./ProjectSettingsDialog.js";
+import { projectPromotionMenu, PROMOTE_PROJECT } from "./project-promotion-menu.js";
 import { accessoryMarks, diffStat } from "./row-marks.js";
 import { useRowAge } from "./row-age.js";
 import { useWorkspaceStore } from "./store-context.js";
@@ -47,6 +47,7 @@ import { SidebarFooter } from "./sidebar-footer.js";
 import { ProjectFilterMenu, RailProjectControls } from "./project-filter-menu.js";
 import { NO_PROJECT, projectFilterIncludes, projectFilterLabel, projectId, type RailProjectFilter } from "./project-filter.js";
 import { createRailMotion, type RailPlace } from "./rail-motion.js";
+import { GROUPS_OPEN_KEY, railKeyDestination, railNavigationId, readRailGroupsOpen, useRailNavigation, type RailNavigationRow } from "./rail-navigation.js";
 import { readShelvesOpen, SHELF_PAGE, shelfFirstPage, shelfHeading, shelfIsOpen, shelfRows as rowsOfShelf, writeShelvesOpen, type ShelvesOpen } from "./rail-shelves.js";
 
 export const WORKSPACE_EXTENSION_ID = WORKSPACE_HOST_EXTENSION_ID;
@@ -56,15 +57,15 @@ const ROW_STRIDE = 72;
 const THREAD_PAGE_SIZE = 25;
 
 export type NavigationRow =
-  | { kind: "group"; id: string; label: string; count: number; project?: UiProject }
+  | { kind: "group"; id: string; label: string; count: number; expanded: boolean; project?: UiProject }
   | { kind: "more"; id: string; key: string; remaining: number }
   | { kind: "thread"; id: string; session: UiSession };
 
-function ShowMoreThreadRow({ remaining, all = false, onClick }: { remaining: number; all?: boolean; onClick(): void }) {
+function ShowMoreThreadRow({ remaining, all = false, cursor, onClick }: { remaining: number; all?: boolean; cursor: boolean; onClick(): void }) {
   const count = all ? remaining : Math.min(THREAD_PAGE_SIZE, remaining);
   return (
     <article className="thread-row compact thread-pagination-row">
-      <button className="thread-main" onClick={onClick}><Plus size={14} aria-hidden="true" /><span>Show {count} more</span></button>
+      <button className="thread-main" tabIndex={cursor ? 0 : -1} onClick={onClick}><Plus size={14} aria-hidden="true" /><span>Show {count} more</span></button>
     </article>
   );
 }
@@ -89,16 +90,17 @@ export function visibleThreads(
 }
 
 /** The main list as the rail draws it: flat, or in groups that show `preview` threads until opened. */
-export function navigationRowsFor(threads: readonly UiSession[], order: RailOrder, projects: readonly UiProject[], openGroups: ReadonlySet<string>): NavigationRow[] {
+export function navigationRowsFor(threads: readonly UiSession[], order: RailOrder, projects: readonly UiProject[], openGroups: ReadonlySet<string>, groupsOpen: Readonly<Record<string, boolean>> = {}): NavigationRow[] {
   if (order.grouping === "none") return threads.map((session) => ({ kind: "thread" as const, id: session.id, session }));
   const projectOf = (session: UiSession) => findProjectForSession(projects, session);
   return groupThreads(threads, order.grouping, order.projectSort, projectOf).flatMap((group): NavigationRow[] => {
-    const shown = openGroups.has(group.key) ? group.threads : group.threads.slice(0, order.preview);
+    const expanded = groupsOpen[`group:${group.key}`] ?? true;
+    const shown = !expanded ? [] : openGroups.has(group.key) ? group.threads : group.threads.slice(0, order.preview);
     const project = group.threads[0] ? projectOf(group.threads[0]) : undefined;
     return [
-      { kind: "group", id: `group:${group.key}`, label: group.label, count: group.threads.length, ...(project ? { project } : {}) },
+      { kind: "group", id: `group:${group.key}`, label: group.label, count: group.threads.length, expanded, ...(project ? { project } : {}) },
       ...shown.map((session) => ({ kind: "thread" as const, id: session.id, session })),
-      ...(shown.length < group.threads.length ? [{ kind: "more" as const, id: `more:${group.key}`, key: group.key, remaining: group.threads.length - shown.length }] : []),
+      ...(expanded && shown.length < group.threads.length ? [{ kind: "more" as const, id: `more:${group.key}`, key: group.key, remaining: group.threads.length - shown.length }] : []),
     ];
   });
 }
@@ -107,19 +109,31 @@ export function navigationRowKey(rows: readonly NavigationRow[], index: number):
   return rows[index]?.id ?? index;
 }
 
-/** A name and the host's parent folder create a ready project. */
+/**
+ * A name and the host's parent folder create a ready project. Ticking GitHub
+ * also creates its repository (private unless chosen otherwise) and pushes the
+ * first commit, so `main` tracks `origin/main`; that runs on the host that
+ * makes the project, and a failure there still leaves the project.
+ */
 export function NewProjectSource({ actions, onBack, onDone }: ProjectSourceProps) {
   const store = useWorkspaceStore();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [github, setGithub] = useState(false);
+  const [owner, setOwner] = useState("");
+  const [visibility, setVisibility] = useState<RepositoryVisibility>("private");
   const base = store.projectBaseDirectory();
+  const repository = githubRepositoryPath(name, owner);
+  const ownerValid = !owner.trim() || isGithubOwner(owner.trim());
+  const ready = Boolean(name.trim()) && !busy && (!github || (ownerValid && Boolean(repository)));
   const submit = async (useBase: boolean) => {
-    if (!name.trim() || busy) return;
+    if (!ready) return;
     setBusy(true);
     try {
-      const created = await store.createProject(name, useBase ? base : undefined);
+      const created = await store.createProject(name, useBase ? base : undefined, github ? { ...(owner.trim() ? { owner: owner.trim() } : {}), visibility } : undefined);
       if (!created) return;
-      if (created.warning) actions.notify(created.warning);
+      if (created.warning) actions.notify(created.warning, "warning");
+      else if (created.github) actions.notify(`Created ${created.github.repository} on GitHub and pushed ${created.github.branch ?? "the first commit"}.`, "info");
       if (await actions.openWorkspace(created.workspace.workspaceId)) {
         actions.newSession({ workspace: created.workspace.workspaceId });
         onDone();
@@ -131,11 +145,23 @@ export function NewProjectSource({ actions, onBack, onDone }: ProjectSourceProps
     <header className="project-modal-bar">
       <button type="button" className="project-modal-bar-glyph" onClick={onBack} aria-label="Back to project sources"><ArrowLeft size={15} /></button>
       <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Project name" aria-label="Project name" disabled={busy} />
-      <button type="submit" className="project-modal-bar-action" disabled={!name.trim() || busy}>{busy ? "Creating…" : base ? "Create" : "Continue"}</button>
+      <button type="submit" className="project-modal-bar-action" disabled={!ready}>{busy ? "Creating…" : base ? "Create" : "Continue"}</button>
     </header>
     <div className="project-picker-heading"><span>Create in</span></div>
     <div className="clone-project-destination"><Folder size={15} />{base ? <code>{homeRelative(base)}/{name.trim() || "…"}</code> : <span>A folder you choose next</span>}</div>
-    <footer className="project-modal-footer">{base ? <button type="button" disabled={!name.trim() || busy} onClick={() => void submit(false)}><FolderOpen size={14} /> Choose parent folder…</button> : null}<small>Starts with a README and Git repository</small></footer>
+    <div className="new-project-github">
+      <label><input type="checkbox" checked={github} disabled={busy} onChange={(event) => setGithub(event.target.checked)} />Create a GitHub repository</label>
+      {github ? <div className="new-project-github-options">
+        <input value={owner} onChange={(event) => setOwner(event.target.value)} placeholder="Your account" aria-label="GitHub owner" aria-invalid={!ownerValid} spellCheck={false} disabled={busy} />
+        <code title={repository}>/{githubRepositoryName(name) || "…"}</code>
+        <div className="toggle-group" role="radiogroup" aria-label="Visibility">
+          {(["private", "public"] as const).map((next) => (
+            <button key={next} type="button" role="radio" aria-checked={visibility === next} className={visibility === next ? "active" : ""} disabled={busy} onClick={() => setVisibility(next)}>{next === "private" ? "Private" : "Public"}</button>
+          ))}
+        </div>
+      </div> : null}
+    </div>
+    <footer className="project-modal-footer">{base ? <button type="button" disabled={!ready} onClick={() => void submit(false)}><FolderOpen size={14} /> Choose parent folder…</button> : null}<small>{github ? "Starts with a README, pushed to GitHub through gh" : "Starts with a README and Git repository"}</small></footer>
   </form>;
 }
 
@@ -376,7 +402,7 @@ const DraftRailRow = memo(function DraftRailRow({ draft, onOpen }: { draft: Draf
 });
 
 /** Subscribes to the drafts on its own, so typing in a draft repaints these rows and nothing else. */
-const RailDrafts = memo(function RailDrafts({ actions, project, projects, listed }: { actions: WorkbenchActions; project?: RailProjectFilter; projects: readonly UiProject[]; listed: ReadonlySet<string> }) {
+const RailDrafts = memo(function RailDrafts({ actions, project, projects, listed, cursorId, bind }: { actions: WorkbenchActions; project?: RailProjectFilter; projects: readonly UiProject[]; listed: ReadonlySet<string>; cursorId?: string; bind(id: string): (element: HTMLElement | null) => void }) {
   const store = useThreadStore();
   const drafts = useSyncExternalStore(store.subscribeToDrafts, store.getDrafts);
   const shown = useMemo(() => railDrafts(drafts, { project, projects, listed }), [drafts, listed, project, projects]);
@@ -398,7 +424,12 @@ const RailDrafts = memo(function RailDrafts({ actions, project, projects, listed
   return (
     <div className="rail-drafts" role="group" aria-label="Drafts">
       {shown.map((draft) => (
-        <div key={draft.draftId} className="rail-row rail-draft" onContextMenu={(event) => menu(event, draft)}>
+        <div key={draft.draftId} className="rail-row rail-draft" data-navigation-row={`draft:${draft.draftId}`} ref={(element) => {
+          bind(`draft:${draft.draftId}`)(element);
+          // DraftRow predates the roving tabIndex prop on ThreadRow.
+          const button = element?.querySelector<HTMLButtonElement>(".thread-main");
+          if (button) button.tabIndex = cursorId === `draft:${draft.draftId}` ? 0 : -1;
+        }} onContextMenu={(event) => menu(event, draft)}>
           <DraftRailRow draft={draft} onOpen={actions.openDraft!} />
         </div>
       ))}
@@ -549,11 +580,6 @@ const noSubscription = () => () => undefined;
 const noVersion = () => 0;
 const hasFiles = (transfer: DataTransfer | null) => Boolean(transfer && Array.from(transfer.types).includes("Files"));
 const rowIdOf = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>("[data-rail-thread]")?.dataset.railThread : undefined;
-/** This machine's row or another machine's, as the arrow keys walk them. */
-const rowKeyOf = (target: EventTarget | null) => {
-  const row = target instanceof Element ? target.closest<HTMLElement>("[data-rail-thread], [data-rail-external]") : null;
-  return row?.dataset.railThread ?? row?.dataset.railExternal;
-};
 
 type ActivitySets = Record<"running" | "waiting", ReadonlySet<string>>;
 
@@ -582,7 +608,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const externalThreads = useRailExternalThreads(railThreadSources);
   const organizerVersion = useSyncExternalStore(organizer?.subscribe ?? noSubscription, organizer?.getVersion ?? noVersion);
   const projectFilter = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().railProjectFilter);
-  const projectSettings = useSyncExternalStore(workspace.subscribe, () => workspace.getSnapshot().projectSettings);
   const projects = useSyncExternalStore(threadStore.subscribeToProjects, threadStore.getProjects);
   const navigationSnapshot = useSyncExternalStore(threadStore.subscribeToIds, threadStore.getSnapshot);
   const ownActivity = useSyncExternalStore(threadStore.subscribeToActivity, threadStore.getActivity);
@@ -595,13 +620,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const [shelfOpen, setShelfOpen] = useState<ShelvesOpen>(() => readShelvesOpen(clientStorage));
   const [shelfLimits, setShelfLimits] = useState<Readonly<Record<string, number>>>({});
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
-  const [navigationIndex, setNavigationIndex] = useState(0);
+  const [groupsOpen, setGroupsOpen] = useState(() => readRailGroupsOpen(clientStorage));
   const [selection, setSelection] = useState<RailSelection>(NO_SELECTION);
   const [fileDrop, setFileDrop] = useState<string>();
   const openContextMenu = useContextMenu();
   // A Read-only device could never send a new thread's first message.
   const { readOnly: readOnlyDevice } = useHostCapabilities();
   const listRef = useRef<HTMLDivElement>(null);
+  const navigationRef = useRef<HTMLElement>(null);
+  const virtualRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
   const paletteKeys = registry.keybindingLabel("runtime.command-palette");
 
   const option = (id: string, fallback: boolean) =>
@@ -686,7 +714,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const listedIds = useMemo(() => new Set(matching.map((session) => session.id)), [matching]);
   // A draft on screen is the active row; the thread the host holds behind it is not.
   const draftOnScreen = useSyncExternalStore(threadStore.subscribeToDrafts, () => threadStore.getDrafts().some((draft) => draft.active));
-  const draftCount = useSyncExternalStore(threadStore.subscribeToDrafts, () => railDrafts(threadStore.getDrafts(), { project: projectFilter, projects }).length);
+  const draftKeys = useSyncExternalStore(threadStore.subscribeToDrafts, () => JSON.stringify(railDrafts(threadStore.getDrafts(), { project: projectFilter, projects, listed: listedIds }).map((draft) => draft.draftId)));
+  const draftIds = useMemo(() => JSON.parse(draftKeys) as string[], [draftKeys]);
+  const draftCount = draftIds.length;
   const grouped = order.grouping !== "none";
   const visibleActive = grouped ? main.threads : main.threads.slice(0, threadLimit);
   const inSections = (id: string) => sections.flatMap((section) => section.threads).find((session) => session.id === id);
@@ -702,13 +732,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     [dragged, dropTargets],
   );
 
-  const navigationRows = useMemo(() => navigationRowsFor(visibleActive, order, projects, openGroups), [openGroups, order, projects, visibleActive]);
+  const sectionIsOpen = (section: ThreadRailSection) => section.shelf ? shelfIsOpen(section, shelfOpen) : groupsOpen[`section:${section.id}`] ?? true;
+  const mainOpen = sectionIsOpen(main);
+  const navigationRows = useMemo(() => mainOpen ? navigationRowsFor(visibleActive, order, projects, openGroups, groupsOpen) : [], [mainOpen, openGroups, groupsOpen, order, projects, visibleActive]);
   const rowVirtualizer = useVirtualizer({
     count: navigationRows.length,
     getScrollElement: () => listRef.current,
     estimateSize: (index) => navigationRows[index]?.kind === "thread" ? ROW_STRIDE : navigationRows[index]?.kind === "more" ? 34 : 28,
     getItemKey: (index) => navigationRowKey(navigationRows, index),
     overscan: 6,
+    scrollMargin,
   });
 
   // The same derivation as a tablet's and a phone's list, so every client names a state alike.
@@ -764,26 +797,81 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     />
   );
 
-  const shelfRows = (section: ThreadRailSection) => section.shelf
-    ? rowsOfShelf(section, shelfIsOpen(section, shelfOpen), shelfLimits[section.id] ?? shelfFirstPage(section), activityState.activeThreadId)
-    : section.threads.slice(0, shelfLimits[section.id] ?? THREAD_PAGE_SIZE);
+  const toggleGroup = (id: string, open: boolean) => setGroupsOpen((current) => {
+    const next = { ...current, [id]: open };
+    clientStorage.set(GROUPS_OPEN_KEY, JSON.stringify(next));
+    return next;
+  });
   const toggleShelf = (id: string, open: boolean) => setShelfOpen((current) => {
     const next = { ...current, [id]: open };
     writeShelvesOpen(clientStorage, next);
     return next;
   });
+  const toggleSection = (section: ThreadRailSection, open: boolean) => section.shelf ? toggleShelf(section.id, open) : toggleGroup(`section:${section.id}`, open);
+  const sectionRows = new Map(shownSections.filter((_, index) => index !== mainIndex).map((section) => {
+    const open = sectionIsOpen(section);
+    const limit = shelfLimits[section.id] ?? (section.shelf ? shelfFirstPage(section) : THREAD_PAGE_SIZE);
+    const rows = section.shelf ? rowsOfShelf(section, open, limit, activityState.activeThreadId) : open ? section.threads.slice(0, limit) : [];
+    return [section.id, { open, limit, rows, hidden: Math.max(0, section.threads.length - Math.max(limit, rows.length)) }] as const;
+  }));
+  const sectionNavigation = (section: ThreadRailSection): RailNavigationRow[] => {
+    if (!section.threads.length && !drag) return [];
+    const { open, rows, hidden } = sectionRows.get(section.id)!;
+    const parentId = `section:${section.id}`;
+    return [
+      { id: parentId, kind: "heading", expanded: open },
+      ...rows.map((session): RailNavigationRow => ({ id: session.id, kind: "thread", parentId })),
+      ...(open && hidden > 0 ? [{ id: `more:section:${section.id}`, kind: "more" as const, parentId }] : []),
+    ];
+  };
+  const mainHeading = main.threads.length > 0 || Boolean(drag && sections.length > 1);
+  const mainHeadingId = `section:${main.id}`;
+  let parentId: string | undefined = mainHeading ? mainHeadingId : undefined;
+  const cursorRows: RailNavigationRow[] = [
+    ...shownSections.slice(0, mainIndex).flatMap(sectionNavigation),
+    ...draftIds.map((id): RailNavigationRow => ({ id: `draft:${id}`, kind: "draft" })),
+    ...(mainHeading ? [{ id: mainHeadingId, kind: "heading" as const, expanded: mainOpen }] : []),
+    ...navigationRows.map((row, virtualIndex): RailNavigationRow => {
+      const parent = row.kind === "group" ? (mainHeading ? mainHeadingId : undefined) : parentId;
+      if (row.kind === "group") parentId = row.id;
+      return { id: row.id, kind: row.kind === "group" ? "heading" : row.kind, parentId: parent, virtualIndex, ...(row.kind === "group" ? { expanded: row.expanded } : {}) };
+    }),
+    ...(mainOpen && visibleActive.length < main.threads.length ? [{ id: `more:section:${main.id}`, kind: "more" as const, parentId: mainHeadingId }] : []),
+    ...shownSections.slice(mainIndex + 1).flatMap(sectionNavigation),
+  ];
+  const navigation = useRailNavigation(cursorRows, navigationRef, draftOnScreen ? `draft:${threadStore.getDrafts().find((draft) => draft.active)?.draftId}` : activityState.activeThreadId, (row, element) => {
+    if (row.virtualIndex !== undefined) rowVirtualizer.scrollToIndex(row.virtualIndex, { align: "auto" });
+    else element?.scrollIntoView?.({ block: "nearest" });
+  });
+  const { cursorId } = navigation;
+  const navigationData = (id: string) => ({ "data-navigation-row": id, ref: navigation.bind(id), ...(id === cursorId ? { "data-cursor": "" } : {}) });
+
+  // Shelves, drafts and the Active heading precede the virtual list in the same scroller.
+  // TanStack must include their measured height when locating a model row.
+  useLayoutEffect(() => {
+    const scroller = listRef.current;
+    const virtual = virtualRef.current;
+    if (!scroller || !virtual) return;
+    const measure = () => setScrollMargin(virtual.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    for (const element of virtual.parentElement?.children ?? []) if (element !== virtual) observer.observe(element);
+    return () => observer.disconnect();
+  });
 
   // Rows travel when a thread changes place; a drag moves them by hand.
   const motionPlaces = new Map<string, RailPlace>();
   for (const section of shownSections) {
-    const place = { section: section.id, shelf: Boolean(section.shelf), folded: !shelfIsOpen(section, shelfOpen) };
+    const place = { section: section.id, shelf: Boolean(section.shelf), folded: !sectionIsOpen(section) };
     for (const session of section.threads) motionPlaces.set(session.id, place);
   }
-  for (const session of main.threads) motionPlaces.set(session.id, { section: main.id, shelf: false, folded: false });
+  for (const session of main.threads) motionPlaces.set(session.id, { section: main.id, shelf: false, folded: !mainOpen });
   const motionKey = [
     draftCount,
     navigationRows.map((row) => row.id).join(","),
-    ...shownSections.map((section) => `${section.id}:${shelfIsOpen(section, shelfOpen)}:${section.threads.map((session) => session.id).join(",")}`),
+    ...shownSections.map((section) => `${section.id}:${sectionIsOpen(section)}:${section.threads.map((session) => session.id).join(",")}`),
   ].join("|");
   const rowsRef = useRef<HTMLDivElement>(null);
   const motion = useRef<ReturnType<typeof createRailMotion>>(undefined);
@@ -800,31 +888,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     motionKeyDrawn.current = motionKey;
   });
 
-  /** Every row on screen, top to bottom: what the arrow keys walk and a shift-click spans. */
-  const orderIds = [
-    ...shownSections.slice(0, mainIndex).flatMap(shelfRows).map((session) => session.id),
-    ...navigationRows.flatMap((row) => row.kind === "thread" ? [row.id] : []),
-    ...shownSections.slice(mainIndex + 1).flatMap(shelfRows).map((session) => session.id),
-  ];
-  const cursorId = orderIds.length ? orderIds[navigationIndex % orderIds.length] : undefined;
-  // Another machine's rows are walked by the arrow keys but never picked.
+  /** Shift-click spans only threads; the keyboard cursor also visits headings, drafts and More. */
+  const orderIds = cursorRows.filter((row) => row.kind === "thread").map((row) => row.id);
   const ownIds = outside.size ? orderIds.filter((id) => !outside.has(id)) : orderIds;
   const selected = selectedInOrder(selection, ownIds);
-
-  // The cursor's row is the list's one Tab stop; the arrows move focus with it,
-  // scrolling a row the virtual list has not drawn into view first.
-  const focusCursor = useRef(false);
-  const [cursorShown, setCursorShown] = useState(false);
-  useLayoutEffect(() => {
-    const button = listRef.current?.querySelector<HTMLElement>("[data-cursor] .thread-main");
-    setCursorShown(Boolean(button));
-    if (!focusCursor.current || !cursorId) return;
-    if (button) { focusCursor.current = false; button.focus(); return; }
-    const index = navigationRows.findIndex((row) => row.id === cursorId);
-    if (index >= 0) rowVirtualizer.scrollToIndex(index);
-    else focusCursor.current = false;
-  });
-
   /** A row's wrapper carries what the drag, the menu and the selection read; its classes show where a drop lands. */
   const rowClass = (sectionId: string, id: string, last: boolean): string => {
     const classes = ["rail-row"];
@@ -840,34 +907,31 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
   const rowData = (sectionId: string, id: string) => ({
     "data-rail-thread": id,
     "data-rail-section": sectionId,
-    ...(id === cursorId ? { "data-cursor": "" } : {}),
+    ...navigationData(id),
   });
   // No `data-rail-thread`: drags, drops, menus and picks leave these rows alone.
-  const externalData = (key: string) => ({ "data-rail-external": key, ...(key === cursorId ? { "data-cursor": "" } : {}) });
+  const externalData = (key: string) => ({ "data-rail-external": key, ...navigationData(key) });
 
   const renderSection = (section: ThreadRailSection): ReactNode => {
     // An empty section shows its heading only while a thread could be dropped on it.
     if (section.threads.length === 0 && !drag) return null;
-    const open = shelfIsOpen(section, shelfOpen);
-    const rows = shelfRows(section);
+    const { open, rows, limit, hidden } = sectionRows.get(section.id)!;
     const heading = section.shelf ? shelfHeading(section) : `${section.label} · ${section.threads.length}`;
-    const limit = shelfLimits[section.id] ?? (section.shelf ? shelfFirstPage(section) : THREAD_PAGE_SIZE);
-    const hidden = Math.max(0, section.threads.length - Math.max(limit, rows.length));
     const target = drag?.drop?.sectionId === section.id ? " drop-target" : "";
     return (
       <section key={section.id} className={`${section.shelf ? "settled-shelf" : "rail-section"} rail-section-${section.id}`}>
-        {section.shelf ? (
-          <button
-            className={`settled-shelf-toggle${target}`}
-            data-rail-heading={section.id}
-            aria-expanded={open}
-            onClick={() => toggleShelf(section.id, !open)}
-          >
-            <span>{heading}</span>
-            <i aria-hidden="true" />
-            <b><ChevronDown size={12} aria-hidden="true" /></b>
-          </button>
-        ) : <div className={`thread-group-label${target}`} data-rail-heading={section.id}>{heading}<i /></div>}
+        <button
+          type="button"
+          className={`${section.shelf ? "settled-shelf-toggle" : "thread-group-label"}${target}`}
+          data-rail-heading={section.id}
+          {...navigationData(`section:${section.id}`)}
+          tabIndex={cursorId === `section:${section.id}` ? 0 : -1}
+          aria-expanded={open}
+          onClick={() => toggleSection(section, !open)}
+        >
+          <span>{heading}</span><i aria-hidden="true" />
+          <b><ChevronDown size={12} aria-hidden="true" /></b>
+        </button>
         {rows.map((session, index) => {
           const external = outside.get(session.id);
           if (external) {
@@ -886,10 +950,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           );
         })}
         {open && hidden > 0 ? (
-          <ShowMoreThreadRow
+          <div {...navigationData(`more:section:${section.id}`)}><ShowMoreThreadRow
+            cursor={cursorId === `more:section:${section.id}`}
             remaining={hidden}
             onClick={() => setShelfLimits((current) => ({ ...current, [section.id]: Math.min(section.threads.length, limit + SHELF_PAGE) }))}
-          />
+          /></div>
         ) : null}
       </section>
     );
@@ -903,9 +968,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
     // Without an organizer the menu only settles.
     if (!organizer) {
       const session = id ? findSession(id) : undefined;
-      if (!session || readOnlyDevice) return;
+      if (!session) return;
       const settled = settings.settledThreadIds.includes(session.id);
-      void openContextMenu(event, [{ items: [{ id: "settle", label: settled ? "Un-settle thread" : "Settle thread", icon: settled ? <ArchiveRestore size={13} /> : <Check size={13} /> }] }]).then((choice) => { if (choice) toggleSettled(session); });
+      void openContextMenu(event, projectPromotionMenu([{ items: [{ id: "settle", label: settled ? "Un-settle thread" : "Settle thread", disabled: readOnlyDevice, icon: settled ? <ArchiveRestore size={13} /> : <Check size={13} /> }] }], session, readOnlyDevice)).then((choice) => {
+        if (choice === PROMOTE_PROJECT) workspace.openProjectPromotion(session);
+        else if (choice) toggleSettled(session);
+      });
       return;
     }
     if (selected.length > 1 && organizer.bulkMenu && (!id || selection.ids.has(id))) {
@@ -966,17 +1034,15 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
       </div>
 
       <nav
+        ref={navigationRef}
         className={`session-list${drag ? " rail-dragging" : ""}`}
         aria-label="Threads"
         aria-busy={organizer?.isLoading?.() === true}
-        // Focusable itself only while no row can take the Tab stop.
-        tabIndex={cursorShown ? -1 : 0}
+        // A proxy stop while the model cursor's virtual row has not mounted.
+        tabIndex={navigation.cursorMounted ? -1 : 0}
         onPointerDown={onPointerDown}
-        onFocus={(event) => {
-          // A row that takes focus, by a click or by Tab, is where the arrows go on from.
-          const index = orderIds.indexOf(rowKeyOf(event.target) ?? "");
-          if (index >= 0 && index !== navigationIndex % orderIds.length) setNavigationIndex(index);
-        }}
+        onFocus={navigation.onFocus}
+        onBlur={navigation.onBlur}
         onClickCapture={(event) => {
           const target = event.target as Element;
           const id = rowIdOf(target);
@@ -1008,30 +1074,35 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           dropFiles(id, Array.from(event.dataTransfer.files));
         }}
         onKeyDown={(event) => {
-          // A row's own buttons and their popovers keep their keys.
           const target = event.target as Element;
-          if (!event.currentTarget.contains(target) || target.closest(".thread-row-actions")) return;
+          // The renderer owns F2/context menu/mod+Enter. This handler alone owns the model cursor.
+          if (event.defaultPrevented || event.nativeEvent.isComposing || registry.getProfile() === "compact" || document.body.dataset.profile === "compact" || !event.currentTarget.contains(target) || target.closest('.thread-row-actions, .thread-group-new, input, textarea, select, [contenteditable], [data-keybinding-capture]')) return;
           if (event.key === "Escape" && selection.ids.size) { event.preventDefault(); event.stopPropagation(); clearSelection(); return; }
-          if (!orderIds.length || !["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
-          const focused = orderIds.indexOf(rowKeyOf(target) ?? "");
-          // Enter on a draft, a shelf's heading or Show more is that button's own.
-          if (event.key === "Enter" && focused < 0 && target !== event.currentTarget) return;
-          event.preventDefault();
-          // The focused row first: the cursor only stands in while the list itself has focus.
-          const current = focused >= 0 ? focused : navigationIndex % orderIds.length;
-          if (event.key === "Enter") {
-            const external = outside.get(orderIds[current]!);
-            if (external) { if (!external.unavailable) external.open(actions); }
-            else void actions.switchSession(findSession(orderIds[current]!)?.path ?? "");
+          if (event.metaKey || event.ctrlKey || event.altKey) return;
+          const currentId = railNavigationId(target) ?? cursorId;
+          const current = cursorRows.find((row) => row.id === currentId);
+          if (!current) return;
+          if (["ArrowUp", "ArrowDown", "Home", "End", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+            event.preventDefault(); event.stopPropagation();
+            if (current.kind === "heading" && ((event.key === "ArrowLeft" && current.expanded) || (event.key === "ArrowRight" && !current.expanded))) {
+              const section = [main, ...shownSections].find((entry) => `section:${entry.id}` === current.id);
+              if (section) toggleSection(section, !current.expanded);
+              else toggleGroup(current.id, !current.expanded);
+              return;
+            }
+            const nextId = railKeyDestination(cursorRows, currentId, event.key);
+            if (!nextId) return;
+            navigation.focus(nextId);
+            if (!["ArrowUp", "ArrowDown"].includes(event.key) || !ownIds.includes(nextId)) return;
+            if (event.shiftKey) setSelection((selectionNow) => selectRange(selectionNow.anchor ? selectionNow : { ...selectionNow, anchor: currentId }, nextId, ownIds));
+            else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: nextId });
             return;
           }
-          const next = (current + (event.key === "ArrowDown" ? 1 : -1) + orderIds.length) % orderIds.length;
-          setNavigationIndex(next);
-          focusCursor.current = true;
-          // Shift and an arrow grow the selection from where it began; a plain arrow moves where it begins.
-          if (outside.has(orderIds[next]!)) return;
-          if (event.shiftKey) setSelection((selectionNow) => selectRange(selectionNow.anchor ? selectionNow : { ...selectionNow, anchor: orderIds[current]! }, orderIds[next]!, ownIds));
-          else setSelection((selectionNow) => selectionNow.ids.size ? selectionNow : { ids: selectionNow.ids, anchor: orderIds[next]! });
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault(); event.stopPropagation();
+            if (target === event.currentTarget) navigation.focus(current.id, true);
+            else target.closest<HTMLElement>("button")?.click();
+          }
         }}
       >
         {/* One scroll; the shelves consume the free space above them on short lists. */}
@@ -1039,11 +1110,17 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         <div ref={listRef} className="rail-active" style={organizer?.isLoading?.() ? { visibility: "hidden" } : undefined} inert={organizer?.isLoading?.() === true}>
         <div ref={rowsRef} className="rail-active-rows">
         {shownSections.slice(0, mainIndex).map(renderSection)}
-        <RailDrafts actions={actions} project={projectFilter} projects={projects} listed={listedIds} />
-        {main.label === undefined && drag && sections.length > 1 ? (
-          <div className={`thread-group-label rail-main-label${drag.drop?.sectionId === main.id ? " drop-target" : ""}`} data-rail-heading={main.id}>Active<i /></div>
-        ) : null}
-        <div className="rail-virtual" style={{ height: rowVirtualizer.getTotalSize(), position: "relative", flexShrink: 0 }}>
+        <RailDrafts actions={actions} project={projectFilter} projects={projects} listed={listedIds} cursorId={cursorId} bind={navigation.bind} />
+        {mainHeading ? <button
+          type="button"
+          className={`thread-group-label rail-main-label${drag?.drop?.sectionId === main.id ? " drop-target" : ""}`}
+          data-rail-heading={main.id}
+          {...navigationData(mainHeadingId)}
+          tabIndex={cursorId === mainHeadingId ? 0 : -1}
+          aria-expanded={mainOpen}
+          onClick={() => toggleSection(main, !mainOpen)}
+        ><span>{main.label ?? "Active"} · {main.threads.length}</span><i /><b><ChevronDown size={12} aria-hidden="true" /></b></button> : null}
+        <div ref={virtualRef} className="rail-virtual" style={{ height: rowVirtualizer.getTotalSize(), position: "relative", flexShrink: 0 }}>
           {rowVirtualizer.getVirtualItems().map((item) => {
             const row = navigationRows[item.index];
             if (!row) return null;
@@ -1051,25 +1128,31 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
             return (
               <div
                 key={row.id}
-                ref={rowVirtualizer.measureElement}
                 data-index={item.index}
                 className={threadRow ? rowClass(main.id, row.id, item.index === navigationRows.length - 1) : undefined}
-                {...(threadRow ? (outside.has(row.id) ? externalData(row.id) : rowData(main.id, row.id)) : {})}
-                style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
+                {...(threadRow ? (outside.has(row.id) ? externalData(row.id) : rowData(main.id, row.id)) : navigationData(row.id))}
+                ref={(element) => { rowVirtualizer.measureElement(element); navigation.bind(row.id)(element); }}
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start - scrollMargin}px)` }}
               >
                 {row.kind === "group" ? (
-                  <div className="thread-group-label">{row.label} · {row.count}<i />
+                  <div className="thread-group-label rail-project-heading">
+                    <button type="button" className="thread-group-toggle" data-navigation-target data-rail-group={row.id}
+                      tabIndex={cursorId === row.id ? 0 : -1} aria-expanded={row.expanded}
+                      onClick={() => toggleGroup(row.id, !row.expanded)}>
+                      <span>{row.label} · {row.count}</span><i /><b><ChevronDown size={12} aria-hidden="true" /></b>
+                    </button>
                     {/* The project header's "+": a new thread in this project, whatever is on screen. */}
                     {row.project && !readOnlyDevice ? <button
                       type="button"
                       className="thread-group-new"
+                      tabIndex={cursorId === row.id ? 0 : -1}
                       aria-label={`New thread in ${row.project.name}`}
                       {...tooltipProps(`New thread in ${row.project.name}`, { side: "top" })}
                       onClick={() => actions.newSession({ workspace: row.project!.workspaceId ?? row.project!.path })}
                     ><SquarePen size={13} /></button> : null}
                   </div>
                 ) : row.kind === "more" ? (
-                  <ShowMoreThreadRow remaining={row.remaining} all onClick={() => setOpenGroups((current) => new Set([...current, row.key]))} />
+                  <ShowMoreThreadRow cursor={cursorId === row.id} remaining={row.remaining} all onClick={() => setOpenGroups((current) => new Set([...current, row.key]))} />
                 ) : (() => {
                   const external = outside.get(row.id);
                   if (external) return <ExternalThreadRow thread={external} cursor={external.key === cursorId} onOpen={openExternal} onLookIn={lookInExternal} {...(settleExternal ? { onToggleSettled: settleExternal } : {})} />;
@@ -1081,11 +1164,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
           })}
         </div>
 
-        {visibleActive.length < main.threads.length ? (
-          <ShowMoreThreadRow
+        {mainOpen && visibleActive.length < main.threads.length ? (
+          <div {...navigationData(`more:section:${main.id}`)}><ShowMoreThreadRow
+            cursor={cursorId === `more:section:${main.id}`}
             remaining={main.threads.length - visibleActive.length}
             onClick={() => setThreadLimit((limit) => Math.min(main.threads.length, limit + THREAD_PAGE_SIZE))}
-          />
+          /></div>
         ) : null}
 
         {matching.length === 0 && outside.size === 0 && draftCount === 0 ? (
@@ -1132,18 +1216,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ actions }: Side
         ))}
       </div> : null}
       {organizer?.Layer ? <organizer.Layer actions={actions} /> : null}
-      {projectSettings ? (
-        <ProjectSettingsDialog
-          key={projectSettings.path}
-          project={projectSettings}
-          current={readProjectIcon(preferences, projectSettings)}
-          {...(projectSettings.icon ? { automatic: projectSettings.icon } : {})}
-          onSave={(choice) => { writeProjectIcon(preferences, projectSettings, choice); workspace.closeProjectSettings(); }}
-          onClose={() => workspace.closeProjectSettings()}
-          onError={(message) => actions.notify(message, "error")}
-        />
-      ) : null}
-
       {railSections.map((Section, index) => <Section key={index} actions={actions} />)}
       {selected.length > 0 ? (
         <div className="rail-selection-bar" role="status">

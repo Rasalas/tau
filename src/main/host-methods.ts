@@ -149,6 +149,7 @@ export interface HostMethodDeps {
   /** Who else may connect (ADR 0023); absent where no socket listens. */
   connections?(): HostConnectionsService | undefined;
   connect?(): HostConnect | undefined;
+  /** Owner management of external MCP clients: local tokens and listener (`local-*`), and the HTTPS OAuth grants. */
   externalMcp?(): Pick<import("./external-mcp-http.js").ExternalMcpHttp, "manage"> | undefined;
   /** The host's machine running it as a service; absent for a host in the window's process. */
   service?(): HostServiceManager | undefined;
@@ -228,10 +229,11 @@ export function createHostMethods(deps: HostMethodDeps): HostMethodTable {
     "take-queued": bindHostCommand(HOST_COMMANDS["take-queued"], async ([sessionId, queuedId]) => (await host()).queue.take(sessionId, queuedId).map(({ id, text, attachments, skillDraft, wake, deliverAt }) => ({ id, text, attachments, ...(skillDraft ? { skillDraft } : {}), ...(wake ? { wake } : {}), ...(deliverAt !== undefined ? { deliverAt } : {}) }))),
     "move-queued": bindHostCommand(HOST_COMMANDS["move-queued"], async (args) => (await host()).queue.move(...args)),
     "plan-queued": bindHostCommand(HOST_COMMANDS["plan-queued"], async (args) => (await host()).queue.reschedule(...args)),
-    "resume-limited": bindHostCommand(HOST_COMMANDS["resume-limited"], async ([sessionId, when]) => {
+    "resume-limited": bindHostCommand(HOST_COMMANDS["resume-limited"], async ([sessionId, when, at]) => {
       const limits = (await host()).limits;
       if (when === "now") return limits.resumeNow(sessionId);
       if (when === "reset") return void limits.resumeAtReset(sessionId);
+      if (when === "at" && at !== undefined) return void limits.resumeAt(sessionId, at);
       return limits.cancelResume(sessionId);
     }),
     "thread-goal": bindHostCommand(HOST_COMMANDS["thread-goal"], async (args) => (await host()).threadGoal(...args)),

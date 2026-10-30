@@ -14,9 +14,9 @@ import { isMain, main } from "./release.mjs";
 export const PUBLIC_REPO = { owner: "Rasalas", repo: "tau-releases" };
 
 /** One feed per platform the release builds. */
-export const FEEDS = ["latest-mac.yml", "latest.yml", "latest-linux.yml"];
+export const FEEDS = ["latest-mac.yml", "latest.yml", "latest-arm64.yml", "latest-linux.yml"];
 /** Portable hosts advertised by this workflow, including ARM Linux SSH hosts. */
-export const HOST_FEEDS = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64", "win32-x64"].map((target) => `latest-host-${target}.yml`);
+export const HOST_FEEDS = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64", "win32-x64", "win32-arm64"].map((target) => `latest-host-${target}.yml`);
 
 /** The AUR package installs it from the release, so every release carries it. */
 export const LICENSE = "LICENSE";
@@ -30,6 +30,7 @@ export const STABLE_NAMES = {
   "Tau-mac-arm64.dmg": (version) => `Tau-${version}-arm64.dmg`,
   "Tau-mac-x64.dmg": (version) => `Tau-${version}.dmg`,
   "Tau-windows-x64.exe": (version) => `Tau-Setup-${version}.exe`,
+  "Tau-windows-arm64.exe": (version) => `Tau-Setup-${version}-arm64.exe`,
   "Tau-linux-amd64.deb": (version) => `Tau_${version}_amd64.deb`,
   "Tau-linux-x86_64.AppImage": (version) => `Tau-${version}.AppImage`,
   // For sideloading; no feed names it, Play and TestFlight update the phone apps.

@@ -417,7 +417,9 @@ function countOutside(scan: UsageScan, rows: Rows, inPeriod: (at: number | undef
       `${plural(stat?.sessions.size ?? 0, "session")} outside Tau in this period`,
     ];
     if (stat?.tau.size) parts.push(`${plural(stat.tau.size, "session")} ${stat.tau.size === 1 ? "was" : "were"} Tau's own and count${stat.tau.size === 1 ? "s" : ""} with ${stat.tau.size === 1 ? "its thread" : "their threads"}`);
-    if (failed > 0) parts.push(`${plural(failed, "file")} could not be read`);
+    // The first reason names the file, so a database whose layout changed says what it lacks.
+    const problem = found.flatMap((report) => report.problems ?? [])[0];
+    if (failed > 0) parts.push(`${plural(failed, "file")} could not be read${problem ? ` (${problem})` : ""}`);
     if (stat?.skipped) parts.push(`${plural(stat.skipped, "unreadable line")} skipped`);
     const status = logs.scan.reading ? "reading" as const : files === 0 ? "empty" as const : "ok" as const;
     return [{ ...base, status, detail: `${logs.scan.reading ? "Still reading. " : ""}${parts.join("; ")}.` }];

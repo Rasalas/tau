@@ -11,13 +11,14 @@ export class HostStart {
   private host: PiHost | undefined;
   private ready: Promise<unknown> | undefined;
 
-  constructor(private readonly create: () => PiHost) {}
+  /** `started` runs once the host has started, before any caller resumes. */
+  constructor(private readonly create: () => PiHost, private readonly started?: (host: PiHost) => void) {}
 
   /** The host once it has started; a failed start rejects every caller with its error. */
   async require(): Promise<PiHost> {
     if (!this.host) {
-      this.host = this.create();
-      this.ready = this.host.start();
+      const host = this.host = this.create();
+      this.ready = host.start().then((result) => { this.started?.(host); return result; });
     }
     await this.ready;
     return this.host;

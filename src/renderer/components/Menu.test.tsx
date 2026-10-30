@@ -225,3 +225,11 @@ describe("Menu semantics", () => {
     trigger.remove();
   });
 });
+
+it("keeps an explicitly retained checkbox open while other choices close", () => {
+  const pick = vi.fn(); const close = vi.fn();
+  render(<Menu items={[{ id: "toggle", label: "Allow edits", multiple: true, selected: false }, { id: "done", label: "Done" }]} keepOpenOnSelect={(id) => id === "toggle"} onSelect={pick} onClose={close} />);
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Allow edits" }));
+  expect(pick).toHaveBeenCalledWith("toggle"); expect(close).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Done" })); expect(close).toHaveBeenCalledOnce();
+});

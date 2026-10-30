@@ -18,6 +18,58 @@ const count = () => screen.getByRole("search").querySelector(".search-count")!.t
 const press = (key: string, shiftKey = false) => fireEvent.keyDown(screen.getByPlaceholderText("Find in transcript…"), { key, shiftKey });
 
 describe("TranscriptSearch", () => {
+  it("waits for the global best message instead of jumping to a weaker loaded match", async () => {
+    let finish!: (ids: string[]) => void;
+    const find = vi.fn(() => new Promise<readonly string[]>(resolve => { finish = resolve; }));
+    const onJump = vi.fn();
+    const onActive = vi.fn();
+    render(<TranscriptSearch messages={[message("tail", "quartzite in moonlight")]} initialQuery="quartz moon" initialMode="all-words" find={find} onJump={onJump} onActive={onActive} onClose={() => undefined} />);
+    expect(onJump).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(FIND_DEBOUNCE_MS); });
+    expect(find).toHaveBeenCalledExactlyOnceWith("quartz moon", "all-words");
+    expect(onJump).not.toHaveBeenCalled();
+    await act(async () => { finish(["older-best"]); });
+    expect(onJump).toHaveBeenCalledExactlyOnceWith("older-best");
+    expect(onActive).toHaveBeenLastCalledWith("quartz moon", "older-best", "all-words");
+    expect(count()).toBe("1 of 1");
+  });
+
+  it("falls back to separated tokens in one message's visible text when the finder is unavailable", async () => {
+    const onJump = vi.fn();
+    const messages = [message("reasoning", "quartz"), { ...message("split", "moon"), thinking: "quartz" }, message("best", "quartz beside the moon")];
+    render(<TranscriptSearch messages={messages} initialQuery="quartz moon" initialMode="all-words" onJump={onJump} onClose={() => undefined} />);
+    expect(onJump).toHaveBeenCalledExactlyOnceWith("best");
+    await type("quartz moon ");
+    expect(count()).toBe("0 matches");
+    expect(onJump).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains global word matching when the result is partial", async () => {
+    const find = vi.fn(async () => ({ messageIds: ["older-best"], truncated: true }));
+    const onJump = vi.fn();
+    const onActive = vi.fn();
+    render(<TranscriptSearch messages={[message("tail", "quartzite in moonlight")]} initialQuery="quartz moon" initialMode="all-words" find={find} onJump={onJump} onActive={onActive} onClose={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(FIND_DEBOUNCE_MS); });
+    expect(find).toHaveBeenCalledExactlyOnceWith("quartz moon", "all-words");
+    expect(onJump).toHaveBeenCalledExactlyOnceWith("older-best");
+    expect(onActive).toHaveBeenLastCalledWith("quartz moon", "older-best", "all-words");
+    expect(count()).toBe("1 of 1+ · Partial search");
+  });
+
+  it("retries a failed global search without changing its word matching mode", async () => {
+    const find = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ messageIds: ["best"], truncated: false });
+    const onJump = vi.fn();
+    render(<TranscriptSearch messages={[]} initialQuery="quartz moon" initialMode="all-words" find={find} onJump={onJump} onClose={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(FIND_DEBOUNCE_MS); });
+    expect(count()).toBe("Search failed; loaded messages only");
+    fireEvent.click(screen.getByRole("button", { name: "Retry search" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(FIND_DEBOUNCE_MS); });
+    expect(find).toHaveBeenNthCalledWith(1, "quartz moon", "all-words");
+    expect(find).toHaveBeenNthCalledWith(2, "quartz moon", "all-words");
+    expect(onJump).toHaveBeenCalledExactlyOnceWith("best");
+    expect(count()).toBe("1 of 1");
+  });
+
   it("without a finder it searches the loaded turns and starts at the newest match", async () => {
     const onJump = vi.fn();
     render(<TranscriptSearch messages={loaded} onJump={onJump} onClose={() => undefined} />);

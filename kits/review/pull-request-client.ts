@@ -53,7 +53,7 @@ export interface PullRequestClient {
   /** A file's text at the request's head commit, which the host takes from its own read of the request. */
   file(url: string, path: string): Promise<PullRequestFileText>;
   comment(url: string, input: PullRequestCommentInput): Promise<void>;
-  update(url: string, input: { title?: string; body?: string }): Promise<PullRequestDetail>;
+  update(url: string, input: { title?: string; body?: string; maintainerCanModify?: boolean; expectedMaintainerCanModify?: boolean }): Promise<PullRequestDetail>;
   viewed(url: string, path: string, viewed: boolean): Promise<PullRequestViewedState>;
   review(url: string, input: { event: PullRequestReviewEvent; body: string; comments: readonly PendingReviewComment[] }): Promise<PullRequestDetail>;
   resolve(url: string, threadId: string, resolved: boolean): Promise<PullRequestThread[]>;

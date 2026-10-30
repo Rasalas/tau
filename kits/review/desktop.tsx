@@ -6,7 +6,8 @@ import { PullRequestWatchFeed } from "./pr-watch-client.js";
 import { watchRowStatuses } from "./pr-watch-rows.js";
 import { createWorkspaceRequestSummary } from "./workspace-summary.js";
 import { threadPullRequestsService } from "./pull-requests-service.js";
-import { COMMIT_MESSAGE_OPTIONS, registerCommitMessages } from "./commit-messages.js";
+import { registerCommitMessages } from "./commit-messages.js";
+import { migrateTextGeneration, TEXT_GENERATION_OPTIONS } from "../_shared/text-generation.js";
 import { ReviewCommentStore } from "./comments.js";
 import { GUIDE_OPTIONS } from "./guide-settings.js";
 import { createReviewOverlay } from "./overlay.js";
@@ -100,8 +101,12 @@ export const reviewExtension: DesktopExtension = {
     const releaseProjectOrder = plugin.useService<ProjectOrderService>(PROJECT_ORDER_SERVICE, (service) => { projectOrder.set(service); return () => projectOrder.set(undefined); });
     const shared = { links, pending: new PendingReviewStore(getClientStorage), preferences: plugin.preferences, dialogs: new LinkDialogs(), projectOrder };
     let chips: ComposerContextChips | undefined;
-    // The rest of the kit's settings are sections of Source control; the model picker stays here.
-    plugin.registerOptions([...COMMIT_MESSAGE_OPTIONS.filter((entry) => entry.kind === "model"), ...GUIDE_OPTIONS]);
+    // The rest of the kit's settings are sections of Source control; the model pickers stay here:
+    // Text generation's (titles, commit messages, descriptions), then the guides'.
+    plugin.registerOptions([...TEXT_GENERATION_OPTIONS, ...GUIDE_OPTIONS]);
+    // The choices from before the default existed move in once; a later sync may bring them, so it looks again then.
+    migrateTextGeneration(plugin.preferences);
+    const stopMigrating = plugin.preferences.subscribe(() => migrateTextGeneration(plugin.preferences));
     // Sections of Source control's page, which Workspace owns (API 1.61.0); the page Review had before opens it.
     plugin.registerSettingsSection({
       id: "review.settings",
@@ -136,6 +141,7 @@ export const reviewExtension: DesktopExtension = {
         requests,
         comments: new ReviewCommentStore(getClientStorage),
         store: compactStore,
+        preferences: plugin.preferences,
       }),
     });
     // Over the composer, the latest turn's pill opens that sheet on the turn's files.
@@ -217,7 +223,7 @@ export const reviewExtension: DesktopExtension = {
       ];
       return () => { if (workspaceStore === store) workspaceStore = undefined; for (const dispose of disposers.reverse()) dispose(); };
     });
-    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseProjectOrder(); releaseStore(); releaseWatchMarks(); releaseLinkSheet(); releaseStrip(); endings.dispose(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); untrackPullRequestTarget(); };
+    return () => { offConnection(); cache.stop(); publishing.close(); releasePublish(); releaseSettlement(); releaseProjectOrder(); releaseStore(); releaseWatchMarks(); releaseLinkSheet(); releaseStrip(); endings.dispose(); releaseLinks(); releaseGuideRuns(); releaseProactive(); releaseAttach(); releaseLocal(); releaseEvidence(); releaseTabs(); stopMigrating(); reviews.dispose(); rows.dispose(); links.dispose(); shared.dialogs.close(); untrackDiffSettings(); untrackPullRequestTarget(); };
   },
 };
 

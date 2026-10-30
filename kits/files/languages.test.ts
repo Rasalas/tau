@@ -6,7 +6,7 @@ import { editorLanguageFor } from "./languages.js";
 describe("editorLanguageFor", () => {
   it.each([
     ["src/app.ts", "TypeScript"], ["src/App.tsx", "TSX"], ["index.js", "JavaScript"], ["lib/x.mjs", "JavaScript"],
-    ["view.jsx", "JSX"], ["package.json", "JSON"], ["tsconfig.jsonc", "JSON"], ["styles.css", "CSS"],
+    ["view.jsx", "JSX"], ["package.json", "JSON"], ["tsconfig.jsonc", "JSON"], ["analysis.IPYNB", "JSON"], ["styles.css", "CSS"],
     ["index.html", "HTML"], ["README.md", "Markdown"], ["docs/NOTES.MD", "Markdown"], ["main.py", "Python"],
     ["src/lib.rs", "Rust"], ["cmd/main.go", "Go"], [".github/ci.yml", "YAML"], ["compose.yaml", "YAML"],
     ["scripts/build.sh", "Shell"], [".zshrc", "Shell"], ["Cargo.toml", "TOML"],

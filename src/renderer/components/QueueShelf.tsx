@@ -27,11 +27,13 @@ const preview = (entry: UiQueuedMessage) => entry.wake?.label ?? (entry.text.tri
  * time plans it for another. The host keeps the queue, so it survives a
  * restart; a restored one is held until the user sends.
  */
-export function QueueShelf({ queue, streaming, held = false, steerShortcut: shortcut, onSteer, onEdit, onRemove, onReorder, onPlan }: {
+export function QueueShelf({ queue, streaming, held = false, resumeAt, steerShortcut: shortcut, onSteer, onEdit, onRemove, onReorder, onPlan }: {
   queue: readonly UiQueuedMessage[];
   streaming: boolean;
   /** A restart, a stop or a limit held the queue: nothing in its line leaves until the user sends. */
   held?: boolean;
+  /** A usage limit's scheduled resume: the line leaves with it. */
+  resumeAt?: number | undefined;
   /** The label of `thread.steerQueuedMessage`, for the message that leaves next; the workbench's own by default. */
   steerShortcut?: string | undefined;
   onSteer(id: string): void;
@@ -57,6 +59,7 @@ export function QueueShelf({ queue, streaming, held = false, steerShortcut: shor
   const status = head.deliverAt !== undefined
     ? `Planned · ${shortWhen(head.deliverAt, now)}`
     : head.wake ? "Next · a wake"
+      : resumeAt !== undefined ? `Next · sends at ${shortWhen(resumeAt, now)}`
       : held ? "Held · sends after your next message"
         : streaming ? "Next · sends when the turn ends" : "Next · sends now";
   const planFor = (entry: UiQueuedMessage) => onPlan && entry.deliverAt !== undefined ? () => setPlanning(entry) : undefined;

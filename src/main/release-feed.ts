@@ -189,7 +189,7 @@ export function releaseFileUrl(name: string, version: string, channel: UpdateCha
 /** electron-builder's update file for a platform and architecture. */
 export function releaseInfoName(platform: NodeJS.Platform, arch: string): string {
   if (platform === "darwin") return "latest-mac.yml";
-  if (platform === "win32") return "latest.yml";
+  if (platform === "win32") return arch === "arm64" ? "latest-arm64.yml" : "latest.yml";
   return arch === "x64" ? "latest-linux.yml" : `latest-linux-${arch}.yml`;
 }
 

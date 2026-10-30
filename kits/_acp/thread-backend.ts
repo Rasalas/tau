@@ -264,7 +264,7 @@ export abstract class AcpThreadBackend<S extends AcpLiveSession> implements Thre
     input.onAdmitted?.(true);
     let finish!: () => void;
     const done = new Promise<void>((resolve) => { finish = resolve; });
-    const turn: AcpTurn = { translator: new AcpTurnTranslator(this.now, this.idPrefix), text: prepared.visibleText, blocks: promptBlocks(prepared.runtimeText, input.attachments), done, finish };
+    const turn: AcpTurn = { translator: new AcpTurnTranslator(this.now, this.idPrefix), text: prepared.visibleText, blocks: promptBlocks(input.continuationContext ? `Previous conversation from another runtime:\n${input.continuationContext}\n\nCurrent message:\n${prepared.runtimeText}` : prepared.runtimeText, input.attachments), done, finish };
     if (input.delivery === "steer" && this.turns.length > 0) {
       // A steer takes the running turn's place: the agent stops, then hears the new text.
       const running = this.turns[0]!;

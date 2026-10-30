@@ -34,7 +34,7 @@ describe("the Snooze dialog", () => {
     const list = await screen.findByRole("listbox", { name: "Snooze until" });
     expect(screen.getByRole("heading").textContent).toBe("Snooze “Fix the queue”");
     expect(screen.getAllByRole("option").map((option) => option.querySelector("span")?.textContent))
-      .toEqual(["In 1 hour", "In 3 hours", "This evening", "Tomorrow", "Next week", "Pick a date and time…"]);
+      .toEqual(["In 1 hour", "In 3 hours", "This evening", "Tomorrow", "Monday", "Pick a date and time…"]);
     expect(await picked()).toContain("In 1 hour");
     await waitFor(() => expect(document.activeElement).toBe(list));
   });
@@ -51,7 +51,7 @@ describe("the Snooze dialog", () => {
     expect(await picked()).toContain("Tomorrow");
     const list = screen.getByRole("listbox");
     fireEvent.keyDown(list, { key: "ArrowDown" });
-    expect(await picked()).toContain("Next week");
+    expect(await picked()).toContain("Monday");
     await waitFor(() => expect(snoozeButton().disabled).toBe(false));
     fireEvent.click(snoozeButton());
     expect(onSnooze).toHaveBeenCalledWith(new Date(2026, 8, 28, 9, 0).getTime());
@@ -91,4 +91,15 @@ describe("the Snooze dialog", () => {
     expect(onSnooze).not.toHaveBeenCalled();
     expect(readWhenPick(storage, SNOOZE_REMEMBER_KEY)).toBeUndefined();
   });
+});
+
+it("leaves a removed remembered machine option unselected", async () => {
+  const storage = createMemoryStorage();
+  rememberWhenPick(storage, SNOOZE_REMEMBER_KEY, "removed");
+  open([thread("a")], storage);
+  await screen.findByRole("listbox");
+  expect(screen.queryByRole("option", { selected: true })).toBeNull();
+  expect(snoozeButton().disabled).toBe(true);
+  fireEvent.keyDown(screen.getByRole("listbox"), { key: "ArrowDown" });
+  expect(await picked()).toContain("In 1 hour");
 });

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Box, ChevronRight, Home, Maximize2, Power, RefreshCw, Settings2, Smartphone, X } from "lucide-react";
+import { ArrowLeft, Box, ChevronRight, FolderSync, Home, Maximize2, Power, RefreshCw, Settings2, Smartphone, X } from "lucide-react";
 import { Badge, Button, HelpTip, NumberField, SegmentedControl, Select, SettingRow, SettingsSection, SettingsState, Switch, TextField, useHostAvailability, type DesktopExtension, type PanelProps } from "tau";
-import { DEFAULT_SETTINGS, DEVICE_KIT, type ActionInput, type Device, type DeviceSettings, type HubState, type FoldState, type Target } from "./protocol.js";
+import { DEFAULT_SETTINGS, DEVICE_KIT, type ActionInput, type Device, type DeviceSettings, type HubState, type FoldState, type ProjectSyncResult, type Target, type TunnelState } from "./protocol.js";
 
 import { FloatingDevice, FloatingDeviceView } from "./floating.js";
 const DevicePoseView = lazy(() => import("./pose-view.js"));
@@ -11,6 +11,16 @@ export type Invoke = <T>(command: string, input?: unknown) => Promise<T>;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const key = (device: Target) => `${device.hostId}/${device.deviceId}`;
 const targetOf = (device: Device): Target => ({ hostId: device.hostId, deviceId: device.id });
+/** Typed text to ports; a word that is not a number stays in the list so saving reports it. */
+const parsePorts = (text: string): number[] | undefined => {
+  const words = text.split(/[\s,]+/).filter(Boolean);
+  return words.length ? words.map((word) => /^\d+$/.test(word) ? Number(word) : Number.NaN) : undefined;
+};
+function TunnelBadge({ tunnel }: { tunnel: TunnelState }) {
+  if (tunnel.status === "running") return <Badge dot tone="success">Forwarding</Badge>;
+  if (tunnel.status === "connecting") return <Badge dot tone="neutral">Connecting…</Badge>;
+  return <Badge dot tone="danger">Failed</Badge>;
+}
 
 export function DevicePanel({ active, actions, invoke, floating }: PanelProps & { invoke: Invoke; floating?: FloatingDevice }) {
   const availability = useHostAvailability(DEVICE_KIT);
@@ -39,6 +49,7 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
   const [live, setLive] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [synced, setSynced] = useState("");
   const [captureError, setCaptureError] = useState("");
   const [text, setText] = useState("");
   const [appId, setAppId] = useState("");
@@ -52,6 +63,13 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
     setBusy(true); setError("");
     try { const list = await invoke<Device[]>("discover", { hostId }); setDevices((previous) => [...previous.filter((entry) => entry.hostId !== hostId), ...list]); }
     catch (reason) { setError(message(reason)); } finally { setBusy(false); }
+  };
+  const syncProject = async () => {
+    setBusy(true); setError(""); setSynced("");
+    try {
+      const result = await invoke<ProjectSyncResult>("sync-project", { hostId });
+      setSynced(`Synced ${result.files} files to ${result.hostName}: ${result.remotePath}${result.removed ? `, removed ${result.removed}` : ""}.${result.forwardPorts.length ? ` Forwarded ports: ${result.forwardPorts.join(", ")}.` : ""}`);
+    } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
   };
   const perform = async (action: ActionInput["action"], rest: Partial<ActionInput> = {}) => {
     if (!selected || busy || actionPending.current || !availability.available) return;
@@ -140,17 +158,20 @@ export function DevicePanel({ active, actions, invoke, floating }: PanelProps & 
   };
   const disabled = busy || !availability.available;
   const hostDevices = devices.filter((entry) => entry.hostId === hostId);
+  const remoteMachine = state?.settings.hosts.find((entry) => entry.id === hostId)?.ssh;
   return <div className="devices-panel">
     <div className="devices-header">
       <Select label="Device machine" value={hostId} options={(state?.settings.hosts ?? DEFAULT_SETTINGS.hosts).map((host) => ({ value: host.id, label: host.name }))} onChange={setHostId} />
       {device && <Select label="Open a device" value={undefined} placeholder="Add device…" options={hostDevices.map((entry) => ({ value: entry.id, label: entry.name }))} onChange={(id) => { const next = hostDevices.find((entry) => entry.id === id); if (next) open(next); }} />}
       <div className="devices-header-actions">
         <Button variant="ghost" icon={<RefreshCw size={14} />} aria-label="Refresh devices" title="Refresh devices" busy={busy} disabled={!availability.available} onClick={() => { void refresh(); }} />
+        {remoteMachine && <Button variant="ghost" icon={<FolderSync size={14} />} aria-label="Sync project" title="Sync project: copy the open project's Git files to the selected machine" disabled={disabled} onClick={() => { void syncProject(); }} />}
         <Button variant="ghost" icon={<Settings2 size={14} />} aria-label="Device settings" title="Device settings" onClick={() => actions.openSettings("devices.settings")} />
       </div>
     </div>
     {!availability.available && <p className="devices-notice" role="status">{availability.reason}</p>}
     {error && <p role="alert" className="devices-error">{error}</p>}
+    {synced && <p className="devices-notice" role="status">{synced}</p>}
     {device && captureError && <p role="alert" className="devices-error">{captureError}</p>}
     {!device && <div className="devices-discovery">
       <div className="devices-section-label">Available devices <span>{hostDevices.length}</span></div>
@@ -213,11 +234,19 @@ export function DeviceSettingsPage({ invoke }: { invoke: Invoke }) {
   const [settings, setSettings] = useState<DeviceSettings>(structuredClone(DEFAULT_SETTINGS));
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [status, setStatus] = useState("");
   const [loadError, setLoadError] = useState(""), [attempt, setAttempt] = useState(0);
+  const [portText, setPortText] = useState<Record<string, string>>({});
+  const tunnelsShown = Object.keys(state?.tunnels ?? {}).length > 0;
+  // Tunnels connect and fail on their own; only their states refresh, never the fields being edited.
+  useEffect(() => {
+    if (!tunnelsShown) return;
+    const timer = setInterval(() => { invoke<HubState>("state").then((value) => setState((previous) => previous ? { ...previous, tunnels: value.tunnels } : previous)).catch(() => undefined); }, 5_000);
+    return () => clearInterval(timer);
+  }, [invoke, tunnelsShown]);
   // Saving before the saved settings arrive would replace them with the defaults.
   useEffect(() => { let cancelled = false; setLoadError(""); invoke<HubState>("state").then((value) => { if (!cancelled) { setState(value); setSettings(value.settings); } }).catch((reason) => { if (!cancelled) setLoadError(message(reason)); }); return () => { cancelled = true; }; }, [invoke, attempt]);
   const work = async (command: string, input?: unknown) => {
     setBusy(true); setError(""); setStatus("");
-    try { const next = await invoke<HubState>(command, input); setState(next); setSettings(next.settings); setStatus(command === "configure" ? "Settings saved." : "Done."); } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
+    try { const next = await invoke<HubState>(command, input); setState(next); setSettings(next.settings); if (command === "configure") setPortText({}); setStatus(command === "configure" ? "Settings saved." : "Done."); } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
   };
   const disabled = busy || !availability.available;
   if (!state) return <div className="settings-page devices-settings">
@@ -234,9 +263,13 @@ export function DeviceSettingsPage({ invoke }: { invoke: Invoke }) {
       {settings.hosts.map((host, index) => {
         const change = (field: "name" | "ssh" | "remoteDirectory", value: string) => setSettings({ ...settings, hosts: settings.hosts.map((entry) => entry.id === host.id ? { ...entry, [field]: value } : entry) });
         const saved = state?.settings.hosts.some((entry) => JSON.stringify(entry) === JSON.stringify(host));
+        const changePorts = (text: string) => { setPortText({ ...portText, [host.id]: text }); setSettings({ ...settings, hosts: settings.hosts.map((entry) => entry.id === host.id ? { ...entry, forwardPorts: parsePorts(text) } : entry) }); };
+        const tunnel = state?.tunnels?.[host.id];
         return <div key={host.id} className="devices-host">
           <SettingRow title={host.id === "local" ? "This machine" : "SSH machine"} control={<div className="devices-field-actions"><TextField label={`Machine ${index + 1} name`} value={host.name} disabled={disabled} onChange={(value) => change("name", value)} />{host.id !== "local" && <Button variant="ghost" disabled={disabled} aria-label={`Remove ${host.name}`} onClick={() => setSettings({ ...settings, hosts: settings.hosts.filter((entry) => entry.id !== host.id) })}>Remove</Button>}</div>} />
-          {host.id !== "local" && <><SettingRow title="SSH alias" description="An alias from your SSH configuration." control={<TextField label={`Machine ${index + 1} SSH alias`} mono placeholder="SSH config alias" value={host.ssh ?? ""} disabled={disabled} onChange={(value) => change("ssh", value)} />} /><SettingRow title="Tool directory" description="An absolute path on the remote machine." control={<TextField label={`Machine ${index + 1} tool directory`} mono placeholder="/path/to/tau-device-tools" value={host.remoteDirectory ?? ""} disabled={disabled} onChange={(value) => change("remoteDirectory", value)} />} /></>}
+          {host.id !== "local" && <><SettingRow title="SSH alias" description="An alias from your SSH configuration." control={<TextField label={`Machine ${index + 1} SSH alias`} mono placeholder="SSH config alias" value={host.ssh ?? ""} disabled={disabled} onChange={(value) => change("ssh", value)} />} /><SettingRow title="Tool directory" description="An absolute path on the remote machine." control={<TextField label={`Machine ${index + 1} tool directory`} mono placeholder="/path/to/tau-device-tools" value={host.remoteDirectory ?? ""} disabled={disabled} onChange={(value) => change("remoteDirectory", value)} />} />
+            <SettingRow title="Forwarded ports" description="Ports of this machine the remote one reaches on its own 127.0.0.1, such as Metro's 8081. Up to 8, separated by commas." help="A separate SSH session forwards them with ssh -R and reconnects when it drops." control={<TextField label={`Machine ${index + 1} forwarded ports`} mono placeholder="8081" value={portText[host.id] ?? (host.forwardPorts ?? []).join(", ")} disabled={disabled} onChange={changePorts} />} />
+            {tunnel && <SettingRow title="Port tunnel" description={tunnel.status === "failed" && tunnel.error ? tunnel.error : `Ports ${tunnel.ports.join(", ")}`} control={<TunnelBadge tunnel={tunnel} />} />}</>}
           <SettingRow title="Simulator tools" description={host.id === "local" ? "Private tools for Tau. Requires Xcode or the Android SDK." : "Save this machine before installing. Requires trusted, key-based SSH access."} control={<div className="devices-field-actions"><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "hub" }); }}>Install viewer</Button><Button disabled={disabled || !saved} onClick={() => { void work("install", { hostId: host.id, tool: "agent" }); }}>Install input tools</Button></div>} />
         </div>;
       })}

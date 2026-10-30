@@ -1,4 +1,4 @@
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { ACP_INTERNAL_ERROR, ACP_INVALID_PARAMS, ACP_RESOURCE_NOT_FOUND, AcpClient, AcpRequestError, type AcpExitedError, type AcpProcess, type AcpRequestHandler } from "./client.js";
 import type { AcpPromptResponse, AcpSessionUpdate } from "./events.js";
@@ -95,9 +95,17 @@ async function realpathOfNearestAncestor(directory: string): Promise<string> {
     try {
       const real = await realpath(current);
       return missing.length ? join(real, ...missing.reverse()) : real;
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // realpath also reports ENOENT for a dangling link. It is not a missing
+      // directory: writing through it could create a file outside our roots.
+      const entry = await lstat(current).catch((failure: NodeJS.ErrnoException) => {
+        if (failure.code !== "ENOENT") throw failure;
+        return undefined;
+      });
+      if (entry) throw error;
       const parent = dirname(current);
-      if (parent === current) return directory;
+      if (parent === current) throw error;
       missing.push(basename(current));
       current = parent;
     }
@@ -342,13 +350,13 @@ export class AcpAgentSession {
     return this.base.onElicitation ? this.base.onElicitation(request) : { action: "decline" };
   }
 
-  /** A path the agent may touch through Tau: inside the workspace or another root, symlinks on the parent followed. */
+  /** Resolve existing links, including the file itself, before checking allowed roots. */
   private async containedPath(requested: string): Promise<string> {
     const absolute = isAbsolute(requested) ? resolve(requested) : resolve(this.base.cwd, requested);
-    const candidate = join(await realpathOfNearestAncestor(dirname(absolute)), basename(absolute));
+    const candidate = await realpathOfNearestAncestor(absolute);
     for (const root of [this.base.cwd, ...(this.base.fileRoots ?? [])]) {
-      const real = await realpath(root).catch(() => resolve(root));
-      if (candidate === real || candidate.startsWith(`${real}${sep}`)) return candidate;
+      const real = await realpath(root);
+      if (candidate === real || candidate.startsWith(real.endsWith(sep) ? real : `${real}${sep}`)) return candidate;
     }
     throw new AcpRequestError("fs/read_text_file", ACP_INVALID_PARAMS, `Path '${requested}' is outside the session workspace.`);
   }

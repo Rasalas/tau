@@ -46,7 +46,7 @@ describe("ThreadLimits", () => {
   it("marks a limited thread until it runs again", () => {
     const { limits, published } = bench();
     limits.limited("t", "usage limit", Date.now() + 60 * 60_000);
-    expect(published.get("t")).toEqual({ message: "usage limit", resetsAt: Date.now() + 60 * 60_000 });
+    expect(published.get("t")).toEqual({ message: "usage limit", resetsAt: Date.now() + 60 * 60_000, limitedAt: Date.now() });
     limits.clear("t");
     expect(published.get("t")).toBeUndefined();
   });
@@ -70,7 +70,7 @@ describe("ThreadLimits", () => {
     limits.resumeAtReset("a");
     limits.resumeAtReset("b");
     limits.cancelResume("a");
-    expect(published.get("a")).toEqual({ message: "usage limit", resetsAt: Date.now() + 60_000 });
+    expect(published.get("a")).toEqual({ message: "usage limit", resetsAt: Date.now() + 60_000, limitedAt: Date.now() });
     limits.clear("b");
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(resumed).toEqual([]);
@@ -83,6 +83,37 @@ describe("ThreadLimits", () => {
     await limits.resumeNow("t");
     expect(resumed).toEqual(["t"]);
     await expect(limits.resumeNow("t")).rejects.toThrow("not waiting");
+  });
+
+  it("retries at a time the user chose when the provider named no reset", async () => {
+    const { limits, published, resumed } = bench();
+    limits.limited("t", "rate_limit_error");
+    expect(() => limits.resumeAt("t", Date.now() - 1)).toThrow("in the future");
+    expect(() => limits.resumeAt("t", Date.now() + 8 * 24 * 60 * 60_000)).toThrow("seven days");
+    limits.resumeAt("t", Date.now() + 15 * 60_000);
+    expect(published.get("t")?.resumeAt).toBe(Date.now() + 15 * 60_000);
+    expect(limits.awaitsResume("t")).toBe(true);
+    await vi.advanceTimersByTimeAsync(15 * 60_000 - 1);
+    expect(resumed).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resumed).toEqual(["t"]);
+    expect(limits.awaitsResume("t")).toBe(false);
+  });
+
+  it("frees the queue while its resume runs, and names when the limit stopped the thread", async () => {
+    const seen: Array<{ awaits: boolean; limitedAt: number | undefined }> = [];
+    const limits: ThreadLimits = new ThreadLimits({
+      publish: () => undefined,
+      resume: async (sessionId, limitedAt) => { seen.push({ awaits: limits.awaitsResume(sessionId), limitedAt }); limits.clear(sessionId); },
+      log: () => undefined,
+    });
+    const limitedAt = Date.now();
+    limits.limited("t", "usage limit", Date.now() + 60_000);
+    expect(limits.awaitsResume("t")).toBe(false);
+    limits.resumeAtReset("t");
+    expect(limits.awaitsResume("t")).toBe(true);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(seen).toEqual([{ awaits: false, limitedAt }]);
   });
 
   it("keeps a scheduled resume across a restart", async () => {

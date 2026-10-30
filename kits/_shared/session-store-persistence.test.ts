@@ -9,7 +9,7 @@ import { build } from "esbuild";
 import { afterEach, expect, it } from "vitest";
 import { SessionStorePersistence } from "./session-store-persistence.js";
 
-type Record = { tauThreadId: string; title?: string; messages?: unknown[]; usageTurns?: unknown[] };
+type Record = { tauThreadId: string; updatedAt?: number; title?: string; messages?: unknown[]; usageTurns?: unknown[] };
 const directories: string[] = [];
 const stores: SessionStorePersistence<Record, string>[] = [];
 afterEach(async () => {
@@ -46,7 +46,13 @@ it.each(["cjs", "esm"] as const)("runs the embedded SQLite worker from a real %s
       const store = new SessionStorePersistence({filePath:process.argv[2],version:1,decode:v=>v});
       await store.load();
       process.once('message', async()=>{
-        try { for(let i=0;i<10;i++) await store.write({sessions:[{id:process.argv[3]+i,record:{tauThreadId:process.argv[3]+i}}]}); }
+        try {
+          for(let i=0;i<10;i++) await store.write({sessions:[{id:process.argv[3]+i,record:{tauThreadId:process.argv[3]+i,updatedAt:i,messages:[{role:'user',text:'bundled paging'}]}}]});
+          const catalog = await store.threadTexts([], {protocol:2});
+          const entry = catalog.catalog.find(row=>row.threadId===process.argv[3]+'9');
+          const answer = await store.threadTexts([], {protocol:2,page:{threadId:entry.threadId,version:entry.version}});
+          if(answer.page.status!=='ok'||answer.page.chunks[0]?.text!=='bundled paging'||answer.page.nextCursor!==null) throw new Error('Incomplete bundled text page');
+        }
         catch(error){console.error(error);process.exitCode=1;}
         finally { await store.dispose(); process.disconnect(); }
       });
@@ -440,4 +446,57 @@ it("normalizes usage only on selected hydration and rewrites raw cumulative rows
   expect(persisted.find(entry => entry.tauThreadId === "unseen")).toEqual({ tauThreadId: "unseen", messages: [], usageTurns: [{ cost: 10 }, { cost: 15 }] });
   await migrated.dispose();
   expect((await makeStore(filePath).load())!.sessions.find(entry => entry.tauThreadId === "selected")?.usageTurns).toEqual([{ cost: 10 }, { cost: 5 }]);
+});
+
+it("exports complete text pages from disk without hydrating or trusting the caller's catalog", async () => {
+  const { filePath } = await fixture();
+  const store = makeStore(filePath);
+  const text = "x".repeat(63_999) + "😀𐐀 crystal " + "z".repeat(100_000);
+  await store.write({ sessions: [{ id: "large", record: { tauThreadId: "large", updatedAt: 5,
+    messages: [{ role: "notice", text: "hidden" }, { role: "assistant", textChunks: [text.slice(0, 64_000), text.slice(64_000)] }] } }] });
+  await store.flushAndRelease();
+  const reader = makeStore(filePath);
+  await reader.loadMetadata();
+  const catalog = await reader.threadTexts([], { protocol: 2, knownVersions: { gone: "old" }, maxChars: 0 });
+  expect(catalog).toMatchObject({ threads: [], removed: ["gone"], catalog: [{ threadId: "large", updatedAt: 5 }] });
+  const version = catalog.catalog![0]!.version;
+  expect((await makeStore(filePath).threadTexts([], { protocol: 2 })).catalog![0]!.version).toBe(version);
+  let cursor: string | undefined, result = "", pages = 0;
+  do {
+    const page = (await reader.threadTexts([], { protocol: 2, page: { threadId: "large", version, cursor } })).page!;
+    expect(page.status).toBe("ok");
+    expect(page.chunks.reduce((size, chunk) => size + chunk.text.length, 0)).toBeLessThanOrEqual(64_000);
+    for (const chunk of page.chunks) {
+      expect(chunk.messageId).toBe("1");
+      expect(chunk.offset).toBe(result.length);
+      expect(chunk.text).not.toMatch(/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/u);
+      result += chunk.text;
+      expect(chunk.end).toBe(result === text);
+    }
+    cursor = page.nextCursor ?? undefined;
+    expect(++pages).toBeLessThan(10);
+  } while (cursor);
+  expect(result).toBe(text);
+  expect(reader.isUnloaded("large")).toBe(true);
+});
+
+it("invalidates in-flight pages for same-timestamp writes by another store and returns deletions from disk", async () => {
+  const { filePath } = await fixture();
+  const writer = makeStore(filePath);
+  const saved = { tauThreadId: "same", updatedAt: 9, messages: [{ role: "user", text: "first " + "a".repeat(90_000) }] };
+  await writer.write({ sessions: [{ id: "same", record: saved }] });
+  const reader = makeStore(filePath);
+  await reader.loadMetadata();
+  const version = (await reader.threadTexts([], { protocol: 2 })).catalog![0]!.version;
+  const first = (await reader.threadTexts([], { protocol: 2, page: { threadId: "same", version } })).page!;
+  expect(first.nextCursor).not.toBeNull();
+  await writer.write({ sessions: [{ id: "same", record: { ...saved, messages: [{ role: "user", text: "other text" }] } }] });
+  const changed = await reader.threadTexts([], { protocol: 2, knownVersions: { same: version } });
+  expect(changed.catalog![0]!.version).not.toBe(version);
+  expect((await reader.threadTexts([], { protocol: 2, page: { threadId: "same", version, cursor: first.nextCursor! } })).page)
+    .toMatchObject({ status: "changed", chunks: [] });
+  await writer.write({ sessions: [{ id: "same" }] });
+  expect(await reader.threadTexts([{ tauThreadId: "same", updatedAt: 9, messages: [] }], { protocol: 2, knownVersions: { same: version }, maxChars: 0 }))
+    .toMatchObject({ catalog: [], removed: ["same"] });
+  expect((await reader.threadTexts([], { protocol: 2, page: { threadId: "same", version } })).page!.status).toBe("missing");
 });

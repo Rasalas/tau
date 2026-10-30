@@ -26,7 +26,8 @@ import type {
   UiWake,
 } from "../shared/contracts.js";
 import type { ExtensionIsolation } from "../shared/extension-permissions.js";
-import type { HostActionResult, HostUpdate } from "../shared/host-protocol.js";
+import type { HostActionResult, HostUpdate, TranscriptPage } from "../shared/host-protocol.js";
+import type { HostTranscriptCursor } from "../shared/transcript-cursor.js";
 import type { RuntimeReadiness } from "../shared/host-resources.js";
 import type { HostPushEvent } from "../shared/host-transport.js";
 import type { PiShortcut, PiUserKeybindings } from "../shared/keybindings-protocol.js";
@@ -37,6 +38,7 @@ import type { InstalledExtension as InstalledPackage, RemovalResult as PackageRe
 import type { PackageScope } from "./extension-sources.js";
 import type { HostBrowserResources } from "./host-browser-resources.js";
 import type { HostExecutionPolicy, HostExecutionPolicyServices } from "./host-execution-policy.js";
+import type { HostHttpRoute } from "./host-http-route.js";
 import type { HostMachineRoutingPolicy } from "./host-machine-routing.js";
 import type { HostModelAuthServices } from "./model-auth.js";
 import type { PackageReview } from "./package-approval.js";
@@ -287,6 +289,31 @@ export interface HostSessionSummary {
   origin?: UiThreadOrigin;
 }
 
+/** A canonical persisted conversation above provider-owned sessions. API 1.80.0. */
+export interface HostConversationSummary {
+  sessionId: string;
+  cwd: string;
+  /** The current Pi segment, never one of the conversation's obsolete session aliases. */
+  path: string;
+  modifiedAt: number;
+  /** Opaque revision of the inherited history and current segment, stable across restarts. */
+  version: string;
+  /** A retained tombstone prevents consumers from finding old session aliases. */
+  deleted?: true;
+}
+
+export type HostConversationPage =
+  | { status: "ok"; page: TranscriptPage }
+  | { status: "changed" | "missing" | "invalid-cursor" };
+
+/** Read-only persisted conversations, without opening their runtimes. API 1.80.0. */
+export interface HostConversationServices {
+  /** Switched-to-Pi conversations and retained deletion tombstones. Other runtimes keep their own exports. */
+  list(): Promise<HostConversationSummary[]>;
+  /** Complete visible history, newest page first. Every page checks the catalog revision again. */
+  page(sessionId: string, version: string, cursor?: HostTranscriptCursor): Promise<HostConversationPage>;
+}
+
 /** A thread an extension asks the host to run for it, off screen. */
 export interface HostThreadStartOptions {
   /** Project the thread runs in. */
@@ -353,6 +380,8 @@ export interface HostStartedThread {
 
 /** How `sessions.send` delivers a message. */
 export interface HostThreadSendOptions {
+  /** In-process only. Recheck revocable authorization immediately before queue admission. API 1.79.0. */
+  beforeAdmit?: () => void;
   delivery?: "prompt" | "steer" | "queue";
   /** Preserve the composer's delivery identity across a machine hop. */
   identity?: ClientTurnIdentity;
@@ -392,6 +421,8 @@ export interface HostSessionServices {
    * they are reading; it resolves once the thread exists, not when it answers.
    */
   start(options: HostThreadStartOptions): Promise<HostStartedThread>;
+  /** Changes the executing runtime of an idle local conversation, retaining its visible history. */
+  switchRuntime?(id: string, kind: string): Promise<void>;
   /**
    * Takes over a Pi session another machine wrote: a new id, `cwd` in its
    * header, and the origin entry after it; every other entry is copied as it
@@ -483,6 +514,8 @@ export interface HostThreadLifecycle {
    * not deletion — `HostTurnObserver.closed` is that.
    */
   threadDeleted?(sessionId: string, cwd: string): Promise<void>;
+  /** Before a validated thread moves to the trash. In-process only; rejection prevents removal. */
+  beforeRemove?(sessionId: string, cwd: string): Promise<void>;
   /** Before a runtime is built for a session file. */
   beforeOpen?(session: HostSessionFile): Promise<void>;
   /** After a fork wrote its session file and before that file's runtime opens. */
@@ -578,6 +611,11 @@ export interface HostPairedDevice {
  * listeners of its own.
  */
 export interface HostNetworkServices {
+  /** Published proxy addresses; does not open listeners. In-process only. */
+  publishedEndpoints?(): readonly UiHostEndpoint[];
+  /** In-process HTTP routes under /extensions/<extension id>/<name>. Does not open a listener. */
+  registerHttpRoute?(name: string, handler: HostHttpRoute): () => void;
+
   /** What Settings → Connections shows under Network access. */
   state(): UiNetworkAccess | undefined;
   /**
@@ -930,6 +968,8 @@ export interface HostThread {
   completionModels?(): Promise<UiModel[]>;
   /** The thread's messages under the ids the client draws, so one can be named back to it. */
   transcript(): Promise<UiMessage[]>;
+  /** Server-filtered public activity; output requires explicit audience opt-in. No raw result reads. */
+  publicTools?(options: import("./public-thread-tools.js").HostPublicToolOptions): Promise<import("./public-thread-tools.js").HostPublicTools>;
   /** One short answer from a model of the thread's runtime, unrelated to the conversation. */
   complete(provider: string, modelId: string, request: CompletionRequest): Promise<string>;
   /** The provider API of the thread's active model, e.g. "openai-responses". */
@@ -1084,12 +1124,21 @@ export interface HostExtensionServices {
   admitWorkspace(path: string): WorkspaceRef;
   projectName(cwd: string): Promise<string>;
   rememberProjectName(cwd: string, name: string): void;
+  /** Re-reads project facts and persists its registration without opening a thread. In-process only. */
+  refreshProject?(cwd: string): Promise<void>;
   /** Native folder picker of the host platform; resolves undefined when cancelled. */
   pickDirectory(options?: DirectoryPickerOptions): Promise<string | undefined>;
   /** Whether Tau or an attached Pi terminal owns the active runtime. */
   runtimeOwner(): "tau" | "pi";
   /** An open thread by id, or the active one; `undefined` when it is not open. */
   thread(sessionId?: string): HostThread | undefined;
+  /**
+   * The thread by id, its released runtime reopened off screen first, for work
+   * the user asked for on a thread they are not reading (a title regenerated
+   * from the rail's selection). `undefined` for one Pi's terminal holds.
+   * Rejects for a thread that no longer exists. New in API 1.79.0.
+   */
+  reopenThread?(sessionId: string): Promise<HostThread | undefined>;
   /**
    * One short answer for a small job of the extension's own — a title, a
    * branch name, a commit message. It runs on the user's Pi model
@@ -1200,6 +1249,8 @@ export interface HostExtensionServices {
    */
   readonly packageBuilds?: HostPackageBuilds;
   readonly sessions: HostSessionServices;
+  /** Canonical histories of conversations switched to Pi; absent before API 1.80.0. */
+  readonly conversations?: HostConversationServices;
   /**
    * The clients attached to this host. Ungated: it reports how many there are,
    * which transport each came through and which profile it claimed, and
@@ -1364,6 +1415,8 @@ HostNetworkReach
 export type { PackageReview } from "./package-approval.js";
 
 export interface HostExtensionContext {
+  /** Synchronous notifications from another host extension, bound to its registered id. In-process only. */
+  observeExtensionEvent?(source: string, name: string, listener: (payload: unknown) => void): () => void;
   readonly id: string;
   /** Opaque identity minted by the host for this activation. */
   readonly invocationContextId: string;

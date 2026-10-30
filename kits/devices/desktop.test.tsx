@@ -284,3 +284,41 @@ it("rejects a capture from before rotation and waits for its fresh result before
   await waitFor(() => expect(frameCount).toBe(4));
   await act(async () => { settleNew({ dataUrl: `${png}#tapped` }); });
 });
+it("edits a machine's forwarded ports and shows why its tunnel failed", async () => {
+  const invoke = host();
+  const mac = { id: "ssh-1", name: "Studio Mac", ssh: "studio", remoteDirectory: "/tmp/tools", forwardPorts: [8081] };
+  const saved: HubState = { ...structuredClone(state), settings: { ...structuredClone(DEFAULT_SETTINGS), hosts: [...DEFAULT_SETTINGS.hosts, mac] }, tunnels: { "ssh-1": { ports: [8081], status: "failed", error: "remote port forwarding failed for listen port 8081" } } };
+  invoke.mockImplementation(async <T,>(command: string, input?: unknown): Promise<T> => {
+    if (command === "state") return structuredClone(saved) as T;
+    if (command === "configure") return { ...structuredClone(saved), settings: input, tunnels: { "ssh-1": { ports: [8081, 19000], status: "connecting" } } } as T;
+    return {} as T;
+  });
+  render(<DeviceSettingsPage invoke={invoke} />);
+  const ports = await screen.findByRole("textbox", { name: "Machine 2 forwarded ports" });
+  expect(ports).toHaveProperty("value", "8081");
+  expect(screen.getByText("remote port forwarding failed for listen port 8081")).toBeTruthy();
+  expect(screen.getByText("Failed")).toBeTruthy();
+  fireEvent.change(ports, { target: { value: "8081, 19000" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save simulator settings" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("configure", expect.objectContaining({ hosts: [DEFAULT_SETTINGS.hosts[0], { ...mac, forwardPorts: [8081, 19000] }] })));
+  await screen.findByText("Connecting…");
+  expect(screen.getByText("Ports 8081, 19000")).toBeTruthy();
+});
+it("syncs the open project to a selected SSH machine and reports where it went", async () => {
+  const invoke = host();
+  const mac = { id: "ssh-1", name: "Studio Mac", ssh: "studio", remoteDirectory: "/tmp/tools", forwardPorts: [8081] };
+  const saved: HubState = { ...structuredClone(state), settings: { ...structuredClone(DEFAULT_SETTINGS), hosts: [...DEFAULT_SETTINGS.hosts, mac] } };
+  invoke.mockImplementation(async <T,>(command: string): Promise<T> => {
+    if (command === "state") return structuredClone(saved) as T;
+    if (command === "sync-project") return { hostId: "ssh-1", hostName: "Studio Mac", ssh: "studio", projectPath: "/work/app", remotePath: "/tmp/tools/projects/app-0123abcd", files: 12, bytes: 100, removed: 1, forwardPorts: [8081], hint: "" } as T;
+    return {} as T;
+  });
+  render(<DevicePanel active extensionName="Devices" actions={{ openSettings: vi.fn() } as unknown as WorkbenchActions} invoke={invoke} />);
+  const machine = await screen.findByRole("combobox", { name: "Device machine" });
+  await waitFor(() => expect(screen.getByRole("option", { name: "Studio Mac" })).toBeTruthy());
+  expect(screen.queryByRole("button", { name: "Sync project" })).toBeNull();
+  fireEvent.change(machine, { target: { value: "ssh-1" } });
+  fireEvent.click(await screen.findByRole("button", { name: "Sync project" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("sync-project", { hostId: "ssh-1" }));
+  expect((await screen.findByText(/Synced 12 files/)).textContent).toBe("Synced 12 files to Studio Mac: /tmp/tools/projects/app-0123abcd, removed 1. Forwarded ports: 8081.");
+});

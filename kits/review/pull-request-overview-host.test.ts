@@ -250,7 +250,7 @@ describe("linked pull requests", () => {
     runtime[0]!(pi as never, { sessionId: "thread-1", cwd: "/project" } as never);
     expect(pi.registerTool).toHaveBeenCalledTimes(3);
     const turn = handlers.get("before_agent_start")!({ systemPrompt: "You are Pi." }) as { systemPrompt: string };
-    expect(turn.systemPrompt).toMatch(/^You are Pi\.\n\n<pull_request_linking>[\s\S]*call the link_pull_request tool with its full URL[\s\S]*<\/pull_request_linking>$/u);
+    expect(turn.systemPrompt).toMatch(/^You are Pi\.\n\n<pull_request_linking>[\s\S]*call the link_pull_request tool with its full URL[\s\S]*<\/pull_request_linking>\n\n<pull_request_media>[\s\S]*--attach[\s\S]*<\/pull_request_media>$/u);
     // The second section is the PR watch's.
     expect(instructions.map((provider) => provider({ sessionId: "thread-2", cwd: "/elsewhere" }))).toEqual([expect.stringContaining("list_thread_pull_requests"), expect.stringContaining("watch_pull_request")]);
   });

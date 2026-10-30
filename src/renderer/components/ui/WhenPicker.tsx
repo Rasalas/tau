@@ -11,9 +11,11 @@ import "./when-picker.css";
  * `rememberKey` (`rememberWhenPick`) when that row is still offered. ↑↓ move,
  * Enter confirms; a double click confirms a row.
  */
-export function WhenPicker({ presets, rememberKey, label, now = Date.now, autoFocus = false, onChange, onConfirm }: {
+export function WhenPicker({ presets, rememberKey, missingRemembered = "first", label, now = Date.now, autoFocus = false, onChange, onConfirm }: {
   presets: readonly WhenPreset[];
   rememberKey?: string;
+  /** A removed machine preset may leave the picker unselected. */
+  missingRemembered?: "first" | "none";
   label: string;
   now?(): number;
   /** The list takes focus when it appears, as a dialog's first field. */
@@ -26,6 +28,7 @@ export function WhenPicker({ presets, rememberKey, label, now = Date.now, autoFo
   const [pick, setPick] = useState<WhenPick>(() => {
     const remembered = rememberKey ? readWhenPick(storage, rememberKey) : undefined;
     if (remembered === CUSTOM_WHEN || presets.some((preset) => preset.id === remembered)) return remembered!;
+    if (remembered && missingRemembered === "none") return "";
     return presets[0]?.id ?? CUSTOM_WHEN;
   });
   const [custom, setCustom] = useState(() => localDateTimeInput(presets.find((preset) => preset.id === "tomorrow")?.at ?? now() + 3_600_000));
@@ -58,7 +61,7 @@ export function WhenPicker({ presets, rememberKey, label, now = Date.now, autoFo
   };
   return (
     <div className="when-picker">
-      <div ref={list} className="when-picker-list" role="listbox" aria-label={label} tabIndex={0} aria-activedescendant={`${id}-${pick}`} onKeyDown={onKeyDown}>
+      <div ref={list} className="when-picker-list" role="listbox" aria-label={label} tabIndex={0} aria-activedescendant={rows.includes(pick) ? `${id}-${pick}` : undefined} onKeyDown={onKeyDown}>
         {presets.map((preset) => (
           <div
             key={preset.id}

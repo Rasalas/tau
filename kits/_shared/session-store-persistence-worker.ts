@@ -57,7 +57,10 @@ export interface SqliteStoreRead {
  * this function uses is local or a builtin imported through its parameter.
  * A parameter shadows require so esbuild cannot capture an outer ESM helper.
  */
-export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void {
+export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire, paging: {
+  page: typeof import("tau/host-extension").threadTextPage;
+  catalog: typeof import("tau/host-extension").threadTextsCatalog;
+}): void {
   const { parentPort, workerData } = requireBuiltin("node:worker_threads") as typeof import("node:worker_threads");
   const fs = requireBuiltin("node:fs") as typeof import("node:fs");
   const { dirname } = requireBuiltin("node:path") as typeof import("node:path");
@@ -319,7 +322,49 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   };
 
-  port.on("message", (request: { id: number; operation: string; changes?: SqliteChanges; digest?: string; threadId?: string; threadIds?: string[]; textChars?: number; version?: number; summaries?: Array<{ id: string; revision: string; payload: string }>; pages?: number; at?: number; bytes?: number }) => {
+  const textPage = (input: import("tau/host-extension").ThreadTextsRequest, supportedVersion: number) => {
+    const db = open(false);
+    // Both the catalog and each text page observe a single committed revision.
+    // Use database metadata, not the host's possibly stale lazy catalog.
+    db.exec("BEGIN");
+    try {
+      let answer: import("tau/host-extension").ThreadTextsPagedAnswer;
+      if (!input.page) {
+        const entries = db.prepare("SELECT thread_id,revision,record_version,metadata FROM sessions").iterate();
+        answer = paging.catalog((function* () {
+          for (const row of entries) {
+            if (Number(row.record_version) > supportedVersion) throw new Error(`Unsupported SQLite session record version: ${row.record_version}`);
+            const record = JSON.parse(String(row.metadata)).sessions[0];
+            if (record.tauThreadId !== row.thread_id || !Number.isFinite(record.updatedAt)) throw new Error("Invalid thread text metadata");
+            yield { threadId: String(row.thread_id), updatedAt: record.updatedAt, version: String(row.revision) };
+          }
+        })(), input);
+      } else {
+        const wanted = input.page;
+        if (typeof wanted.threadId !== "string" || typeof wanted.version !== "string") throw new Error("Invalid thread text page request");
+        const row = db.prepare("SELECT record_version,revision,message_count FROM sessions WHERE thread_id=?").get(wanted.threadId);
+        if (row && Number(row.record_version) > supportedVersion) throw new Error(`Unsupported SQLite session record version: ${row.record_version}`);
+        const messages = (start: number) => (function* () {
+          for (const stored of db.prepare("SELECT ordinal,payload FROM messages WHERE thread_id=? AND ordinal>=? ORDER BY ordinal").iterate(wanted.threadId, start)) {
+            // One row at a time. Huge messages stay in this worker; only bounded
+            // chunks cross to the host. Usage history is never decoded here.
+            const message = JSON.parse(String(stored.payload));
+            const text = typeof message.text === "string" ? message.text
+              : Array.isArray(message.textChunks) && message.textChunks.every((chunk: unknown) => typeof chunk === "string") ? message.textChunks.join("") : undefined;
+            if (text === undefined || !["user", "assistant", "notice"].includes(message.role)) throw new Error(`Invalid SQLite history: ${wanted.threadId}`);
+            yield { ordinal: Number(stored.ordinal), role: String(message.role), text };
+          }
+        })();
+        answer = { protocol: 2, threads: [], catalog: [], removed: [], more: false,
+          page: row ? paging.page(wanted.threadId, String(row.revision), Number(row.message_count), messages, input)
+            : { threadId: wanted.threadId, version: wanted.version, status: "missing", chunks: [], nextCursor: null } };
+      }
+      db.exec("COMMIT");
+      return answer;
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  };
+
+  port.on("message", (request: { id: number; operation: string; input?: import("tau/host-extension").ThreadTextsRequest; changes?: SqliteChanges; digest?: string; threadId?: string; threadIds?: string[]; textChars?: number; version?: number; summaries?: Array<{ id: string; revision: string; payload: string }>; pages?: number; at?: number; bytes?: number }) => {
     try {
       let value: unknown;
       if (request.operation === "initialize") {
@@ -335,6 +380,7 @@ export function sessionStoreSqliteWorkerMain(requireBuiltin: NodeRequire): void 
       else if (request.operation === "histories") value = load(false, undefined, false, request.threadIds);
       else if (request.operation === "usage") value = load(true, undefined, true);
       else if (request.operation === "history") value = load(false, request.threadId);
+      else if (request.operation === "text-page") value = textPage(request.input!, request.version!);
       else if (request.operation === "texts") value = texts(request.threadIds!, request.textChars!, request.version!);
       else if (request.operation === "summaries") transaction((db) => {
         const save = db.prepare("INSERT INTO session_summaries VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload");

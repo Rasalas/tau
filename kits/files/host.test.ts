@@ -10,6 +10,7 @@ import { createWorkspaceHostExtension } from "../workspace/host.js";
 import createFilesHostExtension from "./host.js";
 import { createFilesHost, FILES_KIT_ID } from "./protocol.js";
 import { createCodeEditor } from "./editor-view.js";
+import { DOCX, zipFixture } from "./preview-fixtures.js";
 import { FileDocument } from "./document.js";
 
 Range.prototype.getClientRects ??= function getClientRects() { return [] as unknown as DOMRectList; };
@@ -50,6 +51,17 @@ async function kits(cwd: string, known: readonly string[] = []) {
 }
 
 describe("Files Kit host", () => {
+  it("previews only a named admitted project and never the host's current project", async () => {
+    const a = await project(); const b = await project(); const forgotten = await project();
+    await writeFile(join(b, "a.docx"), zipFixture(DOCX));
+    const registry = await kits(a, [b]);
+    const invoke = (command: string, input: unknown) => registry.invoke(FILES_KIT_ID, command, input);
+    await expect(invoke("preview", { workspace: b, relPath: "a.docx" })).resolves.toMatchObject({ ok: true, content: { kind: "document" } });
+    await expect(invoke("preview", { relPath: "a.docx" })).rejects.toThrow("Tau does not know which project");
+    await expect(invoke("preview", { workspace: forgotten, relPath: "a.docx" })).rejects.toThrow("not a known Tau project");
+    expect(await invoke("preview", { workspace: b, relPath: "../outside.docx" })).toMatchObject({ ok: false });
+  });
+
   it("opens a CRLF file, edits one line and saves a one-line diff", async () => {
     const original = "first\r\nsecond\r\nthird\r\n";
     const cwd = await project(original);

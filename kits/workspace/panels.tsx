@@ -287,7 +287,9 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   // The changes too: Changed / All read both.
   const refreshFiles = () => Promise.all([workspaceStore.refreshFiles(), workspaceStore.refreshChanges()]);
   const loadFiles = (path: string) => workspaceStore.loadFiles(path);
-  const readFile = useCallback((path: string) => workspaceStore.host.readFile(path, workspaceStore.workspace()), [workspaceStore]);
+  const readingWorkspace = workspaceStore.workspace();
+  const readFile = useCallback((path: string) => workspaceStore.host.readFile(path, readingWorkspace), [workspaceStore, readingWorkspace]);
+  const filePreview = reading && readingWorkspace ? workspaceStore.renderFilePreview(reading, { workspace: readingWorkspace }) : undefined;
   const readDiff = useCallback((path: string) => workspaceStore.host.getFileDiff(path, undefined, workspaceStore.workspace()), [workspaceStore]);
   useEffect(() => { if (active) void refreshFiles(); }, [active, cwd, workspaceStore]); // eslint-disable-line react-hooks/exhaustive-deps
   // Another project's paths name other files; the first render keeps what a focus request picked.
@@ -305,7 +307,8 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   };
   const searcher = useSyncExternalStore(search?.subscribe ?? noSlot, () => search?.get());
   const { localFiles } = useHostCapabilities();
-  const editor = localFiles ? workspaceStore.activeEditor() : undefined;
+  // Another machine's project opens in this device's editor when the window placed it so.
+  const editor = localFiles || workspaceStore.editorsHere() ? workspaceStore.activeEditor() : undefined;
 
   const tree = <FileTree
     nodes={fileTree}
@@ -381,7 +384,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
         </header>
         {changedPaths.has(reading) && fileView === "diff"
           ? <FileDiffPane path={reading} load={readDiff} layout={diffLayout} wrap={diffWrap} />
-          : <FileReader key={reading} path={reading} load={readFile} />}
+          : <FileReader key={`${readingWorkspace}:${reading}`} path={reading} load={readFile} preview={filePreview} />}
       </div> : <div className="files-stage-empty"><p className="empty-copy">Pick a file to read it here; a double-click opens it as a tab of its own.</p></div>}
     </section>;
   }
@@ -391,7 +394,7 @@ export function FilesPanel({ active, placement, search }: PanelProps & { search?
   const shownChange = changed ? changes.files.find((file) => file.path === (preview ?? changes.files[0]?.path)) : undefined;
   // The tree stays mounted under the file, so back finds its folders as they were.
   return <section className="panel-body files-panel">
-    {inSheet && reading ? <FileReader path={reading} load={readFile} onBack={() => setReading(undefined)} /> : null}
+    {inSheet && reading ? <FileReader key={`${readingWorkspace}:${reading}`} path={reading} load={readFile} preview={filePreview} onBack={() => setReading(undefined)} /> : null}
     <header className="panel-header" hidden={Boolean(inSheet && reading)}>
       {/* The sheet's own header names it already. */}
       {inSheet ? <>

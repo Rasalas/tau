@@ -1,9 +1,13 @@
-import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { Dialog, ProviderIconStack, errorMessage, tooltipProps, type UiProject, type UiRuntimeBackend, type WorkbenchActions } from "tau";
+import { Dialog, ProviderIconStack, errorMessage, tooltipProps, useThreadStore, type UiProject, type UiRuntimeBackend, type WorkbenchActions } from "tau";
 import type { SchedulingFeed } from "./feed.js";
-import type { Job, JobConfig, ManagementState, Schedule } from "./protocol.js";
+import { WEBHOOK_FORMATS, type Job, type JobConfig, type ManagementState, type Schedule, type WebhookFormat } from "./protocol.js";
 import { DEFAULT_REPEAT, localTimeZone, RepeatBuilder, repeatProblem } from "./repeat.js";
+import { FORMAT_LABELS, SECRET_PLACEHOLDERS, WebhookSetup } from "./webhook-setup.js";
+import WebhookBurstsEditor, { type WebhookBurstDraft } from "./webhook-bursts-editor.js";
+import { DEFAULT_WEBHOOK_WAIT_SECONDS, decodeWebhookCoalescing } from "./webhook-coalescing.js";
+import WebhookFilterEditor, { filtersFromDrafts, webhookFilterDrafts } from "./webhook-filter-editor.js";
 
 export function AutomationEditor({ job, actions, feed, state, projects, onClose }: { job?: Job; actions: WorkbenchActions; feed: SchedulingFeed; state: ManagementState; projects: readonly UiProject[]; onClose(): void }) {
   const active = actions.activeThread();
@@ -18,11 +22,22 @@ export function AutomationEditor({ job, actions, feed, state, projects, onClose 
   const [runtimes, setRuntimes] = useState<readonly UiRuntimeBackend[]>([]);
   const [kind, setKind] = useState<Schedule["kind"]>(job?.config.schedule.kind ?? "daily");
   const schedule = job?.config.schedule;
+  const [bursts, setBursts] = useState<WebhookBurstDraft>(() => ({ enabled: Boolean(schedule?.kind === "webhook" && schedule.coalescing), keyPath: schedule?.kind === "webhook" ? schedule.coalescing?.keyPath ?? "" : "", waitSeconds: schedule?.kind === "webhook" ? schedule.coalescing?.waitSeconds ?? DEFAULT_WEBHOOK_WAIT_SECONDS : DEFAULT_WEBHOOK_WAIT_SECONDS }));
+  const [filters, setFilters] = useState(() => webhookFilterDrafts(schedule?.kind === "webhook" ? schedule.filters : undefined));
   const [time, setTime] = useState(schedule?.kind === "daily" ? schedule.time : schedule?.kind === "once" ? schedule.at.slice(11, 16) : "09:00");
   const [expression, setExpression] = useState(schedule?.kind === "cron" ? schedule.expression : DEFAULT_REPEAT);
   // A saved job keeps its zone; a new one repeats in this device's.
   const [timezone] = useState(() => schedule?.kind === "cron" ? schedule.timezone : localTimeZone());
   const [date, setDate] = useState(schedule?.kind === "once" ? schedule.at.slice(0, 10) : new Date().toISOString().slice(0, 10));
+  const [format, setFormat] = useState<WebhookFormat>(schedule?.kind === "webhook" ? schedule.format ?? "tau" : "tau");
+  // New webhooks give the agent the delivery; a saved one keeps its choice.
+  const [includePayload, setIncludePayload] = useState(schedule?.kind === "webhook" ? schedule.includePayload === true : true);
+  const [runsIn, setRunsIn] = useState<"new" | "thread">(job?.config.target ? "thread" : "new");
+  const [threadId, setThreadId] = useState<string>(job?.config.target?.threadId ?? (active && !active.draftPending ? active.sessionId ?? "" : ""));
+  const store = useThreadStore();
+  const index = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // Only a thread on this machine can be continued.
+  const localThreads = useMemo(() => index.threads.filter((thread) => !thread.machine && thread.backendKind !== "machine").sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 200), [index.threads]);
   const [enabled, setEnabled] = useState(job?.enabled ?? true);
   const [secret, setSecret] = useState("");
   const [created, setCreated] = useState<Job | undefined>(job);
@@ -34,9 +49,9 @@ export function AutomationEditor({ job, actions, feed, state, projects, onClose 
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     const current = Math.max(0, choices.findIndex((runtime) => runtime.kind === backend));
-    const index = event.key === "Home" ? 0 : event.key === "End" ? choices.length - 1 : (current + (event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1) + choices.length) % choices.length;
-    setBackend(choices[index]!.kind);
-    event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[index]?.focus();
+    const next = event.key === "Home" ? 0 : event.key === "End" ? choices.length - 1 : (current + (event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1) + choices.length) % choices.length;
+    setBackend(choices[next]!.kind);
+    event.currentTarget.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -44,7 +59,9 @@ export function AutomationEditor({ job, actions, feed, state, projects, onClose 
     setBusy(true); setError(undefined);
     const privateValue = secret; setSecret("");
     try {
-      const config: JobConfig = { name, prompt, workspace, backend, workspaceStrategy, ...(accessLevel === undefined ? {} : { accessLevel }), maxDurationMinutes, schedule: kind === "daily" ? { kind, time, timezone: "UTC" } : kind === "cron" ? { kind, expression: expression.trim(), timezone } : kind === "once" ? { kind, at: `${date}T${time}:00Z` } : { kind } };
+      const config: JobConfig = { name, prompt, workspace, backend, workspaceStrategy, ...(accessLevel === undefined ? {} : { accessLevel }), maxDurationMinutes,
+        ...(runsIn === "thread" ? { target: { kind: "thread" as const, threadId } } : {}),
+        schedule: kind === "daily" ? { kind, time, timezone: "UTC" } : kind === "cron" ? { kind, expression: expression.trim(), timezone } : kind === "once" ? { kind, at: `${date}T${time}:00Z` } : { kind, ...(format === "tau" ? {} : { format }), ...(includePayload ? { includePayload } : {}), filters: filtersFromDrafts(filters), ...(bursts.enabled ? { coalescing: decodeWebhookCoalescing({ keyPath: bursts.keyPath, waitSeconds: bursts.waitSeconds }) } : created?.config.schedule.kind === "webhook" && created.config.schedule.coalescing ? { coalescing: null } : {}) } };
       const current = created ? await feed.invoke("update", { id: created.id, config }) as Job : await feed.invoke("create", config) as Job;
       // Preserve the ID after a partial save so retry never creates a duplicate automation.
       setCreated(current);
@@ -53,29 +70,47 @@ export function AutomationEditor({ job, actions, feed, state, projects, onClose 
         const saved = feed.get().state?.jobs.find((entry) => entry.id === current.id);
         if (saved) setCreated(saved);
       }
-      if (enabled) await feed.invoke("enable", { id: current.id });
+      if (enabled && !current.enabled) await feed.invoke("enable", { id: current.id });
+      else if (!enabled && current.enabled) await feed.invoke("disable", { id: current.id });
       onClose();
     } catch (failure) { setError(errorMessage(failure)); }
     finally { setBusy(false); }
   };
+  let webhookProblem = false;
+  if (kind === "webhook") {
+    try {
+      filtersFromDrafts(filters);
+      if (bursts.enabled) decodeWebhookCoalescing({ keyPath: bursts.keyPath, waitSeconds: bursts.waitSeconds });
+    } catch { webhookProblem = true; }
+  }
   const localTime = new Date(`${date}T${time}:00Z`);
-  const hasSavedKey = Boolean(created?.secretRef && created.config.workspace === workspace && created.config.schedule.kind === "webhook");
+  const hasSavedKey = Boolean(created?.secretRef && created.config.workspace === workspace && created.config.schedule.kind === "webhook" && (created.config.schedule.format ?? "tau") === format);
+  // Stripe generates its own long whsec_ secrets; every other key is chosen by a person.
+  const secretTooShort = kind === "webhook" && format !== "stripe" && secret.length > 0 && secret.length < 32;
   return createPortal(<Dialog label={job ? "Edit automation" : "New automation"} className="confirm-dialog scheduling-dialog" onClose={() => { if (!busy) onClose(); }}>
     <form onSubmit={(event) => void save(event)}>
-      <header><h2>{job ? "Edit automation" : "New automation"}</h2><p>Each run starts a thread with the workspace, access and time limit you choose.</p></header>
+      <header><h2>{job ? "Edit automation" : "New automation"}</h2><p>{runsIn === "thread" ? "Each run sends the prompt into the thread you choose, with the access and time limit you choose." : "Each run starts a thread with the workspace, access and time limit you choose."}</p></header>
       <label>Name<input autoFocus required maxLength={120} value={name} disabled={busy} onChange={(event) => setName(event.target.value)} /></label>
       <label>Prompt<textarea required rows={4} maxLength={16384} value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} /></label>
       <label>Project<select required disabled={busy} value={workspace} onChange={(event) => setWorkspace(event.target.value)}><option value="">Select project</option>{!projects.some((project) => project.path === workspace) && workspace ? <option value={workspace}>{workspace.split(/[\\/]/u).pop()}</option> : null}{projects.map((project) => <option key={project.workspaceId ?? project.path} value={project.path}>{project.name}</option>)}</select></label>
-      <fieldset className="scheduling-runtimes" role="radiogroup" aria-label="Runtime" onKeyDown={runtimeKey}><legend>Runtime</legend>{choices.map((runtime) => <button key={runtime.kind} type="button" role="radio" tabIndex={backend === runtime.kind ? 0 : -1} aria-checked={backend === runtime.kind} aria-label={runtime.label} disabled={busy} {...tooltipProps(runtime.label)} onClick={() => setBackend(runtime.kind)}><ProviderIconStack runtimeProvider={runtime.kind} runtimeName={runtime.label} /></button>)}</fieldset>
-      <label>Workspace<select value={workspaceStrategy} disabled={busy} onChange={(event) => setWorkspaceStrategy(event.target.value as JobConfig["workspaceStrategy"])}><option value="worktree">New worktree for each run</option><option value="current">Current checkout</option></select><small>Worktrees require a Git repository. If creation fails, the run stops.</small></label>
+      <label>Runs in<select value={runsIn} disabled={busy} onChange={(event) => setRunsIn(event.target.value as "new" | "thread")}><option value="new">A new thread each run</option><option value="thread">An existing thread</option></select></label>
+      {runsIn === "thread" ? <label>Thread<select required value={threadId} disabled={busy} onChange={(event) => setThreadId(event.target.value)}><option value="">Select thread</option>{threadId && !localThreads.some((thread) => thread.id === threadId) ? <option value={threadId}>Thread not on this machine's list</option> : null}{localThreads.map((thread) => <option key={thread.id} value={thread.id}>{thread.title || "Untitled"} · {thread.projectName}</option>)}</select><small>Each run sends the prompt as a new message, brings the thread back from Settled or Archived, and waits while it is busy. Access is held to the level below while the run lasts.</small></label> : null}
+      {runsIn === "new" ? <fieldset className="scheduling-runtimes" role="radiogroup" aria-label="Runtime" onKeyDown={runtimeKey}><legend>Runtime</legend>{choices.map((runtime) => <button key={runtime.kind} type="button" role="radio" tabIndex={backend === runtime.kind ? 0 : -1} aria-checked={backend === runtime.kind} aria-label={runtime.label} disabled={busy} {...tooltipProps(runtime.label)} onClick={() => setBackend(runtime.kind)}><ProviderIconStack runtimeProvider={runtime.kind} runtimeName={runtime.label} /></button>)}</fieldset> : null}
+      {runsIn === "new" ? <label>Workspace<select value={workspaceStrategy} disabled={busy} onChange={(event) => setWorkspaceStrategy(event.target.value as JobConfig["workspaceStrategy"])}><option value="worktree">New worktree for each run</option><option value="current">Current checkout</option></select><small>Worktrees require a Git repository. If creation fails, the run stops.</small></label> : null}
       <label>Access<select value={selectedAccessLevel ?? ""} disabled={busy} onChange={(event) => setAccessLevel(event.target.value as JobConfig["accessLevel"])}>{selectedAccessLevel === undefined ? <option value="">Default access unavailable</option> : null}<option value="read-only">Read-only</option><option value="ask">Ask before edits</option><option value="auto">Auto review</option><option value="full">Full access</option></select><small>Uses the default for new threads unless you choose a level. The machine's stricter setting still applies.</small></label>
       <label>Maximum duration in minutes<input type="number" required min={1} max={1440} step={1} value={maxDurationMinutes} disabled={busy} onChange={(event) => setMaxDurationMinutes(Number(event.target.value))} /></label>
       <label>When<select value={kind} disabled={busy} onChange={(event) => setKind(event.target.value as Schedule["kind"])}><option value="daily">Every day (UTC)</option><option value="cron">Repeat</option><option value="once">Once</option><option value="webhook" disabled={!state.secretStore}>On webhook</option></select></label>
-      {kind === "cron" ? <RepeatBuilder expression={expression} timezone={timezone} disabled={busy} onChange={setExpression} /> : kind !== "webhook" ? <div className="scheduling-time">{kind === "once" ? <label>Date in UTC<input type="date" required value={date} disabled={busy} onChange={(event) => setDate(event.target.value)} /></label> : null}<label>Time in UTC<input type="time" required value={time} disabled={busy} onChange={(event) => setTime(event.target.value)} /></label><small>{Number.isFinite(localTime.getTime()) ? `On ${localTime.toLocaleDateString()}, ${localTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })} locally. UTC stays fixed when clocks change.` : "Choose a date and time."}</small></div> : <label>Webhook signature key<input className="scheduling-private-field" type="password" autoComplete="new-password" maxLength={8192} spellCheck={false} disabled={busy || !state.secretStore} required={!hasSavedKey} placeholder={hasSavedKey ? "Saved privately. Leave empty to keep it." : "Paste the secret"} value={secret} onChange={(event) => setSecret(event.target.value)} /><small>{state.secretStore ? `Stored in ${state.secretStore}. Used only to verify this webhook. Never included in the conversation.` : "This machine has no supported operating-system secret store."}</small></label>}
+      {kind === "cron" ? <RepeatBuilder expression={expression} timezone={timezone} disabled={busy} onChange={setExpression} /> : kind !== "webhook" ? <div className="scheduling-time">{kind === "once" ? <label>Date in UTC<input type="date" required value={date} disabled={busy} onChange={(event) => setDate(event.target.value)} /></label> : null}<label>Time in UTC<input type="time" required value={time} disabled={busy} onChange={(event) => setTime(event.target.value)} /></label><small>{Number.isFinite(localTime.getTime()) ? `On ${localTime.toLocaleDateString()}, ${localTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })} locally. UTC stays fixed when clocks change.` : "Choose a date and time."}</small></div> : <>
+        <label>Sender<select value={format} disabled={busy} onChange={(event) => setFormat(event.target.value as WebhookFormat)}>{WEBHOOK_FORMATS.map((entry) => <option key={entry} value={entry}>{FORMAT_LABELS[entry]}</option>)}</select></label>
+        <label>Webhook signature key<input className="scheduling-private-field" type="password" autoComplete="new-password" maxLength={8192} spellCheck={false} disabled={busy || !state.secretStore} required={!hasSavedKey} placeholder={hasSavedKey ? "Saved privately. Leave empty to keep it." : SECRET_PLACEHOLDERS[format]} value={secret} onChange={(event) => setSecret(event.target.value)} /><small>{secretTooShort ? "Use at least 32 characters, for example from openssl rand -hex 32." : state.secretStore ? `Stored in ${state.secretStore}. Used only to verify this webhook. Never included in the conversation.` : "This machine has no supported operating-system secret store."}</small></label>
+        <label className="scheduling-checkbox"><input type="checkbox" checked={includePayload} disabled={busy} onChange={(event) => setIncludePayload(event.target.checked)} />Give the agent the delivery's payload</label>
+        <div className="scheduling-webhook-info"><WebhookSetup format={format} includePayload={includePayload} url={created && state.webhookUrl ? `${state.webhookUrl}/${created.id}` : undefined} /></div>
+      </>}
+      {kind === "webhook" ? <><WebhookFilterEditor filters={filters} disabled={busy} onChange={setFilters} /><WebhookBurstsEditor value={bursts} disabled={busy} onChange={setBursts} /></> : null}
       <label className="scheduling-checkbox"><input type="checkbox" checked={enabled} disabled={busy} onChange={(event) => setEnabled(event.target.checked)} />Start {kind === "webhook" ? "on signed delivery" : "on schedule"}</label>
       {error ? <p className="scheduling-error" role="alert">{error}</p> : null}
       {created && !job && error ? <p className="scheduling-note">The automation was saved but remains off. Retry updates this automation.</p> : null}
-      <footer><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className="primary" disabled={busy || !state.canManage || selectedAccessLevel === undefined || (kind === "webhook" && !state.secretStore) || (kind === "cron" && Boolean(repeatProblem(expression, timezone, Date.now())))}>{busy ? "Saving…" : "Save automation"}</button></footer>
+      <footer><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className="primary" disabled={busy || webhookProblem || !state.canManage || selectedAccessLevel === undefined || (kind === "webhook" && (!state.secretStore || secretTooShort)) || (runsIn === "thread" && !threadId) || (kind === "cron" && Boolean(repeatProblem(expression, timezone, Date.now())))}>{busy ? "Saving…" : "Save automation"}</button></footer>
     </form>
   </Dialog>, document.body);
 }

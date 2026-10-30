@@ -70,6 +70,8 @@ describe("performance report checks", () => {
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
     expect(env.ELECTRON_IS_DEV).toBe("0");
     expect(env.PATH).toBe("/usr/bin");
+    expect(env.TAU_BENCHMARK_PROFILE_ROOT).toMatch(/[\\/]\.tau-dev[\\/]start-fixture-profiles$/u);
+    expect(buildFixtureEnv({ TAU_BENCHMARK_PROFILE_ROOT: "/private/fixture" }).TAU_BENCHMARK_PROFILE_ROOT).toBe("/private/fixture");
   });
 
   it("fails startup when paint is missing or external requests appear", () => {

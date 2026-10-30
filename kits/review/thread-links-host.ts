@@ -28,6 +28,19 @@ export const LINKING_INSTRUCTIONS = `<pull_request_linking>
 Tau keeps the pull and merge requests each thread works on. Whenever you open a pull or merge request, or start working on an existing one, call the link_pull_request tool with its full URL right away; for a stack, call it for every layer. Opening or updating a request through gh, glab, another CLI or the host's API does not register it with this thread. Linking one that is already linked is harmless. Before you finish work on requests, call list_thread_pull_requests and link any of yours that is missing. Do not link requests you only mention as background. If linking fails, say so instead of claiming the request is linked.
 </pull_request_linking>`;
 
+/**
+ * How an agent puts pictures in a request: GitHub CLI 2.99 uploads them with
+ * `--attach` (https://github.blog/changelog/2026-09-01-github-cli-media-in-issues-pull-requests-and-comments/);
+ * before it GitHub had no upload an agent could reach. The fallback links files
+ * by commit on a ref of their own, as Review Kit's own evidence upload does.
+ */
+export const MEDIA_INSTRUCTIONS = `<pull_request_media>
+To show a screenshot or recording in a GitHub pull request, write its local path where it belongs in the Markdown, as in ![The login error](./login.png), and pass the same path to --attach on gh pr create, gh pr edit or gh pr comment; repeat the flag for each file. gh uploads each file and puts its URL in place of the path; a file the text does not mention is added at the end. A video plays only when its path stands alone in its paragraph. This needs GitHub CLI 2.99 or later (check gh --version), push access, and github.com: PNG, JPEG, GIF, WebP, SVG, MP4, MOV or WebM, images up to 10 MB. Images the user sent you are saved as files too: their paths come with the message, under "Attached files" or as file links. With an older gh or on GitHub Enterprise Server there is no upload: in a public repository, push the files on a ref of their own such as refs/tau/evidence/<branch>, never on the request's branch, and link https://github.com/OWNER/REPO/raw/COMMIT/PATH; in a private one, name the files for the user to drag into the description. Do not say a picture is attached unless gh reported the upload.
+</pull_request_media>`;
+
+/** What every thread's agent reads about pull requests, in Pi's system prompt and over MCP. */
+export const PULL_REQUEST_INSTRUCTIONS = `${LINKING_INSTRUCTIONS}\n\n${MEDIA_INSTRUCTIONS}`;
+
 export interface ThreadLinks {
   /** Links a request to a thread; the Changes panel calls this after creating one. */
   link(threadId: string, url: string, source: ThreadPullRequestLink["source"]): Promise<void>;
@@ -350,11 +363,11 @@ export function registerThreadLinks(
   const disposers = [
     services.registerRuntimeExtension("tau-pull-requests", (pi, session) => {
       for (const tool of tools(session)) pi.registerTool(tool);
-      pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${LINKING_INSTRUCTIONS}` }));
+      pi.on("before_agent_start", (event) => ({ systemPrompt: `${event.systemPrompt}\n\n${PULL_REQUEST_INSTRUCTIONS}` }));
     }),
     services.mcp.registerTools(tools),
     // Runtimes other than Pi read it from the MCP endpoint's instructions.
-    services.mcp.registerInstructions?.(() => LINKING_INSTRUCTIONS) ?? (() => undefined),
+    services.mcp.registerInstructions?.(() => PULL_REQUEST_INSTRUCTIONS) ?? (() => undefined),
     services.registerThreadLifecycle({
       threadDeleted: async (sessionId) => { discoveredAt.delete(sessionId); currentAt.delete(sessionId); await store.forget(sessionId); },
     }),

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostSnapshot, PreferencesStore, WorkbenchActions } from "tau";
 import { createKitHarness } from "../../src/renderer/test-support/kit-harness.js";
 import { shouldTitleAutomatically, threadModel, titleModel, titleGeneratorExtension } from "./desktop.js";
-import { THREAD_TITLES_HOST_EXTENSION_ID, TITLE_FAILED_EVENT } from "./protocol.js";
+import { THREAD_TITLES_HOST_EXTENSION_ID, THREAD_TITLES_SERVICE, TITLE_FAILED_EVENT, type ThreadTitlesService } from "./protocol.js";
 
 function snapshot(messages: HostSnapshot["messages"], backendKind?: string): HostSnapshot {
   return {
@@ -59,6 +59,30 @@ describe("the model that writes a title", () => {
     expect(titleModel(preferences)).toEqual({ provider: "openai-codex", id: "gpt-5.6-luna" });
     preferences.setValue(THREAD_TITLES_HOST_EXTENSION_ID, "model", "malformed");
     expect(titleModel(preferences)).toBeUndefined();
+  });
+
+  it("is Text generation's choice for titles once there is one: the titles' own, else the default", () => {
+    preferences.setValue(THREAD_TITLES_HOST_EXTENSION_ID, "model", "openai/old-choice");
+    preferences.setValue("tau.review", "text-model", "openai/default");
+    expect(titleModel(preferences)).toEqual({ provider: "openai", id: "old-choice" });
+    preferences.setValue("tau.review", "title-model", "");
+    expect(titleModel(preferences)).toEqual({ provider: "openai", id: "default" });
+    preferences.setValue("tau.review", "title-model", "anthropic/haiku");
+    expect(titleModel(preferences)).toEqual({ provider: "anthropic", id: "haiku" });
+  });
+
+  it("regenerates a thread by id with the model, effort and runtime chosen for titles, and keeps only the toggle on its own page", async () => {
+    const invoke = vi.fn(async () => ({ title: "Named" }));
+    const harness = createKitHarness(invoke);
+    harness.registry.activate(titleGeneratorExtension);
+    expect(harness.registry.getExtensionSummaries().find((summary) => summary.id === THREAD_TITLES_HOST_EXTENSION_ID)?.options.map((option) => option.id)).toEqual(["automatic"]);
+    let service: ThreadTitlesService | undefined;
+    harness.registry.activate({ id: "test.rail", name: "Rail", activate: (context) => { context.useService<ThreadTitlesService>(THREAD_TITLES_SERVICE, (value) => { service = value; return () => undefined; }); } });
+    harness.preferences.setValue("tau.review", "title-model", "anthropic/haiku");
+    harness.preferences.setValue("tau.review", "title-effort", "low");
+    harness.preferences.setValue("tau.review", "text-runtime", "pi");
+    await service!.regenerateThread("t7");
+    expect(invoke).toHaveBeenLastCalledWith(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { provider: "anthropic", modelId: "haiku", thinkingLevel: "low", runtime: "pi", force: true, sessionId: "t7" });
   });
 
   it("passes the thread's model on as a hint, whatever its runtime", () => {

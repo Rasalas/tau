@@ -14,8 +14,8 @@ const PI_PROVIDERS_PAGE = "pi-providers.settings";
 export interface TerminalRunner {
   run(request: { command: string; label?: string }, actions?: WorkbenchActions): Promise<{ id: string; exitCode?: number }>;
 }
-const PROJECTS_TEXT = "Folders Claude Code, Codex, OpenCode and Pi have worked in. The ones you choose are added to Tau.";
-const CONVERSATIONS_TEXT = "Earlier Claude Code, Codex and OpenCode conversations become threads you can read and continue in Tau. Their text comes along; tool activity and attachments do not.";
+const PROJECTS_TEXT = "Folders your agents and Pi have worked in. The ones you choose are added to Tau.";
+const CONVERSATIONS_TEXT = "Earlier conversations of your agents become threads you can read and continue in Tau. Their text comes along; tool activity and attachments do not.";
 const SCAN_LIMIT_MESSAGE = "Scan limit reached. Some projects or conversations may be missing.";
 
 /** Runs a command in a terminal the user sees, then asks `recheck` what changed. */
@@ -71,7 +71,9 @@ function Mark({ id, size = 18, name }: { id: string; size?: number; name?: strin
   if (id === "glab") return <GitMerge size={size} />;
   return <ProviderIconStack runtimeProvider={id} hint={name ? {} : false} {...(name ? { name } : {})} />;
 }
-const SOURCE_LABEL = { "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", pi: "Pi" } as const;
+const SOURCE_LABEL = { "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", grok: "Grok", antigravity: "Antigravity", pi: "Pi" } as const;
+/** One column per source that can bring conversations, so the marks line up from row to row. */
+const MARK_COLUMNS = ["claude-code", "codex", "opencode", "cursor", "grok", "pi"] as const;
 
 function plural(count: number, one: string): string {
   return `${count} ${count === 1 ? one : `${one}s`}`;
@@ -262,7 +264,7 @@ function AgentCard({ row, actions, flow, aside, recheck }: { row: AgentRow; acti
 
 function SourceMarks({ sources }: { sources: ReadonlyArray<keyof typeof SOURCE_LABEL> }) {
   return <>
-    {(["claude-code", "codex", "opencode", "pi"] as const).map((source) => (
+    {MARK_COLUMNS.map((source) => (
       <span key={source} className="onboarding-source">{sources.includes(source) ? <Mark id={source} name={SOURCE_LABEL[source]} /> : null}</span>
     ))}
   </>;
@@ -286,6 +288,7 @@ function Notes({ state }: { state: FlowState }) {
   return <>
     {discovery.truncated ? <p className="onboarding-note" role="status">{SCAN_LIMIT_MESSAGE}</p> : null}
     {discovery.unavailable.map((entry) => <p key={entry.source} className="onboarding-note">Could not ask {SOURCE_LABEL[entry.source]}: {entry.reason}</p>)}
+    {(discovery.unsupported ?? []).map((entry) => <p key={entry.source} className="onboarding-note">{SOURCE_LABEL[entry.source]} conversations can't be imported: {entry.reason}</p>)}
   </>;
 }
 
@@ -300,7 +303,7 @@ function CheckFailed({ message, reason, onRetry }: { message: string; reason: st
 
 function Looking({ onSkip, what }: { onSkip(): void; what: string }) {
   return <>
-    <div className="onboarding-looking"><span className="spinner" /> Looking for {what} from Claude Code and Codex…</div>
+    <div className="onboarding-looking"><span className="spinner" /> Looking for {what} from your agents…</div>
     <div className="onboarding-actions"><button type="button" className="onboarding-button ghost" onClick={onSkip}>Do not import projects</button></div>
   </>;
 }
@@ -351,7 +354,7 @@ function ProjectsStep({ state, flow, actions, known }: { state: FlowState; flow:
       <fieldset className="onboarding-list rows" disabled={busy}>
         <legend className="onboarding-sr">Projects to add</legend>
         {candidates.length === 0 && state.discovery
-          ? <p className="onboarding-empty">{state.discovery.projects.length ? "Every folder found is a project in Tau already." : "No existing Claude Code or Codex projects found."}</p>
+          ? <p className="onboarding-empty">{state.discovery.projects.length ? "Every folder found is a project in Tau already." : "No folders your agents worked in were found."}</p>
           : null}
         <ProjectList candidates={candidates} selected={selected} now={now} onToggle={(paths, on) => flow.select("projects", on ? [...selected, ...paths] : [...selected].filter((path) => !paths.includes(path)))} />
       </fieldset>
@@ -451,7 +454,7 @@ function ConversationsStep({ state, flow, actions, known, done }: { state: FlowS
       {pending.length > 0 ? <Selection count={chosen.length} total={pending.length} busy={importing} onAll={() => flow.select("sessions", pending.map((session) => session.path))} onNone={() => flow.select("sessions", [])} /> : null}
       <fieldset className="onboarding-list rows" disabled={importing}>
         <legend className="onboarding-sr">Conversations to import</legend>
-        {pending.length === 0 ? <p className="onboarding-empty">{already ? "Every conversation found is in Tau already." : "No Claude Code or Codex conversations found."}</p> : null}
+        {pending.length === 0 ? <p className="onboarding-empty">{already ? "Every conversation found is in Tau already." : "No earlier conversations of your agents were found."}</p> : null}
         {[...groups].map(([cwd, sessions]) => {
           const paths = sessions.map((session) => session.path);
           const count = paths.filter((path) => selected.has(path)).length;
@@ -477,10 +480,14 @@ function ConversationsStep({ state, flow, actions, known, done }: { state: FlowS
       <Notes state={state} />
       {state.error ? <p className="onboarding-error" role="alert">{state.error}</p> : null}
       <div className="onboarding-actions">
-        <button type="button" className="onboarding-button ghost" disabled={importing} onClick={done}>{state.error ? "Continue without the rest" : "Do not import"}</button>
-        <button type="button" className="onboarding-button primary" disabled={importing || chosen.length === 0} onClick={() => void run()}>
-          {importing && state.progress ? `Importing… ${state.progress.done} of ${state.progress.total}` : `Import ${plural(chosen.length, "conversation")}`}
-        </button>
+        {pending.length === 0
+          ? <button type="button" className="onboarding-button primary" onClick={done}><ArrowRight size={14} />Continue</button>
+          : <>
+            <button type="button" className="onboarding-button ghost" disabled={importing} onClick={done}>{state.error ? "Continue without the rest" : "Do not import"}</button>
+            <button type="button" className="onboarding-button primary" disabled={importing || chosen.length === 0} onClick={() => void run()}>
+              {importing && state.progress ? `Importing… ${state.progress.done} of ${state.progress.total}` : `Import ${plural(chosen.length, "conversation")}`}
+            </button>
+          </>}
       </div>
     </StepShell>
   );

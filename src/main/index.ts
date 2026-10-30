@@ -545,13 +545,18 @@ function watchHostStart<T>(ready: Promise<T>): Promise<T> {
  * into the fatal dialog `watchHostStart` shows for a broken runtime.
  */
 async function startLocalHost(): Promise<HostBootstrap> {
-  const [{ PiHost }, { primeOpenCodeCatalog }] = await Promise.all([import("./pi-host.js"), import("./pi-model-runtime.js")]);
+  const [{ PiHost }, { primeOpenCodeCatalog }, { ExternalMcpThreads }] = await Promise.all([import("./pi-host.js"), import("./pi-model-runtime.js"), import("./external-mcp-threads.js")]);
+  // Threads MCP clients started keep their ceilings in this process too (ADR 0046).
+  const mcpThreads = await ExternalMcpThreads.open({ path: join(app.getPath("userData"), "external-mcp-threads.json"), logger: hostLog });
   const startup = resolveStartupWorkspace(requestedWorkspace, projectHistory.list());
   if (startup.missing) hostLog.warn("workspace.missing", { requested: startup.missing, fallback: startup.cwd });
   // Off the critical path: the first thread's runtime finds the models.dev catalog done, later ones share it.
   primeOpenCodeCatalog();
   host = new PiHost(startup.cwd, publish, projectHistory, safeMode, true, hostOptions);
-  return host.start();
+  mcpThreads.attach(host);
+  const started = await host.start();
+  void mcpThreads.restore();
+  return started;
 }
 
 /**
@@ -775,8 +780,11 @@ function createWindowPlatform(): ClientHostPlatform {
     copyImage: copyImageToClipboard,
     readImagePreview: rendererImagePreview,
     shareFile: (path) => sharedFiles.share(path),
-    loadDesktopExtensions: async (cwd, sharedExports, only) =>
-      (shownHost ?? windowHost!).loadDesktopExtensions(cwd, sharedExports, only, (result) => serveBundles(result, only)),
+    loadDesktopExtensions: async (cwd, sharedExports, only) => {
+      // The cached workbench can request extensions before its host exists.
+      await hostReady;
+      return (shownHost ?? windowHost!).loadDesktopExtensions(cwd, sharedExports, only, (result) => serveBundles(result, only));
+    },
     rebuildWorkbench: async (context) => runRebuild(context, windowHost?.activeWorkspace ?? requestedWorkspace ?? ""),
     workbenchSource: async () => managedWorkbenchSource ? managedWorkbenchSource.ensure() : workbenchRoot,
     relaunchWorkbench: () => workbenchReloader.relaunch(),

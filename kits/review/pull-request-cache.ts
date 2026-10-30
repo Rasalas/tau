@@ -38,6 +38,7 @@ function encode(value: unknown): string {
 export class PullRequestCache {
   private entries: Entry[] = [];
   private connected: boolean;
+  private readonly detailReads = new Map<string, object>();
   private stopped = false;
   private persisted = false;
   private listeners = new Set<() => void>();
@@ -160,8 +161,19 @@ export class PullRequestCache {
       }
       return cached.value;
     }
-    const result = await host.invoke(command, input);
-    if (cachedRead) this.save(command, input, result);
-    return result;
+    const url = (input as { url?: string } | undefined)?.url;
+    const detailRead = command === "pr-view" && url ? {} : undefined;
+    if (detailRead && url) this.detailReads.set(url, detailRead);
+    try {
+      const result = await host.invoke(command, input);
+      if (command === "pr-update" && url && (result as { ref?: { url?: string } } | null)?.ref?.url === url) {
+        this.detailReads.delete(url);
+        this.save("pr-view", { url }, result);
+      }
+      if (cachedRead && (!detailRead || !url || this.detailReads.get(url) === detailRead)) this.save(command, input, result);
+      return result;
+    } finally {
+      if (url && detailRead && this.detailReads.get(url) === detailRead) this.detailReads.delete(url);
+    }
   }
 }

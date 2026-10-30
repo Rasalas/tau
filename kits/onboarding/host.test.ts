@@ -67,7 +67,7 @@ async function harness(options: { piSessions?: Array<{ sessionId: string; path: 
   await registry.activate(claude);
   await registry.activate(codex);
   const invoke = <T>(command: string, input?: unknown) => registry.invoke("tau.onboarding", command, input) as Promise<T>;
-  return { root, alpha, invoke, events, logs, claude, codex, settled };
+  return { root, alpha, invoke, events, logs, claude, codex, settled, registry };
 }
 
 describe("Onboarding host half", () => {
@@ -132,7 +132,25 @@ describe("Onboarding host half", () => {
     expect(discovery.sessions.map((session) => `${session.source}:${session.sessionId}`)).toEqual(["claude-code:g", "claude-code:a"]);
     expect(discovery.projects).toEqual([{ path: alpha, name: "alpha", sources: ["claude-code"], threadCount: 1, lastActiveAt: 200, git: true }]);
     // A backend that did not grant the command is named, not fatal.
-    expect(discovery.unavailable.map((entry) => entry.source)).toEqual(["codex", "opencode"]);
+    expect(discovery.unavailable.map((entry) => entry.source)).toEqual(["codex", "opencode", "cursor", "grok", "antigravity"]);
+    expect(discovery.unsupported).toEqual([]);
+  });
+
+  it("asks every runtime kit, and passes on why a runtime's sessions cannot be imported", async () => {
+    const { invoke, alpha, registry } = await harness();
+    const scanning = (id: string, answer: unknown): HostExtension => ({ id, name: id, activate(context) { context.registerCommand("import-scan", () => answer, { callers: ["tau.onboarding"] }); } });
+    await registry.activate(scanning("tau.antigravity", { sessions: [], unsupported: "Tau runs Antigravity in a Gemini home of its own." }));
+    await registry.activate(scanning("tau.grok", { sessions: [{ path: "g-1", sessionId: "g-1", cwd: alpha, title: "Tidy tabs", updatedAt: 250, imported: false }] }));
+    await registry.activate(scanning("tau.cursor", { sessions: [], truncated: false, unsupported: "Cursor 2026.10.01 does not list its sessions to other apps." }));
+    const discovery = await invoke<Discovery>("discover");
+    expect(discovery.sessions.map((session) => `${session.source}:${session.sessionId}`)).toEqual(["claude-code:g", "grok:g-1", "claude-code:a", "codex:b"]);
+    expect(discovery.projects[0]).toMatchObject({ path: alpha, sources: ["grok", "claude-code", "codex"], threadCount: 3 });
+    // In the order the wizard lists the runtimes, whichever answered first.
+    expect(discovery.unsupported).toEqual([
+      { source: "cursor", reason: "Cursor 2026.10.01 does not list its sessions to other apps." },
+      { source: "antigravity", reason: "Tau runs Antigravity in a Gemini home of its own." },
+    ]);
+    expect(discovery.unavailable.map((entry) => entry.source)).toEqual(["opencode"]);
   });
 
   it("names each repository's origin, and offers no worktree, no Downloads and not home itself", async () => {

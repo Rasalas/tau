@@ -142,7 +142,7 @@ export function PullRequestSummary({ detail, checks, threads, threadsError, acti
       </Section>
 
       {showChecks ? (
-        <Section key={focusChecks} anchor={checksAnchor} title="Checks" defaultOpen={Boolean(focusChecks) || rollup === "failing"} aside={<span className="pr-section-note">{rollup ? <RollupIcon rollup={rollup} /> : null}{checksSummary(checks)}</span>}>
+        <Section key={focusChecks} anchor={checksAnchor} title="Checks" defaultOpen={Boolean(focusChecks) || rollup === "failing"} aside={<span className="pr-section-note">{rollup ? <RollupIcon rollup={rollup} required={checks.some((check) => check.required === true)} /> : null}{checksSummary(checks)}</span>}>
           <ChecksPipeline client={client} url={detail.ref.url} checks={checks} actions={actions} />
         </Section>
       ) : null}

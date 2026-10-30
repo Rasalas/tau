@@ -71,6 +71,7 @@ function defaults(): HostClient {
     syncExtensionUi: async () => undefined,
     loadDesktopExtensions: async () => ({ bundles: [], errors: [], skipped: [] }),
     invokeHostExtension: async () => undefined,
+    readBrowserResource: async () => ({ status: 404, headers: {}, body: "" }),
     listHostExtensions: async () => [],
     inspectExtensions: async () => ({ versions: { tau: "", pi: "", api: "" }, directories: [], packages: [], errors: [], skipped: [] }),
     setHostExtensionActive: async () => [],

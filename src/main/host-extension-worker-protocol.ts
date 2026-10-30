@@ -5,7 +5,7 @@ import type { ThreadBackendKind, UiMessage, UiThreadUsage, UiToolRun } from "../
 import type { HostActionResult } from "../shared/host-protocol.js";
 import { hostErrorDiagnostic, type HostErrorDiagnostic } from "./host-extension-errors.js";
 import type { UiHostEndpoint, UiNetworkAccess } from "../shared/connections.js";
-import type { DirectoryPickerOptions, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostImportedThread, HostStartedThread, HostThreadImportOptions, HostThreadStartOptions, HostTrashedThread } from "./host-extension-contracts.js";
+import type { DirectoryPickerOptions, HostConversationServices, HostExtensionEmitOptions, HostExtensionSettings, HostSessionSummary, HostSkill, HostImportedThread, HostStartedThread, HostThreadImportOptions, HostThreadStartOptions, HostTrashedThread } from "./host-extension-contracts.js";
 
 /**
  * A command's answer to bad input, for a worker's host half too: thrown from a
@@ -141,6 +141,8 @@ export const CONFIG_HOOKS = ["changed"] as const;
  * nothing that would hand out a live object is here (see ADR 0009).
  */
 export interface WorkerHostServices {
+  /** API 1.80.0. Empty catalog when the supervising host has no canonical Pi conversations. */
+  readonly conversations: HostConversationServices;
   readonly agentDir: string;
   readonly sessionsDir: string;
   readonly stateDir: string;

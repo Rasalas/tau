@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import type { HostExtensionContext, UiModel } from "tau/host-extension";
+import type { HostExtensionContext, HostThread, UiModel } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import { createReviewHostExtension } from "./host.js";
 import { evidenceRef } from "./evidence-upload.js";
@@ -24,6 +24,8 @@ interface Fixture {
   visibility?: string;
   tools?: Record<string, string>;
   models?: UiModel[];
+  /** The thread on screen, for a description its runtime writes. */
+  thread?: HostThread;
 }
 
 async function harness(fixture: Fixture = {}) {
@@ -79,6 +81,7 @@ async function harness(fixture: Fixture = {}) {
     complete,
     runtimeChoices: async () => [{ backend: { kind: "pi", label: "Pi" }, enabled: true, readiness: { kind: "pi", label: "Pi", state: "ready" }, catalog: { kind: "pi", models: [{ provider: "test", id: "writer", name: "Writer" }], thinkingLevels: { "test/writer": ["off", "low", "high"] } } }],
     completionModels: async () => fixture.models ?? [],
+    thread: () => fixture.thread,
     sessions: { list: async () => [{ sessionId: "t1", path: "/s/t1.jsonl", cwd: "/project" }, { sessionId: "elsewhere", path: "/s/e.jsonl", cwd: "/other" }] } as never,
     turnAttachments: {
       provide: () => () => undefined,
@@ -133,6 +136,16 @@ describe("the local pull request's host commands", () => {
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({ thinkingLevel: "high", maxTokens: 16_384, timeoutMs: 120_000 }), { provider: "test", id: "writer" });
     await invoke("local-pr-describe", { thinkingLevel: "high" });
     expect((complete.mock.calls[1] as unknown as [unknown])[0]).not.toHaveProperty("thinkingLevel");
+  });
+
+  it("writes the description on the thread's runtime when Text generation chose it, with its own effort", async () => {
+    const own = vi.fn(async () => "Save from the harness\n\n## Summary\nIt saves.");
+    const thread = { sessionId: "t1", backendKind: "claude-code", model: { provider: "anthropic", id: "sonnet" }, completionModels: async () => [], complete: own } as unknown as HostThread;
+    const { invoke, complete } = await harness({ thread });
+    await expect(invoke("local-pr-describe", { runtime: "thread", model: { provider: "test", id: "writer" }, thinkingLevel: "high" }))
+      .resolves.toMatchObject({ title: "Save from the harness", generated: true, model: "anthropic/sonnet" });
+    expect(own).toHaveBeenCalledWith("anthropic", "sonnet", expect.not.objectContaining({ thinkingLevel: expect.anything() }));
+    expect(complete).not.toHaveBeenCalled();
   });
 
   it("writes about the commit that is not made yet as the branch's newest one", async () => {

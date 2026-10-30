@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { TLSSocket } from "node:tls";
-import type { TranscriptPage } from "../shared/host-protocol.js";
 import { join } from "node:path";
 import type { HostInvocationPrincipal } from "./host-invocation.js";
 import { isHostOwner } from "./host-invocation.js";
@@ -8,8 +7,10 @@ import { ownerRefusal } from "./host-method-access.js";
 import type { ListenerTrust } from "./host-local-files.js";
 import { createAuthRateLimiter } from "./host-rate-limit.js";
 import { ExternalMcpAuthorization } from "./external-mcp-authorization.js";
-import { McpOAuthError, mcpIssuer } from "./external-mcp-policy.js";
-import { EXTERNAL_MCP_READ_TOOLS, callExternalMcpReadTool, type ExternalMcpReadHost } from "./external-mcp-read-tools.js";
+import { McpOAuthError, isExternalMcpExecution, mcpIssuer, mcpScopes, type ExternalMcpExecution, type ExternalMcpScope } from "./external-mcp-policy.js";
+import type { ExternalMcpControlHost } from "./external-mcp-control-tools.js";
+import { serveExternalMcp } from "./external-mcp-serve.js";
+import type { ExternalMcpThreads } from "./external-mcp-threads.js";
 
 const PATHS = new Set(["/mcp", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-authorization-server", "/oauth/authorize", "/oauth/consent", "/oauth/token", "/oauth/revoke"]);
 const BODY_LIMIT = 64 * 1024;
@@ -28,8 +29,11 @@ export interface ExternalMcpHttpOptions {
   userData: string;
   issuer: string;
   browserOrigins?: readonly string[];
-  host(): Promise<ExternalMcpReadHost>;
+  host(): Promise<ExternalMcpControlHost>;
+  /** Thread control for `tau:threads` grants (ADR 0046); read-only without it. */
+  threads?: ExternalMcpThreads;
   version: string;
+  log?(label: string, detail?: string): void;
   /** The local backend the owner's HTTPS proxy forwards to. */
   proxyUrl?(): string | undefined;
   now?: () => number;
@@ -91,7 +95,7 @@ export class ExternalMcpHttp {
   private readonly consents = new Map<string, Consent>();
   private readonly calls = new Map<string, { until: number; count: number }>();
   private readonly responses = new Set<ServerResponse>();
-  private readonly reads = new Set<Promise<TranscriptPage>>();
+  private readonly reads = new Set<Promise<unknown>>();
   private management: Promise<unknown> = Promise.resolve();
   private closed = false;
 
@@ -104,7 +108,10 @@ export class ExternalMcpHttp {
   static async open(options: ExternalMcpHttpOptions): Promise<ExternalMcpHttp> {
     if ((options.browserOrigins?.length ?? 0) > 8) throw new McpOAuthError("invalid_request");
     for (const origin of options.browserOrigins ?? []) mcpIssuer(origin);
-    const auth = await ExternalMcpAuthorization.open({ storePath: join(options.userData, "external-mcp-grants.json"), issuer: options.issuer, now: options.now });
+    const auth = await ExternalMcpAuthorization.open({
+      storePath: join(options.userData, "external-mcp-grants.json"), issuer: options.issuer, now: options.now,
+      revoked: (grantId) => { void options.threads?.revoked(grantId); },
+    });
     return new ExternalMcpHttp(options, auth);
   }
 
@@ -126,11 +133,11 @@ export class ExternalMcpHttp {
     this.prune();
     const args = object(input);
     const action = string(args.action);
-    const keys: Record<string, readonly string[]> = { status: [], register: ["name", "redirectUris"], approve: ["requestId", "projectIds"], deny: ["requestId"], revoke: ["grantId"], remove: ["clientId"] };
+    const keys: Record<string, readonly string[]> = { status: [], register: ["name", "redirectUris"], approve: ["requestId", "projectIds", "scope", "execution"], deny: ["requestId"], revoke: ["grantId"], remove: ["clientId"] };
     if (!Object.hasOwn(keys, action) || Object.keys(args).some((key) => key !== "action" && !keys[action]!.includes(key))) throw new McpOAuthError("invalid_request");
     if (action === "status") {
       const host = await this.options.host();
-      return { issuer: this.auth.issuer, resource: this.auth.resource, proxyUrl: this.options.proxyUrl?.(), scopes: ["tau:read"], protocolVersion: "2025-11-25", ...this.auth.ownerState(), projects: host.threadIndexSnapshot().projects.filter((project) => project.workspaceId).map((project) => ({ id: project.workspaceId, name: project.name })) };
+      return { issuer: this.auth.issuer, resource: this.auth.resource, proxyUrl: this.options.proxyUrl?.(), scopes: this.scopes(), protocolVersion: "2025-11-25", ...this.auth.ownerState(), projects: host.threadIndexSnapshot().projects.filter((project) => project.workspaceId).map((project) => ({ id: project.workspaceId, name: project.name })) };
     }
     if (action === "register") return this.auth.registerClient({ name: string(args.name, 80), redirectUris: strings(args.redirectUris, 8) });
     if (action === "approve") {
@@ -141,7 +148,10 @@ export class ExternalMcpHttp {
       const host = await this.options.host();
       const known = new Set(host.threadIndexSnapshot().projects.map((project) => project.workspaceId));
       if (projectIds.some((id) => !known.has(id))) throw new McpOAuthError("invalid_request");
-      const result = await this.auth.approve(requestId, { projectIds, scope: "tau:read", execution: "read-only" });
+      // Control is an explicit owner choice: the requested scope is never granted by default, and `full` only when named.
+      const scope: ExternalMcpScope[] = args.scope === undefined ? ["tau:read"] : this.scope(string(args.scope, 64));
+      if (args.execution !== undefined && (!scope.includes("tau:threads") || !isExternalMcpExecution(args.execution))) throw new McpOAuthError("invalid_request");
+      const result = await this.auth.approve(requestId, { projectIds, scope: scope.join(" "), execution: scope.includes("tau:threads") ? (args.execution as ExternalMcpExecution | undefined) ?? "ask" : "read-only" });
       consent.redirect = result.redirectUri;
       consent.expiresAt = this.now() + REQUEST_LIFETIME;
       return { approved: true };
@@ -159,6 +169,15 @@ export class ExternalMcpHttp {
     await this.auth.removeClient(clientId);
     for (const [id, consent] of this.consents) if (consent.clientId === clientId) this.consents.delete(id);
     return { removed: true };
+  }
+
+  private scopes(): ExternalMcpScope[] { return this.options.threads ? ["tau:read", "tau:threads"] : ["tau:read"]; }
+
+  /** A scope string this resource offers; `tau:threads` only where control is wired. */
+  private scope(value: string): ExternalMcpScope[] {
+    const scopes = mcpScopes(value);
+    if (scopes.some((scope) => !this.scopes().includes(scope))) throw new McpOAuthError("invalid_scope");
+    return scopes;
   }
 
   /** True means this route owns the response; false lets static/socket HTTP fall through. */
@@ -225,15 +244,15 @@ export class ExternalMcpHttp {
     if (url.pathname === "/.well-known/oauth-authorization-server") reply(response, 200, {
       issuer, authorization_endpoint: `${issuer}/oauth/authorize`, token_endpoint: `${issuer}/oauth/token`, revocation_endpoint: `${issuer}/oauth/revoke`,
       response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"],
-      token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"], scopes_supported: ["tau:read"], authorization_response_iss_parameter_supported: true,
+      token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"], scopes_supported: this.scopes(), authorization_response_iss_parameter_supported: true,
     });
-    else reply(response, 200, { resource: this.auth.resource, authorization_servers: [issuer], scopes_supported: ["tau:read"], bearer_methods_supported: ["header"] });
+    else reply(response, 200, { resource: this.auth.resource, authorization_servers: [issuer], scopes_supported: this.scopes(), bearer_methods_supported: ["header"] });
   }
 
   private authorize(response: ServerResponse, url: URL): void {
     const params = parameters(url.searchParams, ["response_type", "client_id", "redirect_uri", "resource", "scope", "code_challenge", "code_challenge_method", "state"]);
     if (params.response_type !== "code") throw new McpOAuthError("invalid_request");
-    if (params.scope !== undefined && params.scope !== "tau:read") throw new McpOAuthError("invalid_scope");
+    if (params.scope !== undefined) this.scope(params.scope);
     if (this.consents.size >= MAX_CONSENTS) throw new McpOAuthError("temporarily_unavailable");
     const id = this.auth.requestAuthorization({ clientId: string(params.client_id), redirectUri: string(params.redirect_uri, 2048), resource: string(params.resource, 2048), scope: params.scope, codeChallenge: string(params.code_challenge, 43), codeChallengeMethod: string(params.code_challenge_method), state: params.state });
     const denial = new URL(params.redirect_uri!);
@@ -253,7 +272,7 @@ export class ExternalMcpHttp {
     if (consent.denied) { response.writeHead(303, { location: consent.denialRedirect }); response.end(); return; }
     if (consent.redirect) { response.writeHead(303, { location: consent.redirect }); response.end(); return; }
     response.writeHead(200, { "content-type": "text/html; charset=utf-8", refresh: `2;url=/oauth/consent?request_id=${encodeURIComponent(id)}` });
-    response.end("<!doctype html><html lang=en><meta charset=utf-8><title>Allow access in Tau</title><h1>Waiting for the machine's owner</h1><p>The owner must approve this client's read access and choose its projects in Tau's command line. This page refreshes automatically. You may close it to cancel signing in.</html>");
+    response.end("<!doctype html><html lang=en><meta charset=utf-8><title>Allow access in Tau</title><h1>Waiting for the machine's owner</h1><p>The owner must approve this client's access, choose its projects and, for thread control, its execution ceiling in Tau's command line. This page refreshes automatically. You may close it to cancel signing in.</html>");
   }
 
   private async token(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
@@ -263,7 +282,7 @@ export class ExternalMcpHttp {
     const clientId = string(params.client_id);
     if (url.pathname === "/oauth/revoke") { await this.auth.revokeToken(clientId, string(params.token)); reply(response, 200, {}); return; }
     const resource = string(params.resource, 2048);
-    if (params.scope !== undefined && params.scope !== "tau:read") throw new McpOAuthError("invalid_scope");
+    if (params.scope !== undefined) this.scope(params.scope);
     const result = params.grant_type === "authorization_code"
       ? await this.auth.exchangeCode({ clientId, resource, code: string(params.code), codeVerifier: string(params.code_verifier), redirectUri: string(params.redirect_uri, 2048) })
       : params.grant_type === "refresh_token" ? await this.auth.refresh({ clientId, resource, refreshToken: string(params.refresh_token), scope: params.scope }) : undefined;
@@ -293,36 +312,7 @@ export class ExternalMcpHttp {
     if (body.method === "initialize") {
       if (object(body.params).protocolVersion !== "2025-11-25") throw new McpOAuthError("invalid_request");
     } else if (request.headers["mcp-protocol-version"] !== "2025-11-25") throw new McpOAuthError("invalid_request");
-    const [{ Server }, { StreamableHTTPServerTransport }, { CallToolRequestSchema, ListToolsRequestSchema }] = await Promise.all([
-      import("@modelcontextprotocol/sdk/server/index.js"), import("@modelcontextprotocol/sdk/server/streamableHttp.js"), import("@modelcontextprotocol/sdk/types.js"),
-    ]);
-    const server = new Server({ name: "tau-external", title: "Tau", version: this.options.version }, { capabilities: { tools: {} }, instructions: "Read-only access to the projects approved by the machine's owner. Thread control is unavailable." });
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
-      if (!this.auth.authenticate(token!, this.auth.resource)) throw new McpOAuthError("invalid_grant");
-      return { tools: EXTERNAL_MCP_READ_TOOLS.map((tool) => ({ ...tool, inputSchema: JSON.parse(JSON.stringify(tool.inputSchema)) as { type: "object" } })) };
-    });
-    server.setRequestHandler(CallToolRequestSchema, async (call, extra) => {
-      try {
-        const host = await this.options.host();
-        const bounded: ExternalMcpReadHost = {
-          threadIndexSnapshot: () => host.threadIndexSnapshot(),
-          loadTranscript: (threadId, cursor) => {
-            if (this.reads.size >= 16) return Promise.reject(new McpOAuthError("temporarily_unavailable"));
-            const pending = host.loadTranscript(threadId, cursor);
-            this.reads.add(pending);
-            // Cancellation ends the client call immediately, but the actual I/O
-            // retains its slot until it settles, even after its grant is revoked.
-            void pending.finally(() => this.reads.delete(pending)).catch(() => undefined);
-            return pending;
-          },
-        };
-        return await callExternalMcpReadTool(this.auth, token!, bounded, call.params.name, call.params.arguments ?? {}, extra.signal);
-      } catch (error) { return { isError: true, content: [{ type: "text", text: error instanceof McpOAuthError ? error.code : "Read cancelled or unavailable." }] }; }
-    });
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    response.once("close", () => { void transport.close().catch(() => undefined); void server.close().catch(() => undefined); });
-    await server.connect(transport);
-    await transport.handleRequest(request, response, body);
+    await serveExternalMcp({ auth: this.auth, token: token!, host: () => this.options.host(), ...(this.options.threads ? { threads: this.options.threads } : {}), version: this.options.version, reads: this.reads, ...(this.options.log ? { log: this.options.log } : {}) }, request, response, body);
   }
 
   async close(): Promise<void> {

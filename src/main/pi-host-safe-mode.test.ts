@@ -1,11 +1,31 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { shippedHostExtensions } from "./bundled-kits.js";
 import { selectDefaultBackend } from "./runtime-adapters.js";
 import { PiHost } from "./pi-host.js";
+import { ProjectHistory } from "./project-history.js";
+
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  // Stop kit timers and drain writes before removing their directories or the test home.
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
+
+function testHost(safeMode: boolean, options: ConstructorParameters<typeof PiHost>[5]): PiHost {
+  const history = new ProjectHistory(join(homedir(), "projects.json"));
+  const host = new PiHost("/repo", () => undefined, history, safeMode, false, options);
+  cleanups.push(() => host.dispose());
+  return host;
+}
+
+async function scratchDirectory(prefix: string): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), prefix));
+  cleanups.push(() => rm(directory, { recursive: true, force: true }));
+  return directory;
+}
 
 const appPath = fileURLToPath(new URL("../..", import.meta.url));
 /** Everything Tau ships, the way the app assembles it: kits from `kits/` included. */
@@ -24,14 +44,14 @@ const session = { sessionId: "thread", cwd: "/repo" };
 
 describe("PiHost safe mode", () => {
   it("loads no host extension and injects no Pi extension", async () => {
-    const host = new PiHost("/repo", () => undefined, {} as never, true, false, { hostExtensions: shipped });
+    const host = testHost(true, { hostExtensions: shipped });
     await (host as unknown as Internals).activateHostExtensions();
     expect(host.listHostExtensions()).toEqual([]);
     expect((host as unknown as Internals).runtimeExtensionsFor(settings, session)).toEqual([]);
   });
 
   it("loads every bundled kit outside safe mode, each removable on its own", async () => {
-    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: shipped });
+    const host = testHost(false, { hostExtensions: shipped });
     await (host as unknown as Internals).activateHostExtensions();
     const internals = host as unknown as Internals;
     const summaries = host.listHostExtensions();
@@ -39,7 +59,7 @@ describe("PiHost safe mode", () => {
     // The migrated kits are compiled from `kits/` and imported like packages.
     expect(summaries.filter((summary) => PACKAGED_KIT_IDS.includes(summary.id)).map((summary) => summary.id).sort()).toEqual(PACKAGED_KIT_IDS);
     expect(summaries.filter((summary) => !summary.active)).toEqual([]);
-    expect(internals.runtimeExtensionsFor(settings, session).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-agents", "tau-background-command", "tau-background-work", "tau-compact-at", "tau-computer-use", "tau-computer-use-screen", "tau-devices", "tau-evidence", "tau-html-pages", "tau-install-package", "tau-new-package", "tau-pi-limits", "tau-plan", "tau-preview", "tau-private-webhook-secrets", "tau-pull-request-watch", "tau-pull-requests", "tau-questionnaire", "tau-remote-work", "tau-review-guides", "tau-servers-network", "tau-servers-tools", "tau-service-tier", "tau-takeover", "tau-thread-directory", "tau-turn-checkpoints"]);
+    expect(internals.runtimeExtensionsFor(settings, session).map((entry) => entry.name).sort()).toEqual(["tau-access", "tau-agents", "tau-background-command", "tau-background-work", "tau-compact-at", "tau-computer-use", "tau-computer-use-screen", "tau-devices", "tau-evidence", "tau-html-pages", "tau-install-package", "tau-new-package", "tau-pi-limits", "tau-plan", "tau-preview", "tau-private-webhook-secrets", "tau-pull-request-watch", "tau-pull-requests", "tau-questionnaire", "tau-remote-work", "tau-review-guides", "tau-servers-network", "tau-servers-tools", "tau-service-tier", "tau-takeover", "tau-thread-directory", "tau-thread-schedules", "tau-turn-checkpoints", "tau.private-secrets"]);
   });
 
   // A runtime backend now arrives from a package rather than from a host
@@ -49,7 +69,7 @@ describe("PiHost safe mode", () => {
   it("finds the default backend a kit registered, and names the gap before the kits load", async () => {
     const kind = selectDefaultBackend("claude-code");
     expect(kind).toBe("claude-code");
-    const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: shipped, defaultBackendKind: kind });
+    const host = testHost(false, { hostExtensions: shipped, defaultBackendKind: kind });
     const internals = host as unknown as Internals;
     expect(() => internals.requireBackend(kind)).toThrow('Runtime backend "claude-code" is not installed');
     await internals.activateHostExtensions();
@@ -71,70 +91,62 @@ describe("PiHost extension packages", () => {
   });
 
   it("activates packaged host halves outside safe mode and never in safe mode", async () => {
-    const scratch = await mkdtemp(join(tmpdir(), "tau-safe-mode-"));
-    try {
-      const grantsFilePath = join(scratch, "grants.json");
-      const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
-      await (host as unknown as Internals).activateHostExtensions();
-      // Initially ungranted, so active is false.
-      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [], isolation: "in-process" }]);
-      // Granting it activates it.
-      await host.grantExtension("acme.pkg", true);
-      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"], isolation: "in-process" }]);
-      await expect(host.invokeHostExtension("acme.pkg", "ping")).resolves.toBe("pong");
-      await host.setHostExtensionActive("acme.pkg", false);
-      expect(host.listHostExtensions()[0]?.active).toBe(false);
-      await host.setHostExtensionActive("acme.pkg", true);
-      expect(host.listHostExtensions()[0]?.active).toBe(true);
-      const safe = new PiHost("/repo", () => undefined, {} as never, true, false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
-      await (safe as unknown as Internals).activateHostExtensions();
-      expect(safe.listHostExtensions()).toEqual([]);
+    const scratch = await scratchDirectory("tau-safe-mode-");
+    const grantsFilePath = join(scratch, "grants.json");
+    const host = testHost(false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
+    await (host as unknown as Internals).activateHostExtensions();
+    // Initially ungranted, so active is false.
+    expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [], isolation: "in-process" }]);
+    // Granting it activates it.
+    await host.grantExtension("acme.pkg", true);
+    expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"], isolation: "in-process" }]);
+    await expect(host.invokeHostExtension("acme.pkg", "ping")).resolves.toBe("pong");
+    await host.setHostExtensionActive("acme.pkg", false);
+    expect(host.listHostExtensions()[0]?.active).toBe(false);
+    await host.setHostExtensionActive("acme.pkg", true);
+    expect(host.listHostExtensions()[0]?.active).toBe(true);
+    const safe = testHost(true, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
+    await (safe as unknown as Internals).activateHostExtensions();
+    expect(safe.listHostExtensions()).toEqual([]);
 
-      // A restart reads the same grants file and starts the package without asking again.
-      const restarted = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
-      await (restarted as unknown as Internals).activateHostExtensions();
-      expect(restarted.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"], isolation: "in-process" }]);
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
+    // A restart reads the same grants file and starts the package without asking again.
+    const restarted = testHost(false, { hostExtensions: [], hostExtensionPackages: loader, grantsFilePath });
+    await (restarted as unknown as Internals).activateHostExtensions();
+    expect(restarted.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"], isolation: "in-process" }]);
   });
 
   it("lists a package that was never imported, and starts it once it is granted", async () => {
-    const scratch = await mkdtemp(join(tmpdir(), "tau-ungranted-"));
-    try {
-      const grantsFilePath = join(scratch, "grants.json");
-      const manifest = { id: "acme.pkg", name: "Package", permissions: ["sessions"], host: "./host.ts" };
-      const grantIdentity = { contentHash: "approved-code" };
-      const pkg = { grantIdentity, scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest };
-      let imported = 0;
-      const gated = async () => {
-        const { readExtensionGrants, isPackageGranted } = await import("./extension-grants.js");
-        const granted = isPackageGranted(manifest, (await readExtensionGrants(grantsFilePath)).grants, grantIdentity);
-        if (!granted) return { extensions: [], ungranted: [pkg], errors: [], skipped: [] };
-        imported += 1;
-        return {
-          extensions: [{
-            extension: { id: "acme.pkg", name: "Package", permissions: manifest.permissions, activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } },
-            package: pkg,
-            bundleHash: "aaaabbbbccccdddd",
-            bundlePath: "/cache/acme.pkg-aaaabbbbccccdddd.cjs",
-          }],
-          ungranted: [],
-          errors: [],
-          skipped: [],
-        };
+    const scratch = await scratchDirectory("tau-ungranted-");
+    const grantsFilePath = join(scratch, "grants.json");
+    const manifest = { id: "acme.pkg", name: "Package", permissions: ["sessions"], host: "./host.ts" };
+    const grantIdentity = { contentHash: "approved-code" };
+    const pkg = { grantIdentity, scope: "global" as const, directory: "/home/.tau/extensions/pkg", manifest };
+    let imported = 0;
+    const gated = async () => {
+      const { readExtensionGrants, isPackageGranted } = await import("./extension-grants.js");
+      const granted = isPackageGranted(manifest, (await readExtensionGrants(grantsFilePath)).grants, grantIdentity);
+      if (!granted) return { extensions: [], ungranted: [pkg], errors: [], skipped: [] };
+      imported += 1;
+      return {
+        extensions: [{
+          extension: { id: "acme.pkg", name: "Package", permissions: manifest.permissions, activate(context: { registerCommand(name: string, handler: () => unknown): void }) { context.registerCommand("ping", () => "pong"); } },
+          package: pkg,
+          bundleHash: "aaaabbbbccccdddd",
+          bundlePath: "/cache/acme.pkg-aaaabbbbccccdddd.cjs",
+        }],
+        ungranted: [],
+        errors: [],
+        skipped: [],
       };
-      const host = new PiHost("/repo", () => undefined, {} as never, false, false, { hostExtensions: [], hostExtensionPackages: gated, grantsFilePath });
-      await (host as unknown as Internals).activateHostExtensions();
-      expect(imported).toBe(0);
-      // Never imported, so the summary carries the manifest's isolation: the default worker.
-      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [], isolation: "worker" }]);
+    };
+    const host = testHost(false, { hostExtensions: [], hostExtensionPackages: gated, grantsFilePath });
+    await (host as unknown as Internals).activateHostExtensions();
+    expect(imported).toBe(0);
+    // Never imported, so the summary carries the manifest's isolation: the default worker.
+    expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: false, commands: [], isolation: "worker" }]);
 
-      await host.grantExtension("acme.pkg", true);
-      expect(imported).toBe(1);
-      expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"], isolation: "in-process" }]);
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
+    await host.grantExtension("acme.pkg", true);
+    expect(imported).toBe(1);
+    expect(host.listHostExtensions()).toEqual([{ id: "acme.pkg", name: "Package", active: true, commands: ["ping"], isolation: "in-process" }]);
   });
 });

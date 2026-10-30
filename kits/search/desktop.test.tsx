@@ -27,7 +27,7 @@ function searchContext(actions = {} as WorkbenchActions): PaletteSearchContext {
 }
 
 describe("Search Kit: palette sources", () => {
-  it("finds threads by title and project, newest first, with project, state and branch", () => {
+  it("finds threads by title and project, breaking quality ties by recency, with project, state and branch", () => {
     vi.spyOn(Date, "now").mockReturnValue(3 * 86_400_000);
     const context = { ...searchContext(), index: { ...searchContext().index, running: ["b"] } };
     context.index.threads[0]!.projectLabel = "fix/stage";
@@ -40,12 +40,33 @@ describe("Search Kit: palette sources", () => {
     vi.restoreAllMocks();
   });
 
-  it("lists the recent threads for an empty query in All and in its tab, leaving agents out", () => {
+  it("leaves delegated threads out of All and Threads for empty and typed queries, while keeping forks", () => {
     const base = searchContext();
-    const threads = [...base.index.threads, { ...thread("d", "Agent reply", 9), parentThreadId: "a" }];
-    const all = { ...base, index: { ...base.index, threads }, scope: "all" as const };
-    expect(threadTitleItems("", all).map((item) => item.id)).toEqual(["b", "c", "a"]);
-    expect(threadTitleItems("agent", all).map((item) => item.id)).toEqual(["d"]);
+    // A normal fork has no parentThreadId in Tau's index, unlike a delegated thread.
+    const threads = [...base.index.threads, thread("fork", "Agent experiment fork", 7), { ...thread("d", "Agent reply", 9), parentThreadId: "a" }];
+    for (const scope of ["all", "threads"] as const) {
+      const context = { ...base, index: { ...base.index, threads, waiting: ["d"] }, scope };
+      expect(threadTitleItems("", context).map((item) => item.id)).toEqual(["fork", "b", "c", "a"]);
+      expect(threadTitleItems("agent", context).map((item) => item.id)).toEqual(["fork"]);
+    }
+  });
+
+  it("puts exact and word-aware title matches before newer incidental matches, before the row cap", () => {
+    const base = searchContext();
+    const threads = [
+      ...Array.from({ length: 12 }, (_, at) => thread(`mid-${at}`, "Fix oauth redirect", 100 + at)),
+      thread("prefix", "Authentication cleanup", 10),
+      { ...thread("branch", "Login cleanup", 8), projectLabel: "feature/auth" },
+      thread("older-word", "Fix auth tokens", 2),
+      thread("newer-word", "Improve auth tokens", 3),
+      thread("exact", "Auth", 1),
+    ];
+    const context = { ...base, index: { ...base.index, threads } };
+    expect(threadTitleItems("auth", context).map((item) => item.id)).toEqual([
+      "exact", "newer-word", "older-word", "branch", "prefix", "mid-11", "mid-10", "mid-9",
+    ]);
+    expect(threadTitleItems("auth", { ...context, scope: "threads" })).toHaveLength(17);
+    expect(threadTitleItems("auth tau", context)[0]!.id).toBe("newer-word");
   });
 
   it("puts threads that wait on the user first in an empty palette, however old, and says so", () => {
@@ -131,6 +152,8 @@ describe("Search Kit: palette sources", () => {
     registry.activate(createSearchExtension());
     expect(await registry.getTranscriptFinder()!.find({ sessionId: "t1", query: "quartz" })).toEqual({ messageIds: ["u1", "a7"], truncated: false });
     expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "find-in-thread", { sessionId: "t1", query: "quartz" });
+    await registry.getTranscriptFinder()!.find({ sessionId: "t1", query: "quartz moon", mode: "all-words" });
+    expect(invoke).toHaveBeenLastCalledWith(SEARCH_KIT_ID, "find-in-thread", { sessionId: "t1", query: "quartz moon", mode: "all-words" });
   });
 
   it("switches to a thread and opens a project by its workspace id", async () => {
@@ -152,7 +175,7 @@ describe("Search Kit: palette sources", () => {
       { sessionId: "a", path: "", role: "user", snippet: "tabs" },
       { sessionId: "gone", path: "/sessions/gone.jsonl", role: "user", snippet: "not in the index" },
     ], context, new Set(["a"]));
-    expect(items.map((item) => [item.id, item.detail])).toEqual([["c", "…the moon is called Luna…"]]);
+    expect(items.map((item) => [item.id, item.detail])).toEqual([["c", "Agent: …the moon is called Luna…"]]);
   });
 
   it("asks the host for thread text with the thread on screen, from the kit's own source", async () => {
@@ -165,7 +188,7 @@ describe("Search Kit: palette sources", () => {
     expect(await source.search("mo", searchContext())).toEqual([]);
     const found = await source.search("moon", searchContext());
     expect(found.map((item) => item.label)).toEqual(["Luna test"]);
-    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "threads", { query: "moon", limit: 12, includeStatus: true, channel: expect.any(String), activeSessionId: "b" });
+    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "threads", { query: "moon", limit: 12, includeStatus: true, sessionIds: ["a", "b", "c"], activeSessionId: "b", channel: expect.any(String), archivedSessionIds: [] });
     const aborted = new AbortController();
     aborted.abort();
     expect(await source.search("moon", { ...searchContext(), signal: aborted.signal })).toEqual([]);
@@ -182,7 +205,51 @@ describe("Search Kit: palette sources", () => {
     expect(await source.search("9", searchContext())).toEqual([]);
     const found = await source.search("acme/tau#95", searchContext());
     expect(found.map((item) => [item.label, item.detail])).toEqual([["Luna test", "#95 · acme/tau · open"]]);
-    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "thread-requests", { query: "acme/tau#95", limit: 12 });
+    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "thread-requests", { query: "acme/tau#95", limit: 12, sessionIds: ["a", "b", "c"] });
+  });
+
+  it("filters children and already shown titles before host limits, keeping good titles ahead of text matches", async () => {
+    const base = searchContext();
+    const context = { ...base, index: { ...base.index, threads: [
+      thread("exact", "Moon", 1), thread("word", "Visit the moon", 2), thread("text", "Other work", 100),
+      { ...thread("child", "Moon child", 200), parentThreadId: "exact" },
+    ] } };
+    const invoke = vi.fn(async (_id: string, command: string) => command === "threads"
+      ? [{ sessionId: "text", path: "", role: "user", snippet: "The moon came up once" },
+        { sessionId: "child", path: "", role: "user", snippet: "moon" }]
+      : []);
+    const { registry } = createKitHarness(invoke);
+    registry.activate(createSearchExtension({ threadContentDelayMs: 0 }));
+    const sources = registry.getPaletteSources();
+    const titles = sources.find((entry) => entry.id === "search.threads")!;
+    const content = sources.find((entry) => entry.id === "search.thread-content")!;
+    const requests = sources.find((entry) => entry.id === "search.thread-requests")!;
+    expect(titles.order).toBeLessThan(content.order!);
+    expect([...(await titles.search("moon", context)), ...(await content.search("moon", context))].map((item) => item.id)).toEqual(["exact", "word", "text"]);
+    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "threads", { query: "moon", limit: 12, includeStatus: true, sessionIds: ["text"], activeSessionId: "b", channel: expect.any(String), archivedSessionIds: [] });
+    await requests.search("moon", context);
+    expect(invoke).toHaveBeenCalledWith(SEARCH_KIT_ID, "thread-requests", { query: "moon", limit: 12, sessionIds: ["text"] });
+    const onlyChild = { ...context, index: { ...context.index, threads: [context.index.threads[3]!] } };
+    invoke.mockClear();
+    expect(await content.search("moon", onlyChild)).toEqual([]);
+    expect(await requests.search("moon", onlyChild)).toEqual([]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("joins content and request matches by thread identity, leaving children and foreign paths out", () => {
+    const base = searchContext();
+    const remote = { ...thread("machine~c", "Remote work", 10), path: "/sessions/c.jsonl", workspaceId: "ws-remote", machine: { id: "machine", name: "Remote" } };
+    const child = { ...thread("child", "Child work", 20), parentThreadId: "a" };
+    const context = { ...base, index: { ...base.index, threads: [remote, ...base.index.threads, child] } };
+    const items = threadContentItems([
+      { sessionId: "c", path: "/sessions/c.jsonl", role: "user", snippet: "local text" },
+      { sessionId: "unknown", path: "/sessions/c.jsonl", role: "user", snippet: "foreign text" },
+      { sessionId: "machine~c", path: "/sessions/c.jsonl", role: "user", snippet: "remote text" },
+      { sessionId: "child", path: "/sessions/child.jsonl", role: "user", snippet: "child text" },
+    ], context, new Set());
+    expect(items.map((item) => [item.id, item.detail])).toEqual([["c", "You: local text"], ["machine~c", "You: remote text"]]);
+    const request = { number: 95, repository: "acme/tau", url: "https://github.com/acme/tau/pull/95", state: "open" as const, title: null, headBranch: null };
+    expect(threadRequestItems([{ sessionId: "child", requests: [request] }, { sessionId: "c", requests: [request] }], context, new Set()).map((item) => item.id)).toEqual(["c"]);
   });
 
   it("binds ⇧⌘F and ⌘P and forgets the file list when Git reports a change", () => {
@@ -193,6 +260,7 @@ describe("Search Kit: palette sources", () => {
     const store: WorkspaceStoreView = { getSnapshot: () => state, subscribe: (next) => { listener = next; return () => undefined; } };
     registry.activate({ id: "fixture.workspace", name: "Workspace", activate: (context) => { context.provideService(WORKSPACE_STORE_SERVICE, store); } });
     registry.activate(createSearchExtension());
+    invoke.mockClear();
     expect(registry.getKeybindings().filter((binding) => binding.extensionId === SEARCH_KIT_ID).map((binding) => [binding.keys, binding.commandId])).toEqual([
       ["mod+shift+f", "search.content"],
       ["mod+p", "search.files"],
@@ -303,26 +371,88 @@ describe("Search Kit: dialogs", () => {
   });
 });
 
-it("preserves transcript truncation and displays partial palette results even without a match", async () => {
-  const invoke = vi.fn(async (_id: string, command: string) => command === "find-in-thread" ? { messageIds: ["a"], truncated: true } : { matches: [], truncated: true });
+describe("message search index UI", () => {
+  it("waits for successful asynchronous navigation before submitting a thread-bound global Find", async () => {
+    let finish!: (opened: boolean) => void;
+    const actions = { switchSession: vi.fn(() => new Promise<boolean>(resolve => { finish = resolve; })), findInThread: vi.fn() } as unknown as WorkbenchActions;
+    const item = threadContentItems([{ sessionId: "c", path: "", role: "user", snippet: "luna beside the moon" }], searchContext(actions), new Set(), "luna moon")[0]!;
+    const opening = item.run!(actions);
+    expect(actions.findInThread).not.toHaveBeenCalled();
+    finish(true);
+    await opening;
+    expect(actions.findInThread).toHaveBeenCalledExactlyOnceWith("luna moon", { sessionId: "c", mode: "all-words" });
+    vi.mocked(actions.findInThread!).mockClear();
+    const failed = item.run!(actions);
+    finish(false);
+    await failed;
+    expect(actions.findInThread).not.toHaveBeenCalled();
+  });
+
+  it("excludes archived delegated children and deleted ids and opens a marked message hit with the query", async () => {
+    const actions = { switchSession: vi.fn(async () => true), findInThread: vi.fn(), openThread: vi.fn() } as unknown as WorkbenchActions;
+    const base = searchContext(actions);
+    const context: PaletteSearchContext = { ...base, index: { ...base.index, archivedThreadIds: ["c", "child"], threads: [...base.index.threads, { ...thread("child", "Child", 10), parentThreadId: "a" }] } };
+    const items = threadContentItems([
+      { sessionId: "child", path: "", role: "user", snippet: "luna" },
+      { sessionId: "gone", path: "", role: "user", snippet: "luna" },
+      { sessionId: "c", path: "", role: "user", snippet: "the luna answer" },
+    ], context, new Set(), "luna");
+    expect(items.map(item => item.id)).toEqual(["c"]);
+    expect(items[0]!.detail).toBe("You: the luna answer · Archived");
+    expect(items[0]!.ariaLabel).toBe("Luna test, You said: the luna answer, Archived");
+    const view = render(<>{items[0]!.detailContent}</>);
+    expect(view.container.querySelector("mark")?.textContent).toBe("luna");
+    await items[0]!.run!(actions);
+    expect(actions.switchSession).toHaveBeenCalledWith("/sessions/c.jsonl");
+    expect(actions.findInThread).toHaveBeenCalledWith("luna", { sessionId: "c", mode: "all-words" });
+    items[0]!.stage!(actions);
+    expect(actions.openThread).toHaveBeenCalledWith("c");
+  });
+  it("registers Search on Threads for every profile and limits status to All/Threads after three characters", async () => {
+    const { registry } = createKitHarness(async (_id, command) => command === "index-status"
+      ? { enabled: false, state: "disabled", done: 0, total: 0, bytes: 0, threads: 0, revision: 1 }
+      : undefined);
+    registry.activate(createSearchExtension({ threadContentDelayMs: 0 }));
+    const settings = registry.getSettingsSections("threads").find(section => section.id === "search.settings")!;
+    expect(settings.card).toBe("search");
+    expect(settings.profiles).toEqual(["desktop", "web", "compact"]);
+    const source = registry.getPaletteSources().find(item => item.id === "search.thread-content")!;
+    await waitFor(() => expect(source.status?.("moon", { ...searchContext(), scope: "threads" })).toContain("Turn on the message index"));
+    expect(source.status?.("mo", searchContext())).toBeUndefined();
+    expect(source.status?.("moon", { ...searchContext(), scope: "files" })).toBeUndefined();
+    registry.deactivate(SEARCH_KIT_ID);
+  });
+});
+
+it.each(["threads", "thread-search"])("preserves transcript truncation and displays an empty partial result from %s", async (searchCommand) => {
+  const status = { enabled: true, state: "ready", done: 1, total: 1, bytes: 0, threads: 1, revision: 1 };
+  const invoke = vi.fn(async (_id: string, command: string) => {
+    if (command === "find-in-thread") return { messageIds: ["a"], truncated: true };
+    if (command === "index-status") return status;
+    if (command === searchCommand) return { matches: [], truncated: true, ...(command === "thread-search" ? { complete: true, status } : {}) };
+    return undefined;
+  });
   const { registry } = createKitHarness(invoke);
   registry.activate(createSearchExtension({ threadContentDelayMs: 0 }));
   expect(await registry.getTranscriptFinder()!.find({ sessionId: "t", query: "x" })).toEqual({ messageIds: ["a"], truncated: true });
-  const source = registry.getPaletteSources().find((entry) => entry.id === "search.thread-content")!;
+  const source = registry.getPaletteSources().find(entry => entry.id === "search.thread-content")!;
   expect(await source.search("missing", searchContext())).toEqual([expect.objectContaining({ label: "Partial thread search" })]);
+  registry.deactivate(SEARCH_KIT_ID);
 });
 
-it("cancels an in-flight palette query when its signal aborts", async () => {
+it("cancels an in-flight legacy palette query when its signal aborts", async () => {
   let finish!: (value: unknown) => void;
-  const invoke = vi.fn((_id: string, _command: string, input: unknown) => (input as { query: string }).query ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve([]));
+  const invoke = vi.fn((_id: string, command: string, input: unknown) => command === "threads" && (input as { query: string }).query
+    ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(undefined));
   const { registry } = createKitHarness(invoke);
   registry.activate(createSearchExtension({ threadContentDelayMs: 0 }));
-  const source = registry.getPaletteSources().find((entry) => entry.id === "search.thread-content")!;
+  const source = registry.getPaletteSources().find(entry => entry.id === "search.thread-content")!;
   const controller = new AbortController();
   const pending = source.search("needle", { ...searchContext(), signal: controller.signal });
-  await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
   controller.abort();
   expect(invoke).toHaveBeenLastCalledWith(SEARCH_KIT_ID, "threads", { query: "", channel: expect.any(String) });
   finish({ matches: [], truncated: false });
   expect(await pending).toEqual([]);
+  registry.deactivate(SEARCH_KIT_ID);
 });

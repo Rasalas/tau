@@ -39,6 +39,20 @@ describe("Review Kit host extension", () => {
     expect((complete.mock.calls as unknown as Array<[unknown]>)[0]![0]).not.toHaveProperty("thinkingLevel");
   });
 
+  it("writes on the thread's runtime when Text generation says so: its model where it offers the chosen one, never Pi's effort", async () => {
+    const complete = vi.fn(async () => "never Pi");
+    const own = vi.fn(async () => "fix: write on the harness");
+    const harness = { backendKind: "codex", model: { provider: "openai", id: "gpt-thread" }, completionModels: async () => [{ provider: "openai", id: "gpt-mini", name: "Mini" }], complete: own } as unknown as HostThread;
+    const registry = await registryWith(harness, complete);
+    const files = [{ path: "a.ts", added: 1, removed: 0 }];
+    await expect(registry.invoke(REVIEW_HOST_EXTENSION_ID, "suggest-commit-message", { runtime: "thread", provider: "openai", modelId: "gpt-mini", thinkingLevel: "high", files })).resolves.toEqual({ message: "fix: write on the harness" });
+    expect(own).toHaveBeenLastCalledWith("openai", "gpt-mini", expect.not.objectContaining({ thinkingLevel: expect.anything() }));
+    // A model the runtime does not offer gives way to the thread's own.
+    await registry.invoke(REVIEW_HOST_EXTENSION_ID, "suggest-commit-message", { runtime: "thread", provider: "test", modelId: "writer", files });
+    expect(own).toHaveBeenLastCalledWith("openai", "gpt-thread", expect.objectContaining({ maxTokens: 220 }));
+    expect(complete).not.toHaveBeenCalled();
+  });
+
   it("adds the user's own instructions after the format's", async () => {
     const complete = vi.fn(async () => "fix: it");
     const registry = await registryWith(thread(), complete);

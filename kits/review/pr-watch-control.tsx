@@ -39,8 +39,8 @@ export function PullRequestWatchControl({ feed, threadId, request, others }: { f
   const mine = state.watches.find((value) => value.threadId === threadId && value.ref.url === request.url);
   // The eye blinks when the watch starts and each time it reads the PR.
   const blinks = useChangeCount(mine && mine.status !== "ended" ? mine.lastReadAt ?? mine.startedAt : "off");
-  if (request.service !== "github") return null;
-  const rows = watchRows(threadId, state.watches, request, others?.filter((other) => other.service === "github"));
+  if (!["github", "forgejo"].includes(request.service)) return null;
+  const rows = watchRows(threadId, state.watches, request, others?.filter((other) => ["github", "forgejo"].includes(other.service)));
   const watch = rows[0]?.watch;
   const live = Boolean(watch && watch.status !== "ended");
   const unreadable = watch?.status === "unreadable";

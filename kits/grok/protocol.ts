@@ -7,6 +7,8 @@ export const GROK_HOST_EXTENSION_ID = "tau.grok";
 export const USAGE_KIT_ID = "tau.usage";
 /** Search Kit indexes the text of threads nobody has open (`thread-texts`). */
 export const SEARCH_KIT_ID = "tau.search";
+/** Onboarding lists and imports the sessions Grok ran outside Tau (`import-scan`, `import-sessions`). */
+export const ONBOARDING_KIT_ID = "tau.onboarding";
 
 /**
  * An instance's home: the Grok CLI keeps its config, login (`auth.json`) and

@@ -35,6 +35,11 @@ const home = env.GROK_HOME || join(env.HOME ?? ".", ".grok");
 const sessionsFile = join(home, "fake-sessions.json");
 const readSessions = () => { try { return JSON.parse(readFileSync(sessionsFile, "utf8")); } catch { return {}; } };
 const saveSession = (id, value) => { mkdirSync(home, { recursive: true }); writeFileSync(sessionsFile, JSON.stringify({ ...readSessions(), [id]: value })); };
+// With FAKE_GROK_LIST_SESSIONS set the agent lists its sessions (`session/list`) from `fake-session-info.json`: `{ id: { cwd, title?, updatedAt } }`.
+const listing = Boolean(env.FAKE_GROK_LIST_SESSIONS);
+const infoFile = join(home, "fake-session-info.json");
+const readInfo = () => { try { return JSON.parse(readFileSync(infoFile, "utf8")); } catch { return {}; } };
+const saveInfo = (id, value) => { mkdirSync(home, { recursive: true }); writeFileSync(infoFile, JSON.stringify({ ...readInfo(), [id]: value })); };
 
 const EFFORTS = [
   { id: "high", value: "high", label: "High Effort", default: true },
@@ -135,7 +140,7 @@ const handlers = {
     protocolVersion: 1,
     agentInfo: { name: "grok", version: env.FAKE_GROK_VERSION ?? "0.9.12" },
     authMethods: [{ id: "cached_token", name: "Grok login" }, { id: "xai.api_key", name: "xAI API key" }],
-    agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {} }, promptCapabilities: { image: true, embeddedContext: false } },
+    agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, ...(listing ? { list: {} } : {}) }, promptCapabilities: { image: true, embeddedContext: false } },
     _meta: { modelState: modelState(), availableCommands: commands },
   }),
   authenticate: (params) => {
@@ -148,8 +153,13 @@ const handlers = {
     state.mcpServers = params?.mcpServers ?? [];
     state.history = [];
     saveSession(state.sessionId, []);
+    saveInfo(state.sessionId, { cwd: params?.cwd, updatedAt: new Date().toISOString() });
     update({ sessionUpdate: "available_commands_update", availableCommands: commands });
     return { sessionId: state.sessionId, models: modelState() };
+  },
+  "session/list": () => {
+    if (!listing) throw Object.assign(new Error("Method not found: session/list"), { code: -32601 });
+    return { sessions: Object.entries(readInfo()).map(([sessionId, info]) => ({ sessionId, ...info })) };
   },
   "session/load": (params) => {
     const stored = readSessions()[params?.sessionId];

@@ -2,12 +2,13 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { HostCommandError, THREAD_TEXTS_COMMAND, TurnActivityStore, registerSignIn, type HostBackendThreadRecord, type SignInFlowContext, type HostExtension, type HostExtensionServices, type HostRuntimeBackendProvider } from "tau/host-extension";
 import { customModelIds, withCustomModels } from "../_acp/custom-models.js";
+import { importHome } from "../_acp/history-import.js";
 import { AntigravitySession, type AcpSelectOption } from "./acp-session.js";
 import { CommandOverride } from "./command-override.js";
 import { installAntigravity, resolveAntigravity, type AntigravityExecutable } from "./install.js";
 import { geminiConfigDirectory, readMcpServers, withTauServer, type AcpMcpServer } from "./mcp.js";
 import { browserCommand, linkUserSkills, prepareProfile, profileTokenPath, type AntigravityAuthMethod, type AntigravityProfile, type AuthorizationLink } from "./profile.js";
-import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, SEARCH_KIT_ID, USAGE_KIT_ID, type AntigravitySignInEvent } from "./protocol.js";
+import { ANTIGRAVITY_BACKEND_KIND, ANTIGRAVITY_HOST_EXTENSION_ID, ANTIGRAVITY_INSTALL_EVENT, ANTIGRAVITY_SIGN_IN_EVENT, ONBOARDING_KIT_ID, SEARCH_KIT_ID, USAGE_KIT_ID, type AntigravitySignInEvent } from "./protocol.js";
 import { ANTIGRAVITY_RELEASE_VERSION, releaseAssetFor } from "./release.js";
 import { createAntigravityRuntimeAdapter } from "./runtime-adapter.js";
 import { AntigravitySessionStore } from "./session-store.js";
@@ -283,6 +284,18 @@ export function createAntigravityHostExtension(options: AntigravityHostExtension
       }), { access: "read", callers: [USAGE_KIT_ID] });
       // What each thread said, for Search Kit to find threads nobody has open; only what it lacks.
       context.registerCommand(THREAD_TEXTS_COMMAND, async (input) => store.threadTexts(input), { long: true, callers: [SEARCH_KIT_ID] });
+      // Antigravity runs in a Gemini home of Tau's own, so the conversations of the user's own Antigravity are not ones it can load.
+      // Onboarding says so where there are such conversations, rather than finding nothing.
+      context.registerCommand("import-scan", () => {
+        const root = importHome(env, ANTIGRAVITY_BACKEND_KIND);
+        const own = root ? existsSync(root) : ["antigravity", "antigravity-cli"].some((name) => existsSync(join(geminiDir, name)));
+        return {
+          source: ANTIGRAVITY_BACKEND_KIND,
+          sessions: [],
+          truncated: false,
+          ...(own ? { unsupported: "Tau runs Antigravity in a Gemini home of its own, so it cannot continue the conversations your Antigravity keeps in ~/.gemini." } : {}),
+        };
+      }, { access: "read", callers: [ONBOARDING_KIT_ID] });
 
       // Signing in from the window: the agent's own `authenticate` for the chosen method, its link shown to open.
       const fetchUrl = options.fetch ?? globalThis.fetch;

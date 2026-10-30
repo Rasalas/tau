@@ -142,6 +142,8 @@ export interface ProviderCapabilities {
   /** Merge methods offered from Tau; empty when merging is left to the website. */
   merge: readonly MergeMethod[];
   checks: boolean;
+  /** Explicit control of maintainer access on an eligible fork PR. */
+  maintainerEdits?: boolean;
   /** The diff, so the view has a Code tab. */
   files: boolean;
   /** The text of a file at the request's head, so the diff can show unchanged lines. */
@@ -203,7 +205,7 @@ const EVERYTHING: ProviderCapabilities = {
 const plainUrl = (host: string, repo: string) => `https://${host}/${repo}`;
 
 export const PROVIDERS: Readonly<Record<RequestService, ProviderInfo>> = {
-  github: { kind: "github", name: "GitHub", noun: "pull request", short: "PR", sign: "#", checkout: (number) => `gh pr checkout ${number}`, repositoryUrl: plainUrl, capabilities: { ...EVERYTHING, deleteBranchAction: true } },
+  github: { kind: "github", name: "GitHub", noun: "pull request", short: "PR", sign: "#", checkout: (number) => `gh pr checkout ${number}`, repositoryUrl: plainUrl, capabilities: { ...EVERYTHING, deleteBranchAction: true, maintainerEdits: true } },
   gitlab: {
     kind: "gitlab", name: "GitLab", noun: "merge request", short: "MR", sign: "!", checkout: (number) => `glab mr checkout ${number}`, repositoryUrl: plainUrl,
     // GitLab's API has no "request changes"; viewed marks are kept by the kit.
@@ -278,6 +280,8 @@ export interface MergeOutcome {
  * next step (no branch, no remote, no CLI, no login), in words for the user.
  */
 export interface ReviewRequestStatus {
+  /** Creating from a personal GitHub fork owned by the signed-in author. */
+  canChooseMaintainerEdits?: boolean;
   branch?: string;
   /** The branch a new request merges into. */
   base: string;
@@ -383,6 +387,12 @@ export interface PullRequestLabel {
 export type PullRequestCheckStatus = "passed" | "failed" | "cancelled" | "pending" | "action-required" | "skipped" | "neutral";
 
 export interface PullRequestCheck {
+  /** true: required, false: advisory, absent: requirement unknown. Never a merge permission. */
+  required?: boolean;
+  /** Forgejo policy could not be read/evaluated. Other providers keep their existing semantics. */
+  requirementUnknown?: boolean;
+  /** A policy expectation rather than a status reported by a job. */
+  expected?: boolean;
   name: string;
   status: PullRequestCheckStatus;
   workflow?: string;
@@ -430,6 +440,10 @@ export interface PullRequestDetail {
   headSha?: string;
   /** The head repository, including its owner; may differ from ref.repo for a fork. */
   headRepository?: string;
+  maintainerCanModify?: boolean;
+  viewerCanUpdate?: boolean;
+  /** Confirmed by GitHub and restricted to the author of a personal-account fork. */
+  viewerCanAllowMaintainerEdits?: boolean;
   /** GitLab's position anchors for a new line comment. */
   diffRefs?: { base: string; head: string; start: string };
   additions: number;

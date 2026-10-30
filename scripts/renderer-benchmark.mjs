@@ -7,12 +7,12 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateRendererBudgets } from "./renderer-budget.mjs";
 import { machineClass } from "./machine-class.mjs";
-import { rendererHarnessFiles } from "./performance-comparison.mjs";
+import { benchmarkElectron, rendererHarnessFiles } from "./performance-comparison.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 // The release renderer leaves the benchmark out; this build (mode "benchmark") keeps it.
 const BENCHMARK_DIST = join(ROOT, "dist-benchmark");
-const ELECTRON = join(ROOT, "node_modules", ".bin", "electron");
+const ELECTRON = benchmarkElectron(ROOT);
 const fixture = JSON.parse(await readFile(join(ROOT, "benchmarks", "renderer-fixtures.json"), "utf8"));
 const budgets = JSON.parse(await readFile(join(ROOT, "scripts", "performance-budgets.json"), "utf8"));
 const args = process.argv.slice(2);
@@ -254,7 +254,7 @@ const report = {
   buildArtifactSha256: buildArtifactSha256(),
   execution: {
     profileMode: process.env.TAU_BENCHMARK_PROFILE_ROOT ? "fresh-per-process" : "default",
-    electronExecutable: "node_modules/.bin/electron",
+    electronExecutable: ELECTRON,
     gpu: { mode: "default" },
     parallelRuns: 1,
     harnessFiles,

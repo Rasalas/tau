@@ -301,8 +301,17 @@ export class PiThreadRuntimeBackend implements ThreadRuntimeBackend {
       runtimeCapabilities: this.runtimeAdapter.capabilities,
       commands: this.composerCommands(),
     });
+    if (input.continuationContext) await this.session.sendCustomMessage({ customType: "tau.runtime-context", content: `Previous conversation from another runtime:\n${input.continuationContext}`, display: false }, { triggerTurn: false });
     // Pi's own prompt options are assembled here and nowhere else.
     const images = input.attachments?.length ? promptImages(input.attachments) : undefined;
+    // Files are the host's copies of the images; Pi has no file input, so a hidden note names them just ahead of the message.
+    const files = input.attachments?.flatMap((attachment) => attachment.kind === "file" ? [attachment.path] : []) ?? [];
+    if (files.length) {
+      const note = { customType: "tau.runtime-context", content: `Attached files:\n${files.map((path) => `- ${path}`).join("\n")}`, display: false };
+      // While a run goes on, the note joins the queue its message joins (a prompt waits as a follow-up); otherwise it is appended now.
+      if (this.session.isStreaming) await this.session.sendCustomMessage(note, { deliverAs: input.delivery === "steer" ? "steer" : "followUp" });
+      else await this.session.sendCustomMessage(note, { triggerTurn: false });
+    }
     const text = await expandSkills(prepared, (name) => this.session.resourceLoader.getSkills().skills.find((skill) => skill.name === name)) ?? prepared.runtimeText;
     if (input.delivery === "steer") await this.session.steer(text, images);
     else if (input.delivery === "followUp") await this.session.followUp(text, images);

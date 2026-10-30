@@ -96,13 +96,20 @@ function bridgeClient(descriptor) {
       const waiter = pending.get(frame.id);
       if (!waiter) continue;
       pending.delete(frame.id);
+      clearTimeout(waiter.timer);
       if (frame.type === "ready") waiter.resolve(frame.snapshot);
       else if (frame.ok) waiter.resolve(frame.result);
       else waiter.reject(new Error(frame.error));
     }
   });
   const send = (frame) => new Promise((resolve, reject) => {
-    pending.set(frame.id, { resolve, reject });
+    // Match the real host's bridge deadline; a title job must answer promptly
+    // even while it waits for the first turn or for its model completion.
+    const timer = setTimeout(() => {
+      pending.delete(frame.id);
+      reject(new Error(`Pi bridge command '${frame.command ?? frame.type}' timed out.`));
+    }, 15_000);
+    pending.set(frame.id, { resolve, reject, timer });
     socket.write(`${JSON.stringify(frame)}\n`);
   });
   const envelope = () => ({
@@ -113,7 +120,11 @@ function bridgeClient(descriptor) {
     events,
     hello: () => send({ ...envelope(), type: "hello", token: descriptor.token }),
     command: (command) => send({ ...envelope(), type: "command", ...command }),
-    close: () => socket.destroy(),
+    close: () => {
+      for (const waiter of pending.values()) { clearTimeout(waiter.timer); waiter.reject(new Error("Pi bridge closed.")); }
+      pending.clear();
+      socket.destroy();
+    },
   };
 }
 
@@ -172,6 +183,14 @@ try {
   });
   step("prompt sent through the bridge", MODEL);
 
+  await waitFor(() => client.events.some((event) => event.type === "agent_start"), "the run to start");
+  const titleRequestId = "attached-smoke-title";
+  const queuedTitle = await client.command({ command: "extension", extensionId: TITLE_KIT, name: "generate", input: {
+    provider: PROVIDER, modelId: MODEL_ID, instructions: "Begin the title with Tau.", requestId: titleRequestId, deferApply: true,
+  } });
+  if (queuedTitle?.pending !== true) fail("the attached title request did not acknowledge its background work");
+  step("title request acknowledged without holding the bridge open");
+
   await waitFor(() => client.events.some((event) => event.type === "agent_settled"), "the run to settle");
   const written = await readFile(join(REPO, "hello.txt"), "utf8").catch(() => undefined);
   if (written === undefined) fail("the model did not write hello.txt");
@@ -182,6 +201,15 @@ try {
     return entries.find((entry) => entry.customType === CHECKPOINT_ENTRY)?.data;
   }, "Workspace Kit's checkpoint entry in the session file", 60_000);
   step("checkpoint entry in the session file", `${CHECKPOINT_ENTRY}, before ${checkpoint.beforeSnapshotId}`);
+
+  const automaticTitle = await waitFor(async () => {
+    const result = await client.command({ command: "extension", extensionId: TITLE_KIT, name: "result", input: { requestId: titleRequestId } });
+    if (!result) fail("the pending attached title disappeared");
+    return result.title ? result : undefined;
+  }, "the automatic title result");
+  const appliedTitle = await client.command({ command: "extension", extensionId: TITLE_KIT, name: "apply", input: { requestId: titleRequestId } });
+  if (appliedTitle?.title !== automaticTitle.title) fail("the matching title request was not applied");
+  step("queued title completed across Pi event contexts", JSON.stringify(appliedTitle.title));
 
   const title = await client.command({ command: "extension", extensionId: TITLE_KIT, name: "generate", input: { provider: PROVIDER, modelId: MODEL_ID, force: true } });
   if (!title?.title) fail("Thread Title Generator's Pi half returned no title");

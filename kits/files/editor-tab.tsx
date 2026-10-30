@@ -7,7 +7,11 @@ import type { FileDocument } from "./document.js";
 import { fileViewKind, RENDERED_BY_DEFAULT, renderedMode, renderedToggleLabel, tableDelimiter, type RenderedMode } from "./file-kind.js";
 import { kit, WRAP_OPTION, workspaceRelative, wrapLines, type WorkspaceStoreLike } from "./kit.js";
 import { OpenInPicker } from "./open-in.js";
-import { FILES_KIT_ID, UNKNOWN_PROJECT, type FileEditorParams } from "./protocol.js";
+import { DownloadFileButton } from "./download-file.js";
+import { maskMarkdownFrontmatter } from "./markdown-frontmatter.js";
+import { HostedNotebookPreview, NotebookPreview } from "./notebook-preview.js";
+import { PassivePreviewView } from "./passive-preview-view.js";
+import { FILES_KIT_ID, UNKNOWN_PROJECT, type FileEditorParams, type FilesHost } from "./protocol.js";
 
 /** How often the tab on screen asks whether the disk moved on. */
 export const CHECK_INTERVAL_MS = 2_000;
@@ -162,7 +166,28 @@ export function MediaTab({ params, handle, actions }: { params: FileEditorParams
       <span className="spacer" />
       {workspace ? <OpenInPicker store={workspace} relPath={params.path} /> : null}
     </header>
-    <div className="files-body">{kind === "text" ? null : <SharedMedia path={params.path} kind={kind} actions={actions} />}</div>
+    <div className="files-body">{kind === "pdf" || kind === "image" || kind === "audio" || kind === "video" ? <SharedMedia path={params.path} kind={kind} actions={actions} /> : null}</div>
+  </div>;
+}
+
+export function PassiveTab({ params, handle, workspace, host, fallback }: { params: FileEditorParams; handle?: StageTabHandle; workspace: string; host: FilesHost; fallback?(): ReactNode }) {
+  const [unsupported, setUnsupported] = useState(false);
+  const showFallback = useCallback(() => setUnsupported(true), []);
+  const store = useWorkspaceStore();
+  const name = fileName(params.path);
+  const [downloadError, setDownloadError] = useState<string>();
+  useEffect(() => { handle?.setTitle(name); }, [handle, name]);
+  useEffect(() => { setDownloadError(undefined); }, [workspace, params.path, store]);
+  if (unsupported && fallback) return fallback();
+  return <div className="files-tab">
+    <header className="stage-pane-header files-header">
+      <Breadcrumbs path={params.path} reveal={revealFolderOf(store, params.path)} />
+      <span className="spacer" />
+      {store ? <OpenInPicker store={store} relPath={params.path} workspace={workspace} downloadFallback onDownloadError={setDownloadError} /> : <DownloadFileButton path={params.path} workspace={workspace} onError={setDownloadError} />}
+    </header>
+    {downloadError ? <p className="files-notice files-error" role="alert">{downloadError}</p> : null}
+    <p className="files-notice">Preview only. Nothing in this file runs.</p>
+    <div className="files-body"><PassivePreviewView host={host} workspace={workspace} path={params.path} onUnsupported={fallback ? showFallback : undefined} /></div>
   </div>;
 }
 
@@ -199,14 +224,15 @@ export async function saveDocument(document: FileDocument, name: string, actions
 
 /**
  * One workspace text file on the stage: an editor with save, and a rendered
- * view beside the source for Markdown, HTML and tables. The buffer is the
+ * view beside the source for Markdown, HTML, tables and notebooks. The buffer is the
  * kit's, so it outlives this component while the tab is in the background.
  */
-export function FileEditorTab({ params, handle, actions, document }: {
+export function FileEditorTab({ params, handle, actions, document, notebookHost }: {
   params: FileEditorParams;
   handle: StageTabHandle;
   actions: WorkbenchActions;
   document: FileDocument;
+  notebookHost?: FilesHost;
 }) {
   const state = useSyncExternalStore(document.subscribe, document.getState);
   const workspace = useWorkspaceStore();
@@ -261,11 +287,15 @@ export function FileEditorTab({ params, handle, actions, document }: {
     body = <div className="stage-empty" role="status">Binary file ({formatBytes(content.size)}) — nothing to show here.</div>;
   } else if (mode && rendered) {
     body = mode === "markdown"
-      ? <div className="files-markdown"><Markdown>{state.text}</Markdown></div>
-      : mode === "html"
-        // No scripts, no same origin: a page can draw and nothing else.
-        ? <iframe className="files-frame" sandbox="" srcDoc={state.text} title={name} />
-        : <DelimitedTable text={state.text} name={name} delimiter={tableDelimiter(params.path)} />;
+      ? <div className="files-markdown"><Markdown>{maskMarkdownFrontmatter(state.text)}</Markdown></div>
+      : mode === "notebook"
+        ? notebookHost && document.workspace && !state.dirty
+          ? <HostedNotebookPreview host={notebookHost} workspace={document.workspace} path={params.path} revision={content?.mtimeMs} />
+          : <NotebookPreview text={state.text} truncated={Boolean(content?.truncated)} />
+        : mode === "html"
+          // No scripts, no same origin: a page can draw and nothing else.
+          ? <iframe className="files-frame" sandbox="" srcDoc={state.text} title={name} />
+          : <DelimitedTable text={state.text} name={name} delimiter={tableDelimiter(params.path)} />;
   } else {
     body = <CodeEditor
       text={state.text}

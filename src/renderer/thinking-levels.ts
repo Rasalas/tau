@@ -1,6 +1,8 @@
 /** Pi's level ids are identifiers; these are how they read in menus and the model picker. */
 export const THINKING_LABELS: Readonly<Record<string, string>> = {
   off: "Off",
+  // Codex's lowest effort for models that can skip reasoning.
+  none: "None",
   minimal: "Minimal",
   low: "Low",
   medium: "Medium",
@@ -12,7 +14,7 @@ export const THINKING_LABELS: Readonly<Record<string, string>> = {
 /** Pi's out-of-the-box reasoning level; shown as the default. */
 export const DEFAULT_THINKING = "medium";
 
-const ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const ORDER = ["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /** The level another model takes over: the same where it has it, else the next lower, else its lowest. */
 export function carriedLevel(level: string, levels: readonly string[]): string {

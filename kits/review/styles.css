@@ -315,7 +315,7 @@ button.pr-time:hover { color: var(--ink-2); text-decoration: underline; }
 
 /* Code: one file's diff beside the file list. */
 .pr-code { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.pr-code-toolbar { flex: none; display: flex; align-items: center; gap: 12px; padding: 7px 16px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font: var(--text-xs) var(--mono); }
+.pr-code-toolbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 7px 16px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font: var(--text-xs) var(--mono); }
 .pr-viewed-count { display: inline-flex; align-items: center; gap: 4px; }
 .pr-code-body { flex: 1; min-height: 0; display: flex; }
 .pr-code-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -1266,13 +1266,13 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .rvd-confirm > button { height: 28px; padding: 0 var(--space-4); border: 1px solid var(--line-control); border-radius: var(--radius-pill); background: transparent; color: var(--ink-2); font: 500 var(--text-sm) var(--sans); cursor: pointer; }
 .rvd-confirm > button.danger { border-color: var(--danger-line); background: var(--danger-bg); color: var(--removed); }
 .rvd-request { max-width: 640px; }
-.rvd-tabs { flex: none; display: flex; align-items: center; gap: var(--space-5); padding: 0 var(--rv-gutter) var(--space-3); }
+.rvd-tabs { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5); padding: 0 var(--rv-gutter) var(--space-3); }
 .rvd-tabs > [role="tablist"] { display: flex; align-items: center; gap: var(--space-6); }
 .rvd-tabs [role="tab"] { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: var(--muted); font: var(--text-sm) var(--sans); cursor: pointer; }
 .rvd-tabs [role="tab"]:hover { color: var(--ink-2); }
 .rvd-tabs [role="tab"].active { color: var(--ink); font-weight: 600; }
 .rvd-tab-aside { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; color: var(--muted); }
-.rvd-toolbar { margin-left: auto; display: flex; align-items: center; gap: var(--space-5); }
+.rvd-toolbar { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5); }
 .rvd-whitespace { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font: var(--text-xs) var(--sans); }
 .rvd-layout { display: flex; gap: 2px; }
 .rvd-layout > button { padding: 2px 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: var(--text-sm) var(--sans); cursor: pointer; }
@@ -1569,3 +1569,15 @@ body[data-profile="compact"] .pr-verdict { min-height: var(--touch-target); padd
 .pr-unavailable-details { color: var(--muted); font-size: var(--text-xs); }
 .pr-unavailable-details summary { cursor: pointer; width: fit-content; }
 .pr-unavailable-details pre { margin: 6px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--text-xs) var(--mono); }
+
+.pr-check-policy ul { list-style: none; padding: 0; }
+.pr-check-policy li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; }
+.pr-check-policy li small { color: var(--muted); }
+.pr-actions-sheet section { display: grid; gap: 4px; }
+.pr-actions-sheet section + section { margin-top: 12px; }
+.pr-actions-sheet section > button { min-height: 44px; text-align: left; display: grid; gap: 4px; }
+.pr-actions-sheet section > button > span { display: flex; align-items: center; gap: 8px; }
+.pr-actions-sheet section > button > small { color: var(--muted); }
+.pr-maintainer-switch { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.pr-maintainer-switch > div { display: grid; gap: 4px; flex: 1; }
+.pr-maintainer-switch small { color: var(--muted); }

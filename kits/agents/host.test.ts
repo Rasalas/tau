@@ -312,7 +312,7 @@ it("annotates thread creation and delegated actions as writes, and inspection as
     for (const backend of bench.choices.map((choice) => choice.backend.kind)) {
       bench.backends.set("parent", backend);
       const tools = (await Promise.all(bench.mcpProviders.map((provider) => provider({ sessionId: "parent", cwd: "/project" })))).flat();
-      const reads = new Set(["tau_get_thread_status", "tau_wait_for_thread", "tau_list_threads"]);
+      const reads = new Set(["tau_get_thread_status", "tau_wait_for_thread", "tau_list_threads", "tau_list_machines"]);
       for (const tool of tools) expect(tool.annotations?.readOnlyHint, tool.name).toBe(reads.has(tool.name));
       expect(tools.find((tool) => tool.name === "tau_spawn_thread")?.annotations?.readOnlyHint).toBe(false);
       const create = tools.find((tool) => tool.name === "tau_create_thread");
@@ -463,6 +463,7 @@ describe("Agents Kit", () => {
       "tau_cancel_thread",
       "tau_apply_thread_changes",
       "tau_list_threads",
+      "tau_list_machines",
     ]);
   });
 
@@ -2405,6 +2406,83 @@ describe("Agents Kit orchestration", () => {
     expect(bench.started).toHaveLength(3);
     expect(bench.sent).toEqual([]);
     await expect(bench.invoke("stop-agent", { threadId: "nobody" })).rejects.toThrow("gone");
+  });
+
+  it("stops each descendant once when runtime Stop reenters the stop observers", async () => {
+    const bench = await activated();
+    try {
+      const child = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Child", workspace: "shared" }));
+      const grandchild = handleOf(await bench.runtime(child).call("tau_spawn_thread", { prompt: "Grandchild", workspace: "shared" }));
+      const great = handleOf(await bench.runtime(grandchild).call("tau_spawn_thread", { prompt: "Great-grandchild", workspace: "shared" }));
+      const calls: string[] = [];
+      const abort = bench.services.sessions.abort!;
+      bench.services.sessions.abort = async (id) => {
+        calls.push(id);
+        await Promise.all(bench.observers.map((observer) => observer.stopped?.(id)));
+        await abort(id);
+      };
+      await bench.invoke("stop-agent", { threadId: child });
+      expect(calls.sort()).toEqual([child, grandchild, great].sort());
+      expect(bench.sent).toEqual([]);
+    } finally { await bench.registry().dispose(); }
+  });
+
+  it("stops descendants and holds their queue even when their ancestor's runtime rejects Stop", async () => {
+    const bench = await activated({ settingsPath: await settingsWith(1) });
+    try {
+      const child = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Child", workspace: "shared" }));
+      const grandchild = handleOf(await bench.runtime(child).call("tau_spawn_thread", { prompt: "Grandchild", workspace: "shared" }));
+      await bench.runtime(child).call("tau_spawn_thread", { prompt: "Queued", workspace: "shared" });
+      const abort = bench.services.sessions.abort!;
+      bench.services.sessions.abort = async (id) => {
+        if (id === child) throw new Error("Runtime unavailable");
+        await abort(id);
+      };
+
+      await expect(bench.invoke("stop-agent", { threadId: child })).rejects.toThrow("Runtime unavailable");
+      expect(bench.aborted).toEqual([grandchild]);
+      expect((await bench.state()).links.map((link) => link.status)).toEqual(["running", "cancelled", "cancelled"]);
+      expect(bench.started).toHaveLength(2);
+      await expect(bench.runtime(child).call("tau_spawn_thread", { prompt: "Late work", workspace: "shared" })).rejects.toThrow("was stopped");
+      await finish(bench, grandchild, "Late answer");
+      expect(bench.sent).toEqual([]);
+    } finally { await bench.registry().dispose(); }
+  });
+
+  it.each(["parent Stop", "stop-agent"])("%s reaches descendants before a hung runtime stop times out", async (ending) => {
+    const bench = await activated();
+    let release!: () => void;
+    const hung = new Promise<void>((resolve) => { release = resolve; });
+    let reached!: () => void;
+    const reachedAbort = new Promise<void>((resolve) => { reached = resolve; });
+    try {
+      const child = handleOf(await bench.runtime("parent").call("tau_spawn_thread", { prompt: "Child", workspace: "shared" }));
+      const grandchild = handleOf(await bench.runtime(child).call("tau_spawn_thread", { prompt: "Grandchild", workspace: "shared" }));
+      const abort = bench.services.sessions.abort!;
+      bench.services.sessions.abort = async (id) => {
+        if (id === child) { reached(); await hung; }
+        await abort(id);
+      };
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const stopping = (ending === "parent Stop"
+        ? Promise.all(bench.observers.map((observer) => observer.stopped?.("parent")))
+        : bench.invoke("stop-agent", { threadId: child })).then(() => undefined, (error: unknown) => error);
+      await reachedAbort;
+      await vi.waitFor(() => expect(bench.aborted).toContain(grandchild));
+      await vi.advanceTimersByTimeAsync(30_000);
+      const error = await stopping;
+      if (ending === "stop-agent") expect(error).toEqual(expect.objectContaining({ message: expect.stringContaining("within 30 seconds") }));
+      else expect(bench.services.log).toHaveBeenCalledWith("agents.cancel-failed", expect.stringContaining("within 30 seconds"));
+      // A timeout does not claim a still-streaming runtime has stopped.
+      expect((await bench.state()).links.map((link) => link.status)).toEqual(["running", "cancelled"]);
+      release();
+      await vi.waitFor(() => expect(bench.aborted).toContain(child));
+      expect(bench.sent).toEqual([]);
+    } finally {
+      release();
+      vi.useRealTimers();
+      await bench.registry().dispose();
+    }
   });
 
   it.skipIf(process.platform === "win32").each(["parent Stop", "stop-agent", "cancel"])("%s ends child shell commands and their grandchildren", async (ending) => {

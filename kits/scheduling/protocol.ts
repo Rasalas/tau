@@ -1,10 +1,26 @@
 export const SCHEDULING_ID = "tau.scheduling";
+/** Paths are relative to the JSON payload. Every rule must match. */
+export type WebhookFilter =
+  | { path: string; op: "equals"; value: string | number | boolean | null }
+  | { path: string; op: "exists" };
+export interface WebhookCoalescing { keyPath: string; waitSeconds: number }
+/** Public waiting metadata. Payloads and key digests stay on the machine. */
+export interface WebhookBurst { id: string; at: string; dueAt: string; count: number }
 export type Schedule =
   | { kind: "once"; at: string }
   | { kind: "daily"; time: string; timezone: "UTC" }
   /** Five-field cron in an IANA zone, the composer's "Repeat": `0 9 * * 1,3,5`, `Europe/Berlin`. */
   | { kind: "cron"; expression: string; timezone: string }
-  | { kind: "webhook" };
+  | { kind: "webhook"; format?: WebhookFormat; includePayload?: boolean; filters?: WebhookFilter[]; coalescing?: WebhookCoalescing | null };
+/**
+ * How a webhook proves its sender: Tau's own signed headers (default),
+ * GitHub's `X-Hub-Signature-256`, Stripe's `Stripe-Signature`, or a shared
+ * secret in `Authorization: Bearer` for curl.
+ */
+export type WebhookFormat = "tau" | "github" | "stripe" | "bearer";
+export const WEBHOOK_FORMATS: readonly WebhookFormat[] = ["tau", "github", "stripe", "bearer"];
+/** An existing local thread each run continues with a new message, instead of starting a new thread. */
+export interface RunTarget { kind: "thread"; threadId: string }
 /** Kinds that have a next occurrence after each run. */
 export const repeats = (schedule: Schedule) => schedule.kind === "daily" || schedule.kind === "cron";
 export type AccessLevel = "read-only" | "ask" | "auto" | "full";
@@ -18,6 +34,8 @@ export interface JobConfig {
   backend: string;
   prompt: string;
   schedule: Schedule;
+  /** Absent: a new thread per run. */
+  target?: RunTarget;
 }
 export interface Job {
   id: string;
@@ -27,11 +45,14 @@ export interface Job {
   enabled: boolean;
   status: "ready" | "held" | "starting" | "running" | "completed" | "failed" | "uncertain";
   nextAt?: string;
-  lastRun?: { intentId: string; at: string; threadId?: string; outcome: string; detail?: string };
+  lastRun?: { intentId: string; at: string; threadId?: string; outcome: string; detail?: string; webhookBurstId?: string; deliveryCount?: number };
+  webhookBursts?: WebhookBurst[];
   /** A host-owned secret account; never the value. */
   secretRef?: string;
   /** Accepted webhook delivery IDs. Persisted before starting their threads. */
   deliveries?: string[];
+  /** The thread whose agent proposed this automation and the owner approved; it may list and cancel it. */
+  origin?: { threadId: string };
 }
 export interface SchedulingState { enabled: boolean; jobs: Job[] }
 export interface SecretRequest {
@@ -50,4 +71,17 @@ export interface ManagementState extends SchedulingState {
   webhookProblem?: string;
   secretStore?: string;
   secretRequests: SecretRequest[];
+  /** Absent from a host older than agent-proposed automations. */
+  scheduleRequests?: ScheduleRequest[];
+}
+/** An agent's proposal for an automation, waiting for the owner. */
+export interface ScheduleRequest {
+  id: string;
+  threadId: string;
+  config: JobConfig;
+  /** Why the agent wants it, in its words. */
+  reason: string;
+  status: "pending" | "approved" | "declined" | "ended";
+  expiresAt: number;
+  jobId?: string;
 }

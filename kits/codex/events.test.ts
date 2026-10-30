@@ -128,6 +128,20 @@ describe("displayCommand", () => {
 });
 
 describe("a usage limit", () => {
+  it.each([
+    ["usageLimitExceeded", true],
+    ["rateLimitExceeded", true],
+    [{ responseTooManyFailedAttempts: { httpStatusCode: 429 } }, true],
+    [{ responseTooManyFailedAttempts: { httpStatusCode: 500 } }, false],
+    [{ responseTooManyFailedAttempts: { httpStatusCode: null } }, false],
+    ["internalServerError", false],
+  ])("classifies %j without treating other exhausted retries as usage limits", (codexErrorInfo, limited) => {
+    const translator = new CodexTurnTranslator();
+    translator.push("turn/completed", { turn: { status: "failed", error: { message: "Retries exhausted", codexErrorInfo } } });
+    expect(translator.outcome?.usageLimit === true).toBe(limited);
+    expect(translator.outcome?.error).toBe("Retries exhausted");
+  });
+
   it("marks the turn Codex failed with usageLimitExceeded, whatever its sentence says", () => {
     const translator = new CodexTurnTranslator(() => 1);
     translator.push("turn/completed", { turn: { id: "tu", status: "failed", error: { message: "Your workspace is out of credits.", codexErrorInfo: "usageLimitExceeded" } } });

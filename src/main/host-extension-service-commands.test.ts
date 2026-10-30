@@ -6,6 +6,7 @@ import {
 import type { WorkerHostServices, WorkerThreadSnapshot } from "./host-extension-worker-protocol.js";
 
 const valid = {
+  "conversations.list": [], "conversations.page": ["s1", "revision"],
   cwd: [], openWorkspace: ["/repo"], knownWorkspacePath: ["/repo"], workspaceRef: ["/repo"], admitWorkspace: ["/repo"],
   projectName: ["/repo"], settings: ["/repo"], priceUsage: [[]], rememberProjectName: ["/repo", "Project"],
   pickDirectory: [{ buttonLabel: "", message: "Pick", createDirectory: true }], runtimeOwner: [], thread: ["s1"], transcript: ["s1"],
@@ -22,6 +23,7 @@ const valid = {
 } satisfies { [Name in WorkerServiceName]: WorkerServiceArgs<typeof C[Name]> };
 
 const malformed: Record<WorkerServiceName, readonly unknown[]> = {
+  "conversations.list": [1], "conversations.page": ["s1", 1],
   cwd: ["extra"], openWorkspace: [null], knownWorkspacePath: [1], workspaceRef: [{}], admitWorkspace: [[]],
   projectName: [undefined], settings: [1], priceUsage: [[{ inputTokens: 1 }]], rememberProjectName: ["/repo", false],
   pickDirectory: [{ createDirectory: "yes" }], runtimeOwner: [true], thread: [1], transcript: [false], setThreadTitle: ["s1", "Title", "other"],

@@ -205,7 +205,7 @@ export function TerminalView({ session, place, focused = false, fontSize, touch 
           const urls = findTerminalLinks(line.text);
           const cwd = () => sessionRef.current.currentCwd ?? sessionRef.current.cwd;
           const within = (start: number, end: number) => positionIn(line, start).y <= row && positionIn(line, end - 1).y >= row;
-          const rangeOf = (start: number, end: number) => ({ start: positionIn(line, start), end: positionIn(line, end - 1) });
+          const rangeOf = (start: number, end: number) => ({ start: positionIn(line, start), end: positionIn(line, end - 1, "end") });
           const found: ILink[] = urls
             .filter((match) => within(match.start, match.end))
             .map((match) => ({

@@ -1,3 +1,4 @@
+import type { HostHttpRoute } from "./host-http-route.js";
 import type { UiHostEndpoint, UiHostEndpointKind, UiNetworkAccess } from "../shared/connections.js";
 import type { HostNetworkServices } from "./host-extensions.js";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
@@ -48,6 +49,15 @@ function decodeKept(value: unknown): string[] | undefined {
  */
 export class NetworkContributions {
   private host: NetworkContributionsHost | undefined;
+  private readonly routes = new Map<string, HostHttpRoute>();
+  /** Only registered namespaces are dispatched; no credential or listener is created here. */
+  readonly serve: HostHttpRoute = async (request, response, trust) => {
+    const path = (request.url ?? "").split("?")[0]!;
+    for (const [prefix, handler] of this.routes) {
+      if (path === prefix || path.startsWith(prefix + "/")) return handler(request, response, trust);
+    }
+    return false;
+  };
   private readonly holds = new Set<symbol>();
   /** Packages that keep the proxy listener, so it opens at start before any package runs. */
   private readonly kept = new Set<string>();
@@ -78,7 +88,18 @@ export class NetworkContributions {
   /** The seam one package sees as `services.network`: `keepProxy` speaks for that package alone. */
   forExtension(extensionId: string): HostNetworkServices {
     const { state, holdProxy, publishEndpoints } = this.services;
-    return { state, holdProxy, publishEndpoints, keepProxy: (keep) => this.keep(extensionId, keep) };
+    return {
+      state, holdProxy, publishEndpoints,
+      publishedEndpoints: () => this.endpoints(),
+      registerHttpRoute: (name, handler) => {
+        if (!/^[a-z][a-z0-9-]{0,39}$/u.test(name)) throw new Error("Invalid HTTP route name.");
+        const prefix = `/extensions/${encodeURIComponent(extensionId)}/${name}`;
+        if (this.routes.has(prefix)) throw new Error("HTTP route already registered.");
+        this.routes.set(prefix, handler);
+        return () => { if (this.routes.get(prefix) === handler) this.routes.delete(prefix); };
+      },
+      keepProxy: (keep) => this.keep(extensionId, keep),
+    };
   }
 
   /** The seam without a package's identity; `extensionServices` binds one. */

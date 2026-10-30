@@ -192,6 +192,23 @@ describe("OutsideUsageCache", () => {
     expect(totals(restarted.snapshot())["ses-a"]).toBe(1015);
   });
 
+  it("skips an OpenCode database whose layout it does not know, and says what it lacks", async () => {
+    if (!await openSqlite()) return;
+    const { root, cacheFile } = await fixture();
+    const home = join(root, "opencode-drifted");
+    await mkdir(home, { recursive: true });
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(join(home, "opencode.db"));
+    // A future release renamed the payload column; the session table is gone.
+    db.exec("CREATE TABLE session_message (id text PRIMARY KEY, session_id text NOT NULL, time_created integer NOT NULL, payload text NOT NULL)");
+    db.close();
+    const cache = new OutsideUsageCache(cacheFile, () => NOW);
+    await cache.refresh([{ format: "opencode", backend: "opencode", label: "OpenCode", path: home }]);
+    const [report] = cache.snapshot().roots;
+    expect(report).toMatchObject({ found: true, files: 0, failed: 1 });
+    expect(report!.problems).toEqual(["opencode.db: the database has no message table this version reads (session_message lacks data; no message table)"]);
+  });
+
   it("keeps counts and digests, never a word of the conversation or a raw id", async () => {
     const { roots, cacheFile } = await fixture();
     await new OutsideUsageCache(cacheFile, () => NOW).refresh(roots);

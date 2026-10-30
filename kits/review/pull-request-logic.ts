@@ -14,6 +14,7 @@ import {
   type ReviewCommentChip,
   type ReviewRequest,
 } from "./protocol.js";
+import { gatingChecks, hasCheckPolicy } from "./required-checks.js";
 import { parseRequestUrl } from "./pull-request-json.js";
 
 /** What a stage tab of the view holds: enough to name it before anything loaded. */
@@ -47,13 +48,14 @@ export type ChecksRollup = "failing" | "pending" | "passing";
 
 /** Failure is a display priority, not evidence that every job has finished. */
 export function checksUnfinished(checks: readonly PullRequestCheck[]): boolean {
-  return checks.some((check) => check.status === "pending" || check.status === "action-required");
+  return gatingChecks(checks).some((check) => check.status === "pending" || check.status === "action-required");
 }
 
 export function checksRollup(checks: readonly PullRequestCheck[]): ChecksRollup | undefined {
+  checks = gatingChecks(checks);
   if (checks.some((check) => check.status === "failed" || check.status === "cancelled")) return "failing";
   if (checks.some((check) => check.status === "pending" || check.status === "action-required")) return "pending";
-  if (checks.some((check) => check.status === "passed")) return "passing";
+  if (checks.length > 0 && checks.every((check) => ["passed", "skipped", "neutral"].includes(check.status))) return "passing";
   return undefined;
 }
 
@@ -65,6 +67,12 @@ export const ROLLUP_TITLES: Record<ChecksRollup, string> = {
 
 /** The one line beside the Summary tab: the worst news first. */
 export function checksSummary(checks: readonly PullRequestCheck[]): string {
+  if (hasCheckPolicy(checks)) {
+    const required = gatingChecks(checks);
+    if (!required.length) return "No required checks";
+    const passed = required.filter((check) => ["passed", "skipped", "neutral"].includes(check.status)).length;
+    return `${passed} of ${required.length} required checks passed`;
+  }
   const total = checks.length;
   if (total === 0) return "No checks reported";
   const failing = checks.filter((check) => check.status === "failed" || check.status === "cancelled").length;
@@ -79,6 +87,7 @@ export function checksSummary(checks: readonly PullRequestCheck[]): string {
 
 /** The rail row's request, as the view last read it. */
 export function asReviewRequest(detail: PullRequestDetail, checks: readonly PullRequestCheck[]): ReviewRequest {
+  checks = gatingChecks(checks);
   // As the rail's own detector counts: skipped and neutral runs pass.
   const failed = checks.filter((check) => check.status === "failed" || check.status === "cancelled").length;
   const pending = checks.filter((check) => check.status === "pending" || check.status === "action-required").length;

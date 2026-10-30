@@ -110,6 +110,20 @@ describe("HostExtensionRegistry", () => {
     expect(r.isActive("test.receiver")).toBe(true);
   });
 
+  it("tells activation observers about every (re)activation once its commands answer, and not about a failed one", async () => {
+    const { registry: r } = registry();
+    const heard: unknown[] = [];
+    const stop = r.observeActivation((id) => { heard.push(id); void r.invoke(id, "ping").then((answer) => heard.push(answer)); });
+    const extension = { id: "test.level", name: "Level", activate(ctx: Parameters<Parameters<typeof r.activate>[0]["activate"]>[0]) { ctx.registerCommand("ping", () => "pong"); } };
+    await r.activate(extension);
+    await r.activate(extension);
+    await r.activate({ id: "test.broken", name: "Broken", activate() { throw new Error("no"); } });
+    await vi.waitFor(() => expect([...heard].sort()).toEqual(["pong", "pong", "test.level", "test.level"]));
+    stop();
+    await r.activate(extension);
+    expect(heard).toHaveLength(4);
+  });
+
   it("routes commands by extension id and command name", async () => {
     const { registry: r } = registry();
     const extension: HostExtension = {

@@ -137,6 +137,30 @@ both ends. Pairing cancellation closes pending probes; host switching and page
 reload close tracked native sockets and their bridges. Removing a host forgets
 its relay credential as well as its host token.
 
+### One machine, several routes
+
+Tau Connect is one more route to a machine, beside its LAN, Tailscale and name
+addresses and Tau's SSH forward. A machine paired directly and then through a
+Connect link, or the other way round, stays one machine with every route,
+provided both pairings pinned the same key. A machine that shows another key
+starts over with the new pairing's routes. A machine added through Connect
+learns its own addresses from its hello, as a directly paired one does.
+
+The desktop tries the machine's own addresses first, the one that worked last
+first, and the relay only when none answers. While on the relay it checks the
+other addresses after 15 seconds, then less often (30 s, 1, 2 and 5 minutes),
+and returns to the first one that opens with the machine's key. The check sends
+no hello and no key. The page showing that machine moves with it between the
+relay and its own addresses, which reloads it once. A move between two of its
+own addresses leaves the page as it was. Settings → Machines shows "Tau
+Connect" while that is the route in use.
+
+A route that presents another key, or whose hello names another machine, is
+never taken; the next one is tried. The machine is refused only when no route
+let the window in and one of them was another machine. The phone already races
+all its routes, the relay last, at every reconnect, and also keeps the relay
+when paired again directly under the same key.
+
 Removing a machine on the client closes its local bridge and forgets its saved
 keys. Revoking that device in the host's Connections removes its host access;
 disconnecting the host's entire Connect registration removes the transport

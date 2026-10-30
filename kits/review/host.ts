@@ -6,6 +6,7 @@ import { createSourceControl, type SourceControlOptions } from "./provider-regis
 import { registerProviderSettings } from "./provider-settings-host.js";
 import { registerPullRequestListCommands } from "./pull-request-list-host.js";
 import { modelEffort, writingBudget } from "./model-effort.js";
+import { readTextRuntime, threadWritingModel } from "../_shared/text-generation-host.js";
 import { withInstructions } from "./writing.js";
 import { registerPublishCommands } from "./publish-host.js";
 import { registerRequestCommands, type RequestCommandOptions } from "./requests-host.js";
@@ -123,16 +124,20 @@ export function createReviewHostExtension(options: RequestCommandOptions & Sourc
         if (services.runtimeOwner() === "pi") throw new HostCommandError("Write the commit message yourself while Pi is attached to the runtime.");
         const thread = services.thread();
         if (!thread) throw new HostCommandError("Pi runtime is not ready");
-        services.log("commit-message.started", `${provider && modelId ? `${provider}/${modelId}` : "default model"} · ${style}`);
-        const effort = await modelEffort(services, provider && modelId ? `${provider}/${modelId}` : "", fields.thinkingLevel, thread.cwd);
+        const chosen = provider && modelId ? { provider, id: modelId } : undefined;
+        const request = { system: withInstructions(SYSTEM_PROMPTS[style], fields.instructions), prompt: buildCommitPrompt({ branch: text(fields.branch), files, diffs }) };
         let answer: string;
         try {
-          answer = await services.complete({
-            system: withInstructions(SYSTEM_PROMPTS[style], fields.instructions),
-            prompt: buildCommitPrompt({ branch: text(fields.branch), files, diffs }),
-            ...writingBudget(effort, 220),
-            ...(effort ? { thinkingLevel: effort } : {}),
-          }, provider && modelId ? { provider, id: modelId } : undefined);
+          if (readTextRuntime(fields.runtime) === "thread") {
+            // The thread's runtime writes it with its own login and effort.
+            const own = await threadWritingModel(thread, chosen);
+            services.log("commit-message.started", `${own.provider}/${own.id} on the thread's runtime · ${style}`);
+            answer = await thread.complete(own.provider, own.id, { ...request, maxTokens: 220 });
+          } else {
+            services.log("commit-message.started", `${chosen ? `${chosen.provider}/${chosen.id}` : "default model"} · ${style}`);
+            const effort = await modelEffort(services, chosen ? `${chosen.provider}/${chosen.id}` : "", fields.thinkingLevel, thread.cwd);
+            answer = await services.complete({ ...request, ...writingBudget(effort, 220), ...(effort ? { thinkingLevel: effort } : {}) }, chosen);
+          }
         } catch (error) {
           throw new HostCommandError(error instanceof Error ? error.message : String(error));
         }

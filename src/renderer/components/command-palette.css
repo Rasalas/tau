@@ -65,3 +65,5 @@
 .palette-results button[aria-disabled="true"] { cursor: default; }
 .palette-results button[aria-disabled="true"] > span { color: var(--faint); }
 .palette-results button > .palette-locked { font: var(--text-xs) var(--sans); color: var(--muted); }
+
+.palette-index-status { padding: 8px 14px; color: var(--muted); font-size: var(--text-sm); border-top: 1px solid var(--line); }

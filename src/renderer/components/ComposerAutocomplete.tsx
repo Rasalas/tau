@@ -56,6 +56,7 @@ export function skillName(command: UiComposerCommand): string {
 }
 
 const escapeCharacter = (char: string) => char.replace(/[\\^$.*+?()[\]{}|]/gu, "\\$&");
+const CURRENCY_AMOUNT = /^\.?[0-9][0-9,._]*(?:[kKmMbBtT]|[eE][0-9]+)?[.,;:!?)]*$/u;
 
 /**
  * Editor-only autocomplete trigger; submitted text is never classified or
@@ -69,6 +70,7 @@ export function composerTrigger(
   skillNames?: readonly string[],
 ): ComposerTrigger | undefined {
   const before = text.slice(0, caret);
+  const restOfToken = /^[^\s]*/u.exec(text.slice(caret))![0];
   if (extensionChars.length > 0) {
     const pattern = new RegExp(`(?:^|\\s)(${extensionChars.map(escapeCharacter).join("|")})([^\\s]*)$`, "u");
     const extensionMatch = pattern.exec(before);
@@ -92,6 +94,7 @@ export function composerTrigger(
   }
   const inline = skillNames && /(?:^|\s)\$([^\s]*)$/u.exec(before);
   if (inline) {
+    if (CURRENCY_AMOUNT.test(`${inline[1]}${restOfToken}`)) return undefined;
     const query = inline[1]!.toLowerCase();
     if (skillNames.some((name) => name.toLowerCase().includes(query))) {
       return { kind: "$", query: inline[1]!, start: before.lastIndexOf("$"), end: caret };
@@ -100,8 +103,10 @@ export function composerTrigger(
   // Match /command or $skill at start of prompt
   const match = /^\s*([/$])([^\s]*)$/u.exec(before);
   if (!match) return undefined;
+  // Read through the caret so `$1|password` remains a skill, while `$9|.99` is money.
+  if (match[1] === "$" && CURRENCY_AMOUNT.test(`${match[2]}${restOfToken}`)) return undefined;
   // A second slash in the word, even past the caret, makes it a path such as /tmp/build.sh.
-  if (match[1] === "/" && `${match[2]}${/^[^\s]*/u.exec(text.slice(caret))![0]}`.includes("/")) return undefined;
+  if (match[1] === "/" && `${match[2]}${restOfToken}`.includes("/")) return undefined;
   const start = before.lastIndexOf(match[1]!);
   return { kind: match[1] as "/" | "$", query: match[2] ?? "", start, end: caret };
 }

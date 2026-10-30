@@ -96,6 +96,22 @@ export class ProjectFactsCache {
     this.names.set(cwd, name);
   }
 
+  /** A provider changed durable project metadata, without changing the workspace. */
+  async refresh(cwd: string): Promise<void> {
+    await Promise.allSettled([this.nameLoads.get(cwd), this.classifications.get(cwd), this.labelRefreshes.get(cwd)]);
+    const previousName = this.names.get(cwd);
+    this.names.delete(cwd);
+    this.unnamed.delete(cwd);
+    this.nesting.delete(cwd);
+    this.privateWorkspaces.delete(cwd);
+    this.owners.delete(cwd);
+    this.labelAskedAt.delete(cwd);
+    const name = await this.loadName(cwd);
+    if (name !== previousName) this.port.onName(cwd, name);
+    this.classify(cwd);
+    await this.classifications.get(cwd);
+  }
+
   knownLabel(cwd: string): string | undefined {
     return this.labels.get(cwd);
   }

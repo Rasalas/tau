@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as persistence from "./persisted-json.js";
-import { ExternalMcpAuthorization, type McpOAuthTokens } from "./external-mcp-authorization.js";
+import { ExternalMcpAuthorization, LOCAL_MCP_ISSUER, type McpOAuthTokens } from "./external-mcp-authorization.js";
 import { matchesMcpRedirect, mcpChallenge, mcpIssuer, mcpRedirects, mcpScopes } from "./external-mcp-policy.js";
 
 const issuer = "https://tau.example.test";
@@ -503,5 +503,65 @@ describe("external MCP authorization", () => {
     await expect(f.store.revokeToken(f.client.id, oversized)).resolves.toBeUndefined();
     expect(write).not.toHaveBeenCalled();
     await expect(f.store.exchangeCode(exchange)).resolves.toHaveProperty("access_token");
+  });
+});
+
+describe("local MCP tokens", () => {
+  async function local(revoked = vi.fn()) {
+    const dir = await mkdtemp(join(tmpdir(), "tau-local-mcp-"));
+    directories.push(dir);
+    const path = join(dir, "local.json");
+    let now = 1_000_000;
+    const open = async () => { const store = await ExternalMcpAuthorization.open({ storePath: path, issuer: LOCAL_MCP_ISSUER, now: () => now, logger, revoked }); stores.push(store); return store; };
+    return { path, open, store: await open(), revoked, advance: (ms: number) => { now += ms; } };
+  }
+
+  it("stores a hash, defaults control to ask and leases by scope and project", async () => {
+    const f = await local();
+    const { token, grant } = await f.store.createLocalToken({ name: "Codex", projectIds: ["a"], scopes: ["tau:read", "tau:threads"] });
+    expect(grant).toMatchObject({ execution: "ask", scopes: ["tau:read", "tau:threads"], name: "Codex" });
+    expect(await readFile(f.path, "utf8")).not.toContain(token);
+    expect(await readFile(f.path, "utf8")).toContain(createHash("sha256").update(token).digest("hex"));
+    expect(f.store.lease(token, f.store.resource, { scope: "tau:threads", projectId: "a" }).grant.id).toBe(grant.id);
+    expect(() => f.store.lease(token, f.store.resource, { scope: "tau:threads", projectId: "b" })).toThrow("access_denied");
+    const read = await f.store.createLocalToken({ name: "Reader", projectIds: ["a"], scopes: ["tau:read"] });
+    expect(read.grant.execution).toBe("read-only");
+    expect(() => f.store.lease(read.token, f.store.resource, { scope: "tau:threads", projectId: "a" })).toThrow("access_denied");
+    await expect(f.store.createLocalToken({ name: "Reader", projectIds: ["a"], scopes: ["tau:read"], execution: "full" })).rejects.toThrow("invalid_scope");
+    await expect(f.store.createLocalToken({ name: "Bad", projectIds: ["a"], scopes: ["tau:threads"] })).rejects.toThrow("invalid_scope");
+    expect(f.store.authenticate(token.replace("local", "access"), f.store.resource)).toBeUndefined();
+  });
+
+  it("expires, revokes once with its observer, and survives restart without the secret", async () => {
+    const f = await local();
+    const forever = await f.store.createLocalToken({ name: "Forever", projectIds: ["a"], scopes: ["tau:read"] });
+    const brief = await f.store.createLocalToken({ name: "Brief", projectIds: ["a"], scopes: ["tau:read"], expiresAt: 1_000_000 + 60_000 });
+    f.advance(61_000);
+    expect(f.store.authenticate(brief.token, f.store.resource)).toBeUndefined();
+    expect(f.store.authenticate(forever.token, f.store.resource)).toBeDefined();
+    const lease = f.store.lease(forever.token, f.store.resource, { scope: "tau:read", projectId: "a" });
+    await f.store.revokeGrant(forever.grant.id);
+    expect(lease.signal.aborted).toBe(true);
+    expect(f.revoked).toHaveBeenCalledExactlyOnceWith(forever.grant.id);
+    await f.store.close();
+    const reopened = await f.open();
+    expect(reopened.authenticate(forever.token, reopened.resource)).toBeUndefined();
+    expect(reopened.localTokens()).toEqual([]);
+  });
+
+  it("refuses OAuth credentials in a local store and local tokens in an OAuth store", async () => {
+    const f = await local();
+    await f.store.createLocalToken({ name: "Codex", projectIds: ["a"], scopes: ["tau:read"] });
+    const good = JSON.parse(await readFile(f.path, "utf8"));
+    await f.store.close();
+    for (const value of [{ ...good, clients: [{ id: "c", name: "c", redirectUris: ["https://x.test/cb"] }] }, { ...good, local: [] }, { ...good, grants: [{ ...good.grants[0], clientId: "other" }] }]) {
+      await writeFile(f.path, JSON.stringify(value));
+      await expect(f.open()).rejects.toThrow();
+    }
+    const oauth = await fixture();
+    await expect(oauth.store.createLocalToken({ name: "x", projectIds: ["a"], scopes: ["tau:read"] })).rejects.toThrow("invalid_request");
+    const stored = JSON.parse(await readFile(oauth.path, "utf8"));
+    await writeFile(oauth.path, JSON.stringify({ ...stored, local: [{ hash: "a".repeat(64), grantId: "g", name: "x" }] }));
+    await expect(oauth.reopen()).rejects.toThrow();
   });
 });

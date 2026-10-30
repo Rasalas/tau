@@ -1,4 +1,5 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import type { TranscriptFindMode } from "../../workbench/transcript-find";
 import type { UiMessage } from "../../shared/contracts";
 import { WorkbenchShellContext } from "../workbench-context";
 import { clearTranscriptHighlights, highlightTranscript } from "./transcript-highlights";
@@ -44,16 +45,24 @@ function flash(node: HTMLElement, messageId: string): () => void {
  * when they are not there, scrolls to it once the row exists and marks it.
  */
 export function useTranscriptReveal({ scrollRef, sessionId, messages, jumpToMessage, loadThrough }: RevealOptions): (messageId: string) => Promise<boolean> {
-  const [pending, setPending] = useState<string>();
-  const latest = useRef({ messages, loadThrough });
-  useLayoutEffect(() => { latest.current = { messages, loadThrough }; });
+  const [pending, setPending] = useState<{ messageId: string; sessionId?: string }>();
+  const lifetime = useRef<object | undefined>(undefined);
+  useLayoutEffect(() => {
+    lifetime.current = {};
+    return () => { lifetime.current = undefined; };
+  }, [sessionId]);
+  const latest = useRef({ messages, loadThrough, sessionId });
+  useLayoutEffect(() => { latest.current = { messages, loadThrough, sessionId }; });
 
   const reveal = useCallback(async (messageId: string): Promise<boolean> => {
+    if (latest.current.sessionId !== sessionId) return false;
+    const scope = lifetime.current;
     const { messages: loaded, loadThrough: load } = latest.current;
     if (!loaded.some((message) => message.id === messageId) && !(await load?.(messageId))) return false;
-    setPending(messageId);
+    if (!scope || lifetime.current !== scope) return false;
+    setPending({ messageId, sessionId });
     return true;
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -62,16 +71,16 @@ export function useTranscriptReveal({ scrollRef, sessionId, messages, jumpToMess
 
   // The mark outlives the effect that sets it, so it has a slot of its own.
   const unflash = useRef<() => void>(() => {});
-  useEffect(() => () => unflash.current(), []);
+  useEffect(() => () => unflash.current(), [sessionId]);
   useEffect(() => { setPending(undefined); }, [sessionId]);
   useEffect(() => {
     const node = scrollRef.current;
-    if (!pending || !node || !messages.some((message) => message.id === pending)) return;
-    jumpToMessage(pending);
+    if (!pending || pending.sessionId !== sessionId || !node || !messages.some((message) => message.id === pending.messageId)) return;
+    jumpToMessage(pending.messageId);
     setPending(undefined);
     unflash.current();
-    unflash.current = flash(node, pending);
-  }, [jumpToMessage, messages, pending, scrollRef]);
+    unflash.current = flash(node, pending.messageId);
+  }, [jumpToMessage, messages, pending, scrollRef, sessionId]);
   return reveal;
 }
 
@@ -83,25 +92,25 @@ export function useTranscriptFind(scrollRef: RefObject<HTMLDivElement | null>, s
   const registry = useContext(WorkbenchShellContext)?.registry;
   const finder = registry?.getTranscriptFinder();
   const find = useMemo(
-    () => sessionId && finder ? (query: string) => finder.find({ sessionId, query }) : undefined,
+    () => sessionId && finder ? (query: string, mode?: TranscriptFindMode) => finder.find({ sessionId, query, ...(mode ? { mode } : {}) }) : undefined,
     [finder, sessionId],
   );
-  const [active, setActive] = useState<{ query: string; messageId?: string }>({ query: "" });
-  const onActive = useCallback((query: string, messageId?: string) => {
-    setActive((current) => current.query === query && current.messageId === messageId ? current : { query, messageId });
-  }, []);
+  const [active, setActive] = useState<{ query: string; messageId?: string; mode?: TranscriptFindMode; sessionId?: string }>({ query: "" });
+  const onActive = useCallback((query: string, messageId?: string, mode?: TranscriptFindMode) => {
+    setActive((current) => current.query === query && current.messageId === messageId && current.mode === mode && current.sessionId === sessionId ? current : { query, messageId, mode, sessionId });
+  }, [sessionId]);
 
   useEffect(() => {
     const node = scrollRef.current;
-    if (!node || !active.query) { clearTranscriptHighlights(); return; }
+    if (!node || !active.query || active.sessionId !== sessionId) { clearTranscriptHighlights(); return; }
     let frame = 0;
     // Rows mount and unmount as the reader scrolls: mark again after the next change.
-    const paint = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => highlightTranscript(node, active.query, active.messageId)); };
+    const paint = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => highlightTranscript(node, active.query, active.messageId, active.mode)); };
     const observer = new MutationObserver(paint);
     observer.observe(node, { childList: true, subtree: true, characterData: true });
     paint();
     return () => { observer.disconnect(); cancelAnimationFrame(frame); clearTranscriptHighlights(); };
-  }, [active, scrollRef]);
+  }, [active, scrollRef, sessionId]);
 
   return { find, onActive };
 }

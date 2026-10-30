@@ -6,6 +6,7 @@ import { AutomationEditor } from "./editor.js";
 import { needsDecision, type SchedulingFeed } from "./feed.js";
 import type { Job, ManagementState } from "./protocol.js";
 import { busyJob, scheduleText, statusText } from "./job-summary.js";
+import { FORMAT_LABELS, WebhookSetup } from "./webhook-setup.js";
 export { statusText } from "./job-summary.js";
 
 function ResolveDialog({ job, feed, onClose, openThread }: { job: Job; feed: SchedulingFeed; onClose(): void; openThread(): void }) {
@@ -44,15 +45,22 @@ function AutomationRow({ job, state, feed, actions, edit, resolve }: { job: Job;
   const open = () => { void openAutomationThread(job, feed, actions, threads.getThread(job.lastRun?.threadId ?? "")?.path); };
   const disabled = busy || !state.canManage;
   const running = busyJob(job);
+  const waiting = Boolean(state.enabled && job.enabled && job.webhookBursts?.length);
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [waiting]);
   return <article className={`scheduling-row ${needsDecision(job) ? "needs-you" : ""}`}>
-    <div className="scheduling-row-main"><h3>{job.config.name}</h3><p>{statusText(job)}</p><small>{job.config.workspace.split(/[\\/]/u).pop()} · {job.config.backend}{` · ${scheduleText(job.config.schedule)}`}</small></div>
+    <div className="scheduling-row-main"><h3>{job.config.name}</h3><p aria-live="off">{statusText(job, waiting ? now : Date.now())}</p><small>{job.config.workspace.split(/[\\/]/u).pop()} · {job.config.target ? `continues ${threads.getThread(job.config.target.threadId)?.title || "a thread"}` : job.config.backend}{` · ${scheduleText(job.config.schedule)}`}{job.config.schedule.kind === "webhook" && job.config.schedule.format ? ` · ${FORMAT_LABELS[job.config.schedule.format]}` : ""}</small></div>
     <div className="scheduling-row-actions">
       {job.status === "held" || job.status === "failed" ? <><button disabled={disabled || !state.enabled} onClick={() => void run("resolve", { id: job.id, decision: "run" })}>{job.status === "failed" ? "Try again" : "Run now"}</button><button disabled={disabled} onClick={() => void run("resolve", { id: job.id, decision: "skip" })}>Skip</button></> : job.status === "uncertain" ? <><button onClick={job.lastRun?.threadId ? open : () => actions.notify('Search recent threads titled "Scheduled:" before resolving this run.')}>{job.lastRun?.threadId ? "Find its thread" : "Inspect threads"}</button><button disabled={disabled} onClick={resolve}>Resolve…</button></> : running ? <button disabled={!job.lastRun?.threadId} onClick={open}>Open thread</button> : <button type="button" role="switch" aria-checked={job.enabled} aria-label={`${job.enabled ? "Turn off" : "Turn on"} ${job.config.name}`} className="scheduling-switch" disabled={disabled} onClick={() => void run(job.enabled ? "disable" : "enable")} {...tooltipProps(!state.canManage ? "Manage automations in this machine's own Tau window." : undefined)}><span /></button>}
       <details className="scheduling-menu" open={menu} onToggle={(event) => setMenu(event.currentTarget.open)}><summary aria-label={`More actions for ${job.config.name}`}><MoreHorizontal size={16} /></summary><div>
         {running ? <p>Running automations can't be changed.</p> : <>{!needsDecision(job) ? <><button disabled={disabled || !state.enabled} onClick={() => void run("run")}>Run now</button><button disabled={disabled} onClick={() => { setMenu(false); edit(); }}>Edit</button></> : null}{job.lastRun?.threadId ? <button onClick={open}>Open last thread</button> : null}<button disabled={disabled} onClick={() => { setMenu(false); setDeleting(true); }}>Delete</button></>}
       </div></details>
     </div>
-    {job.config.schedule.kind === "webhook" && job.enabled && state.webhookUrl ? <details className="scheduling-webhook-info"><summary>Webhook endpoint</summary><code>{state.webhookUrl}/{job.id}</code><p>This endpoint is on the machine. Use your reverse proxy for a sender elsewhere. Sign each POST with HMAC-SHA256 over <code>timestamp + "\n" + deliveryId + "\n" + rawBody</code>. Headers: <code>X-Tau-Timestamp</code> in epoch milliseconds, <code>X-Tau-Delivery</code> a unique ID, <code>X-Tau-Signature</code> lowercase hex. Deliver within five minutes. The payload stays out of the conversation.</p></details> : null}
+    {job.config.schedule.kind === "webhook" && job.enabled && state.webhookUrl ? <details className="scheduling-webhook-info"><summary>Webhook endpoint</summary><code>{state.webhookUrl}/{job.id}</code><p>{state.webhookUrl.startsWith("https://") ? "Uses the HTTPS address enabled under Connections. The sender must be able to reach that address." : "This endpoint is on the machine. Enable Tailscale HTTPS under Connections, or use your reverse proxy for a sender elsewhere."}</p><WebhookSetup format={job.config.schedule.format ?? "tau"} includePayload={job.config.schedule.includePayload === true} /></details> : null}
     {error ? <p role="alert" className="scheduling-error">{error}</p> : null}
     {deleting ? createPortal(<Dialog label="Delete automation" className="confirm-dialog scheduling-dialog" onClose={() => setDeleting(false)}><h2>Delete "{job.config.name}"?</h2><p>Its threads stay. Its private webhook key is removed.</p><footer><button autoFocus onClick={() => setDeleting(false)}>Cancel</button><button className="danger" onClick={() => { setDeleting(false); void run("delete"); }}>Delete automation</button></footer></Dialog>, document.body) : null}
   </article>;

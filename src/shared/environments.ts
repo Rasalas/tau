@@ -1,6 +1,7 @@
 import { backgroundHoldsRun } from "./background-work.js";
 import type { ThreadBackendKind, ThreadIndexSnapshot, UiThreadUsage } from "./contracts.js";
-import type { PairingEndpoint, UiHostEndpointKind } from "./connections.js";
+import { canonicalFingerprint, type PairingEndpoint, type UiHostEndpointKind } from "./connections.js";
+import type { ConnectRoute } from "./managed-connections.js";
 
 /**
  * The machines one window knows (ADR 0025): its own, whose host it runs, and
@@ -64,11 +65,78 @@ export interface UiEnvironment {
   hostVersion?: string;
   /** Its own Tau update, as its host reports it; absent from a host too old to (K103). */
   update?: import("./host-updates.js").HostUpdateStatus;
+  /**
+   * How the window reaches a saved machine, for a kit that reaches it another
+   * way (an editor over SSH): Tau's own SSH forward, a WSL distribution, Tau
+   * Connect's relay, or its addresses, best first. Absent for the window's own.
+   */
+  route?: EnvironmentRoute;
+  /**
+   * Which of its routes the window's connection uses now, or used last: a
+   * direct address, Tau Connect's relay when no direct one answers, Tau's own
+   * SSH forward or a WSL distribution. Absent for the window's own.
+   */
+  via?: EnvironmentRoute["kind"];
   /** Newest first, capped; kept from the last connection while offline. */
   threads: UiEnvironmentThread[];
   /** How many threads the machine has in all. */
   threadCount: number;
   projects: UiEnvironmentProject[];
+}
+
+export type EnvironmentRoute =
+  | { kind: "ssh"; target: string }
+  | { kind: "wsl"; distro: string }
+  | { kind: "connect" }
+  /** Host names of its addresses: names before Tailscale before LAN, loopback last. */
+  | { kind: "direct"; hosts: string[] };
+
+const ROUTE_HOST_RANK: Record<UiHostEndpointKind, number> = { magicdns: 0, mdns: 1, tailscale: 2, lan: 3, loopback: 4 };
+
+/** What `UiEnvironment.route` says of a saved machine's managed route or addresses; Tau Connect only for a machine known by no address of its own. */
+export function environmentRoute(saved: { managed?: { ssh?: { target: string }; wsl?: string; connect?: Partial<ConnectRoute> & { port: number } }; endpoints: readonly PairingEndpoint[] }): EnvironmentRoute {
+  if (saved.managed?.ssh) return { kind: "ssh", target: saved.managed.ssh.target };
+  if (saved.managed?.wsl) return { kind: "wsl", distro: saved.managed.wsl };
+  const { direct } = machineRoutes(saved);
+  if (saved.managed?.connect && direct.length === 0) return { kind: "connect" };
+  const hosts: string[] = [];
+  const ranked = direct.map((endpoint, index) => ({ endpoint, index }))
+    .sort((a, b) => (ROUTE_HOST_RANK[a.endpoint.kind ?? "lan"] - ROUTE_HOST_RANK[b.endpoint.kind ?? "lan"]) || a.index - b.index);
+  for (const { endpoint } of ranked) {
+    let host: string;
+    try { host = new URL(endpoint.url).hostname.replace(/^\[(.*)\]$/u, "$1"); } catch { continue; }
+    if (host && !hosts.includes(host)) hosts.push(host);
+  }
+  return { kind: "direct", hosts };
+}
+
+/** Where this device's Tau Connect bridge to a machine listens; TLS still ends at that machine, pinned to its key. */
+export function connectBridgeUrl(port: number): string {
+  return `https://127.0.0.1:${port}/`;
+}
+
+/**
+ * A saved machine's routes: its own addresses (or the SSH forward or WSL
+ * address that stands for them), and Tau Connect's bridge, which a window
+ * takes only when none of those answers. Both are routes to one machine,
+ * under one id and one pinned key.
+ */
+export function machineRoutes(saved: { managed?: { connect?: Partial<ConnectRoute> & { port: number } }; endpoints: readonly PairingEndpoint[] }): { direct: PairingEndpoint[]; connect?: PairingEndpoint } {
+  const port = saved.managed?.connect?.port;
+  if (port === undefined) return { direct: [...saved.endpoints] };
+  const bridge = socketUrl(connectBridgeUrl(port));
+  const isBridge = (endpoint: PairingEndpoint) => { try { return socketUrl(endpoint.url) === bridge; } catch { return false; } };
+  return { direct: saved.endpoints.filter((endpoint) => !isBridge(endpoint)), connect: saved.endpoints.find(isBridge) ?? { url: connectBridgeUrl(port) } };
+}
+
+/**
+ * Whether two pairings with a machine pinned the same key. Only then is a
+ * route one of them knows a route to the other: a machine set up again, or
+ * one pinned only by an old certificate, starts over with the new pairing's.
+ */
+export function samePinnedKey(a: { publicKey?: string | undefined }, b: { publicKey?: string | undefined }): boolean {
+  const left = a.publicKey ? canonicalFingerprint(a.publicKey) : undefined;
+  return left !== undefined && left === (b.publicKey ? canonicalFingerprint(b.publicKey) : undefined);
 }
 
 /** A pairing the window is waiting on; one at a time. */

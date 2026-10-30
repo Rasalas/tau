@@ -672,3 +672,35 @@ it("pins a large accepted append until commit and then evicts it while preservin
     persistence.request = request;
   }
 });
+
+it.each(cases)("%s delegates full paged exports through the shared store without hydrating other threads", async (_name, Constructor) => {
+  const { make, databasePath } = await fixture(Constructor);
+  const db = new DatabaseSync(databasePath);
+  const content = "x".repeat(63_999) + "😀 search beyond the prefix " + "z".repeat(70_000);
+  try {
+    const payload = { role: "assistant", timestamp: 2, ...(Constructor === ClaudeRuntimeSessionStore
+      ? { textChunks: [content.slice(0, 64_000), content.slice(64_000)] } : { text: content }) };
+    db.prepare("UPDATE messages SET payload=? WHERE thread_id='selected' AND ordinal=1").run(JSON.stringify(payload));
+    poison(db, "messages", "selected");
+    poison(db, "usage_turns");
+    const store = make();
+    const catalog = await store.threadTexts({ protocol: 2, maxChars: 0 });
+    expect(catalog.catalog).toHaveLength(2);
+    expect(catalog.threads).toEqual([]);
+    const entry = catalog.catalog!.find(item => item.threadId === "selected")!;
+    let cursor: string | undefined;
+    const parts: string[] = [];
+    let pages = 0;
+    do {
+      const page = (await store.threadTexts({ protocol: 2, page: { threadId: "selected", version: entry.version, cursor } })).page!;
+      expect(page.status).toBe("ok");
+      for (const chunk of page.chunks) if (chunk.messageId === "1") parts.push(chunk.text);
+      cursor = page.nextCursor ?? undefined;
+      expect(++pages).toBeLessThan(10);
+    } while (cursor);
+    expect(parts.join("")).toBe(content);
+    const persistence = (store as unknown as { persistence: { isUnloaded(id: string): boolean } }).persistence;
+    expect(persistence.isUnloaded("selected")).toBe(true);
+    expect(persistence.isUnloaded("unseen")).toBe(true);
+  } finally { db.close(); }
+});

@@ -99,7 +99,7 @@ export async function loadExternalSessionShells(options: {
           ...(record.createdAt !== undefined ? { createdAt: record.createdAt } : {}),
           projectPath: record.cwd,
           projectName: record.project?.name ?? options.projectName(record.cwd),
-          ...(record.project?.listed === false ? { projectless: true } : {}),
+          ...(record.project?.listed !== undefined ? { projectless: record.project.listed === false } : {}),
           projectLabel: options.projectLabel(record.cwd),
           ...(record.workspace ? { workspaceId: record.workspace.workspaceId, projectDisplayPath: record.workspace.displayPath } : {}),
           messageCount: record.messageCount ?? record.messages.length,

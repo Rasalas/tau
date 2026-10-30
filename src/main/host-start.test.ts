@@ -99,4 +99,13 @@ describe("HostStart", () => {
     await expect(invokeHostMethod(methods, "set-thinking", ["low"])).rejects.toThrow("the runtime would not start");
     expect(create).toHaveBeenCalledTimes(1);
   });
+
+  it("runs its started hook once the host has started, before callers resume", async () => {
+    const order: string[] = [];
+    const fake = { start: vi.fn(async () => { order.push("start"); }) };
+    const started = new HostStart(() => fake as unknown as PiHost, (host) => { expect(host).toBe(fake); order.push("hook"); });
+    await Promise.all([started.require().then(() => order.push("caller")), started.require()]);
+    await started.require();
+    expect(order).toEqual(["start", "hook", "caller"]);
+  });
 });

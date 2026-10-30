@@ -6,7 +6,7 @@ import { Check } from "typebox/value";
 import { readPersistedJson, writePersistedJson, type PersistedJsonLogger } from "./persisted-json.js";
 import { tryLock, type ProcessLock } from "./process-lock.js";
 import {
-  McpOAuthError, matchesMcpRedirect, mcpChallenge, mcpIssuer, mcpRedirects, mcpScopes, validMcpVerifier,
+  McpOAuthError, isExternalMcpExecution, matchesMcpRedirect, mcpChallenge, mcpIssuer, mcpRedirects, mcpScopes, validMcpVerifier,
   type ExternalMcpExecution, type ExternalMcpScope,
 } from "./external-mcp-policy.js";
 
@@ -20,6 +20,14 @@ const MAX_PENDING = 64;
 const MAX_ACCESS_TOKENS = 2048;
 const MAX_REFRESH_TOKENS = 8192;
 const MAX_LEASES = 128;
+const MAX_LOCAL_TOKENS = 64;
+const MAX_TIMER = 2_147_483_647;
+/** The issuer of a store whose grants are owner-issued local bearer tokens, not OAuth (ADR 0046). */
+export const LOCAL_MCP_ISSUER = "local";
+/** The client of every local token grant; local grants have no OAuth client registration. */
+const LOCAL_CLIENT = "local";
+/** A local token the owner issued without expiry. */
+export const NEVER_EXPIRES = Number.MAX_SAFE_INTEGER;
 const MAX_STORE_BYTES = 4 * 1024 * 1024;
 
 const Id = Type.String({ minLength: 1, maxLength: 128 });
@@ -35,12 +43,14 @@ const Grant = Type.Object({
 }, { additionalProperties: false });
 const Token = Type.Object({ hash: Hash, grantId: Id, issuedAt: Timestamp, expiresAt: Timestamp, scopes: Scopes }, { additionalProperties: false });
 const Refresh = Type.Object({ ...Token.properties, used: Type.Boolean() }, { additionalProperties: false });
+const Local = Type.Object({ hash: Hash, grantId: Id, name: Type.String({ minLength: 1, maxLength: 80 }) }, { additionalProperties: false });
 const Store = Type.Object({
   version: Type.Literal(1), issuer: Type.String(),
   clients: Type.Array(Client, { maxItems: MAX_CLIENTS }),
   grants: Type.Array(Grant, { maxItems: MAX_GRANTS }),
   access: Type.Array(Token, { maxItems: MAX_ACCESS_TOKENS }),
   refresh: Type.Array(Refresh, { maxItems: MAX_REFRESH_TOKENS }),
+  local: Type.Optional(Type.Array(Local, { maxItems: MAX_LOCAL_TOKENS })),
 }, { additionalProperties: false });
 type Stored = Static<typeof Store>;
 type StoredGrant = Static<typeof Grant>;
@@ -99,7 +109,12 @@ export interface ExternalMcpAuthorizationOptions {
   issuer: string;
   now?: () => number;
   logger?: PersistedJsonLogger;
+  /** A grant was revoked or refresh replay blocked it; its client's running work should stop. */
+  revoked?(grantId: string): void;
 }
+
+/** A local token as its owner sees it; never the token or its hash. */
+export interface LocalMcpToken extends ExternalMcpGrant { readonly name: string }
 
 function secret(kind: string): string { return `tau_mcp_${kind}_${randomBytes(32).toString("base64url")}`; }
 function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
@@ -129,15 +144,22 @@ function decodeStore(value: unknown, issuer: string): Stored {
   if (storeBytes(value) > MAX_STORE_BYTES) throw new Error("External MCP authorization store exceeds its serialized byte limit.");
   const clients = new Set(value.clients.map((client) => client.id));
   const grants = new Map(value.grants.map((grant) => [grant.id, grant]));
-  if (clients.size !== value.clients.length || grants.size !== value.grants.length
-    || !unique([...value.access, ...value.refresh].map((token) => token.hash))) throw new Error("External MCP authorization store contains duplicate identities.");
+  const local = value.local ?? [];
+  const localGrants = new Set(local.map((token) => token.grantId));
+  if (clients.size !== value.clients.length || grants.size !== value.grants.length || localGrants.size !== local.length
+    || !unique([...value.access, ...value.refresh, ...local].map((token) => token.hash))) throw new Error("External MCP authorization store contains duplicate identities.");
+  if (issuer === LOCAL_MCP_ISSUER ? value.clients.length || value.access.length || value.refresh.length : local.length) throw new Error("External MCP authorization store mixes local and OAuth credentials.");
+  for (const token of local) {
+    if (grants.get(token.grantId)?.clientId !== LOCAL_CLIENT || !printable(token.name, 80)) throw new Error("External MCP local token has no valid grant.");
+  }
   for (const client of value.clients) {
     if (!printable(client.name, 80)) throw new Error("External MCP client name is invalid.");
     mcpRedirects(client.redirectUris);
   }
   for (const grant of value.grants) {
-    if (!clients.has(grant.clientId) || !grant.scopes.includes("tau:read") || grant.expiresAt <= grant.createdAt
-      || grant.expiresAt - grant.createdAt > GRANT_LIFETIME
+    const isLocal = issuer === LOCAL_MCP_ISSUER;
+    if (!(isLocal ? grant.clientId === LOCAL_CLIENT && localGrants.has(grant.id) : clients.has(grant.clientId)) || !grant.scopes.includes("tau:read") || grant.expiresAt <= grant.createdAt
+      || (!isLocal && grant.expiresAt - grant.createdAt > GRANT_LIFETIME)
       || (!grant.scopes.includes("tau:threads") && grant.execution !== "read-only")
       || grant.projectIds.some((id) => !printable(id, 128))) throw new Error("External MCP grant is invalid.");
   }
@@ -175,7 +197,7 @@ export class ExternalMcpAuthorization {
   }
 
   static async open(options: ExternalMcpAuthorizationOptions): Promise<ExternalMcpAuthorization> {
-    const issuer = mcpIssuer(options.issuer);
+    const issuer = options.issuer === LOCAL_MCP_ISSUER ? LOCAL_MCP_ISSUER : mcpIssuer(options.issuer);
     const storePath = await canonicalStorePath(options.storePath);
     const lock = await tryLock(`${storePath}.lock`, { pid: process.pid, startedAt: new Date().toISOString(), app: "Tau MCP authorization" });
     if (!lock) throw new Error("External MCP authorization store is already open.");
@@ -193,7 +215,7 @@ export class ExternalMcpAuthorization {
         },
       });
       if (existing && !result) throw new Error("External MCP authorization store could not be decoded.");
-      const stored: Stored = result?.data ?? { version: 1, issuer, clients: [], grants: [], access: [], refresh: [] };
+      const stored: Stored = result?.data ?? { version: 1, issuer, clients: [], grants: [], access: [], refresh: [], ...(issuer === LOCAL_MCP_ISSUER ? { local: [] } : {}) };
       return new ExternalMcpAuthorization({ ...options, storePath }, stored, lock);
     } catch (error) { lock.release(); throw error; }
   }
@@ -209,6 +231,7 @@ export class ExternalMcpAuthorization {
     stored.access = stored.access.filter((token) => token.expiresAt > now && grants.has(token.grantId));
     // Used refresh hashes remain until their grant expires to detect replay.
     stored.refresh = stored.refresh.filter((token) => token.expiresAt > now && grants.has(token.grantId));
+    if (stored.local) stored.local = stored.local.filter((token) => grants.has(token.grantId));
     this.pruneMemory();
   }
 
@@ -292,7 +315,7 @@ export class ExternalMcpAuthorization {
     const projectIds = [...new Set(consent.projectIds)];
     if (!projectIds.length || projectIds.length > 64 || projectIds.some((projectId) => !printable(projectId, 128))) throw new McpOAuthError("invalid_request");
     const selectedScopes = consent.scope === undefined ? undefined : mcpScopes(consent.scope);
-    if (consent.execution !== undefined && !["read-only", "ask", "auto", "full"].includes(consent.execution)) throw new McpOAuthError("invalid_request");
+    if (consent.execution !== undefined && !isExternalMcpExecution(consent.execution)) throw new McpOAuthError("invalid_request");
     return this.mutate((draft) => {
       const request = this.pending.get(id);
       if (!request || !draft.clients.some((client) => client.id === request.clientId)) throw new McpOAuthError("invalid_request");
@@ -378,7 +401,15 @@ export class ExternalMcpAuthorization {
 
   private live(token: string, resource: string): { grant: StoredGrant; expiresAt: number } | undefined {
     this.available();
-    if (resource !== this.resource || token.length > 128 || !token.startsWith("tau_mcp_access_")) return undefined;
+    if (resource !== this.resource || token.length > 128) return undefined;
+    if (this.issuer === LOCAL_MCP_ISSUER) {
+      if (!token.startsWith("tau_mcp_local_")) return undefined;
+      const tokenHash = hash(token);
+      const found = this.stored.local?.find((entry) => entry.hash === tokenHash);
+      const grant = found && this.stored.grants.find((entry) => entry.id === found.grantId && entry.createdAt <= this.now() && entry.expiresAt > this.now() && !this.blocked.has(entry.id));
+      return grant ? { grant: { ...grant, scopes: [...grant.scopes] }, expiresAt: grant.expiresAt } : undefined;
+    }
+    if (!token.startsWith("tau_mcp_access_")) return undefined;
     const tokenHash = hash(token);
     const found = this.stored.access.find((entry) => entry.hash === tokenHash);
     if (!found || found.issuedAt > this.now() || found.expiresAt <= this.now()) return undefined;
@@ -399,7 +430,7 @@ export class ExternalMcpAuthorization {
     if ([...this.leases.values()].reduce((sum, entries) => sum + entries.size, 0) >= MAX_LEASES) throw new McpOAuthError("temporarily_unavailable");
     const controller = new AbortController();
     const entries = this.leases.get(live.grant.id) ?? new Set();
-    const entry = { controller, timer: setTimeout(() => { release(); controller.abort(); }, live.expiresAt - this.now()) };
+    const entry = { controller, timer: setTimeout(() => { release(); controller.abort(); }, Math.min(live.expiresAt - this.now(), MAX_TIMER)) };
     entry.timer.unref();
     const release = () => {
       clearTimeout(entry.timer);
@@ -413,15 +444,60 @@ export class ExternalMcpAuthorization {
 
   private blockGrant(id: string): void {
     if (!this.stored.grants.some((grant) => grant.id === id) && !this.leases.has(id)) return;
+    const fresh = !this.blocked.has(id);
     this.blocked.add(id);
     for (const entry of this.leases.get(id) ?? []) { clearTimeout(entry.timer); entry.controller.abort(); }
     this.leases.delete(id);
+    if (fresh) try { this.options.revoked?.(id); } catch { /* Revocation itself must not depend on its observers. */ }
   }
 
   private removeGrant(draft: Stored, id: string): void {
     draft.grants = draft.grants.filter((grant) => grant.id !== id);
     draft.access = draft.access.filter((token) => token.grantId !== id);
     draft.refresh = draft.refresh.filter((token) => token.grantId !== id);
+    if (draft.local) draft.local = draft.local.filter((token) => token.grantId !== id);
+  }
+
+  /**
+   * Owner only, local store only. A personal bearer token: its secret is
+   * returned once and stored hashed; `expiresAt` absent means it never expires.
+   */
+  async createLocalToken(input: { name: string; projectIds: readonly string[]; scopes: readonly ExternalMcpScope[]; execution?: ExternalMcpExecution; expiresAt?: number }): Promise<{ token: string; grant: LocalMcpToken }> {
+    if (this.issuer !== LOCAL_MCP_ISSUER || !printable(input.name, 80)) throw new McpOAuthError("invalid_request");
+    const projectIds = [...new Set(input.projectIds)];
+    if (!projectIds.length || projectIds.length > 64 || projectIds.some((projectId) => !printable(projectId, 128))) throw new McpOAuthError("invalid_request");
+    const scopes = mcpScopes([...new Set(input.scopes)].join(" "));
+    if (input.execution !== undefined && !isExternalMcpExecution(input.execution)) throw new McpOAuthError("invalid_request");
+    const execution = input.execution ?? (scopes.includes("tau:threads") ? "ask" : "read-only");
+    if (!scopes.includes("tau:threads") && execution !== "read-only") throw new McpOAuthError("invalid_scope");
+    const createdAt = this.now();
+    const expiresAt = input.expiresAt ?? NEVER_EXPIRES;
+    if (!Number.isSafeInteger(expiresAt) || expiresAt <= createdAt) throw new McpOAuthError("invalid_request");
+    const token = secret("local");
+    return this.mutate((draft) => {
+      const local = draft.local ?? [];
+      if (draft.grants.length >= MAX_GRANTS || local.length >= MAX_LOCAL_TOKENS) throw new McpOAuthError("temporarily_unavailable");
+      const grant: StoredGrant = { id: secret("grant"), clientId: LOCAL_CLIENT, scopes, projectIds, execution, createdAt, expiresAt };
+      draft.grants.push(grant);
+      draft.local = [...local, { hash: hash(token), grantId: grant.id, name: input.name }];
+      return { result: { token, grant: Object.freeze({ ...snapshot(grant), name: input.name }) } };
+    });
+  }
+
+  /** The name the owner gave the grant's client: a local token's own, or the registered OAuth client's. */
+  clientName(grantId: string): string | undefined {
+    const grant = this.stored.grants.find((entry) => entry.id === grantId);
+    if (!grant) return undefined;
+    return grant.clientId === LOCAL_CLIENT ? this.stored.local?.find((token) => token.grantId === grantId)?.name : this.stored.clients.find((client) => client.id === grant.clientId)?.name;
+  }
+
+  /** Owner only. The local tokens still valid, newest first; never their secrets. */
+  localTokens(): LocalMcpToken[] {
+    this.available();
+    const now = this.now();
+    const names = new Map((this.stored.local ?? []).map((token) => [token.grantId, token.name]));
+    return this.stored.grants.filter((grant) => names.has(grant.id) && grant.expiresAt > now && !this.blocked.has(grant.id))
+      .sort((a, b) => b.createdAt - a.createdAt).map((grant) => Object.freeze({ ...snapshot(grant), name: names.get(grant.id)! }));
   }
 
   /** Owner only; blocks new work and cancels calls before awaiting persistence. */

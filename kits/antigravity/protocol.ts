@@ -24,6 +24,8 @@ export interface AntigravityInstallEvent {
 export const USAGE_KIT_ID = "tau.usage";
 /** Search Kit indexes the text of threads nobody has open (`thread-texts`). */
 export const SEARCH_KIT_ID = "tau.search";
+/** Onboarding asks every runtime for the sessions it ran outside Tau (`import-scan`). */
+export const ONBOARDING_KIT_ID = "tau.onboarding";
 
 /**
  * Questionnaire Kit pages through prompts that carry this extra; its shape is

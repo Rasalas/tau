@@ -11,10 +11,14 @@ body:not([data-profile="compact"]) .thread-header .chrome-button { min-height: v
 /* The tools move between these bars when the stage folds. Keep their top inset
  * independent of the conversation heading and the tab strip's height. */
 body:not([data-profile="compact"]) .thread-header-tools { align-self: flex-start; }
-body:not([data-profile="compact"]) .workspace-area > .stage .stage-strip-actions {
-  align-self: flex-start; padding-block: 0;
-  /* Account for the stage card's border inside the workspace's outer gutter. */
-  margin-top: -1px;
+/* The tabs share that line too: the head's tools sit 12px down, so the card rises 5px
+ * and its tabs and tools start 12px down (7px gutter, 1px border, 4px inset), a control tall. */
+body:not([data-profile="compact"]) .workspace-area > .stage:first-child { margin-top: -5px; }
+body:not([data-profile="compact"]) .workspace-area > .stage .stage-strip { height: calc(4px + var(--control-size)); }
+body:not([data-profile="compact"]) .workspace-area > .stage .stage-tabs { padding-top: 4px; }
+body:not([data-profile="compact"]) .workspace-area > .stage .stage-tab { height: var(--control-size); }
+body:not([data-profile="compact"]) .workspace-area > .stage :is(.stage-strip-actions, .stage-tabs-overflow) {
+  align-self: flex-end; height: var(--control-size); padding-block: 0;
 }
 
 .workbench-center > .chat-resizer { background: transparent; border: 0; }
