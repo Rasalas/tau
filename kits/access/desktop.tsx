@@ -1,8 +1,8 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Lock, LockOpen, Settings2, Sparkles } from "lucide-react";
 import { ComposerMenuItem, ComposerMenuSection, HostUnavailableError, hostIsReadOnly, tooltipProps, useWorkbenchShell, type ComposerControlProps, type DesktopExtension, type HostExtensionClient, type PreferencesStore } from "tau";
 import type { AccessLevel } from "./protocol.js";
-import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_KEY as LEVEL_KEY, ACCESS_LEVELS, DEFAULT_ACCESS_LEVEL, isAccessLevel } from "./protocol.js";
+import { ACCESS_HOST_EXTENSION_ID, ACCESS_LEVEL_KEY as LEVEL_KEY, ACCESS_LEVELS, ACCESS_THREAD_NARROWING_COMMAND, ACCESS_THREAD_NARROWING_EVENT, DEFAULT_ACCESS_LEVEL, isAccessLevel, strictestAccessLevel } from "./protocol.js";
 import { createPermissionsSection, LEVEL_CHOICES, levelSummary, PERMISSIONS_ROW } from "./permissions.js";
 
 function storedLevel(preferences: PreferencesStore): AccessLevel {
@@ -42,19 +42,49 @@ function createControl(preferences: PreferencesStore, choose: (level: string) =>
 
 const STATUS_LABELS: Record<AccessLevel, string> = { "read-only": "Read only", ask: "Ask before edits", auto: "Auto review", full: "Full access" };
 
+/**
+ * How far the host narrows one thread below the workbench: an agent's own
+ * access, or the ceiling of the MCP client that started it (ADR 0046).
+ */
+function useThreadNarrowing(host: HostExtensionClient, threadId: string | undefined): AccessLevel | undefined {
+  const [narrowing, setNarrowing] = useState<{ threadId: string; level: AccessLevel } | undefined>();
+  useEffect(() => {
+    if (!threadId) return;
+    let current = true;
+    const read = () => {
+      void host.invoke(ACCESS_THREAD_NARROWING_COMMAND, { threadId }).then((level) => {
+        if (current) setNarrowing(isAccessLevel(level) ? { threadId, level } : undefined);
+      }, () => { if (current) setNarrowing(undefined); });
+    };
+    read();
+    const stop = host.onEvent(ACCESS_THREAD_NARROWING_EVENT, (payload) => {
+      if ((payload as { threadId?: unknown } | undefined)?.threadId === threadId) read();
+    });
+    return () => { current = false; stop(); };
+  }, [host, threadId]);
+  return narrowing && narrowing.threadId === threadId ? narrowing.level : undefined;
+}
+
 /** The level in force, at every level: full access is the default, so it needs saying most. */
-function createAccessStatus(preferences: PreferencesStore) {
-  return function AccessStatus() {
+function createAccessStatus(host: HostExtensionClient, preferences: PreferencesStore) {
+  return function AccessStatus({ snapshot, actions }: ComposerControlProps) {
     const { registry } = useWorkbenchShell();
     const readLevel = () => storedLevel(preferences);
-    const level = useSyncExternalStore(preferences.subscribe, readLevel, readLevel);
+    const chosen = useSyncExternalStore(preferences.subscribe, readLevel, readLevel);
+    // A new thread's draft still carries the last thread's id; nothing narrows a thread that does not exist yet.
+    const threadId = actions?.activeThread()?.draftPending ? undefined : snapshot?.threadId ?? snapshot?.sessionId;
+    const narrowing = useThreadNarrowing(host, threadId);
+    const level = strictestAccessLevel(chosen, narrowing);
+    const narrowed = level !== chosen;
     const label = STATUS_LABELS[level];
+    const detail = narrowed ? `This thread may do no more, whatever the composer's level (${STATUS_LABELS[chosen]}).` : levelSummary(level);
     return (
       <button
         type="button"
         className={`runtime-chip composer-access-status${level === "full" ? " access-full" : ""}`}
         aria-label={`Access: ${label}`}
-        {...tooltipProps(`Access: ${label}. ${levelSummary(level)}`, { shortcut: registry.keybindingLabel("composer.mode") })}
+        data-narrowed={narrowed ? "" : undefined}
+        {...tooltipProps(`Access: ${label}. ${detail}`, { shortcut: registry.keybindingLabel("composer.mode") })}
         onClick={(event) => {
           event.currentTarget.closest(".composer-chips")?.querySelector<HTMLElement>('[data-composer-menu]')?.click();
         }}
@@ -91,7 +121,7 @@ export const accessKitExtension: DesktopExtension = {
   activate(plugin) {
     const choose = chooser(plugin.host, plugin.preferences);
     plugin.registerComposerControl({ id: "access.level", placement: "menu", shortcuts: ["composer.mode"], order: 30, profiles: ["desktop", "web", "compact"], Component: createControl(plugin.preferences, choose) });
-    plugin.registerComposerControl({ id: "access.status", placement: "status", order: 30, profiles: ["desktop", "web", "compact"], Component: createAccessStatus(plugin.preferences) });
+    plugin.registerComposerControl({ id: "access.status", placement: "status", order: 30, profiles: ["desktop", "web", "compact"], Component: createAccessStatus(plugin.host, plugin.preferences) });
     plugin.registerSettingsSection({
       id: "access.permissions",
       page: "runtimes",

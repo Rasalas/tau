@@ -35,6 +35,15 @@ import type { CommitFilesInput, CommitFilesResult, MergeBranchResult } from "./b
 import type { CheckoutTurn } from "./checkout-turns.js";
 import type { ThreadChangesCount } from "./thread-changes.js";
 import type { GitHostService } from "../_git-hosts/hosts.js";
+import type { RemoteLocation, RemoteLocationSource, RemotePlatform } from "./remote-editors.js";
+import type { NewProjectGithub, NewProjectRepository } from "./project-github.js";
+
+/** A project made from a name: its workspace, its GitHub repository when one was asked for, and what went wrong. */
+export interface CreatedProject {
+  workspace: WorkspaceRef;
+  github?: NewProjectRepository;
+  warning?: string;
+}
 
 /** `workspace-info`; a private "No project" folder says so, being no repository and no project to open. */
 export type WorkspaceReport = WorkspaceInfo & { projectless?: boolean };
@@ -60,6 +69,43 @@ export const FILE_MANAGER_ID = "file-manager";
 export interface EditorPosition {
   line?: number;
   column?: number;
+}
+
+/**
+ * A project, or a file in it, as its home machine names it for an editor
+ * elsewhere (`editor-target`). The paths are that machine's: a client hands
+ * them to an editor that reaches it over SSH and never reads them as its own.
+ */
+export interface EditorTarget {
+  root: string;
+  /** The file asked for, inside `root`. */
+  path?: string;
+  isFile: boolean;
+  platform: RemotePlatform;
+  /** The machine that answered, by its host id; absent from a host that cannot name itself. */
+  machine?: { id: string; name: string };
+}
+
+/** Where "Open in editor" opens a project of another machine: this device's editor over SSH, or that machine's own. */
+export type EditorOpenOn = "here" | "machine";
+
+/** What this device keeps for one other machine: how it reaches it over SSH, and where its projects open. */
+export interface EditorMachineSetting {
+  ssh?: string;
+  openOn?: EditorOpenOn;
+}
+
+/** An editor of this device, and why it cannot open the shown project of another machine when it cannot. */
+export type UiPlacedEditor = UiEditor & { unsupported?: string };
+
+/** The shown project is on another machine and its editors open here (`WorkspaceKitState.editorRemote`). */
+export interface EditorRemoteState {
+  machine: string;
+  name: string;
+  location?: RemoteLocation;
+  source?: RemoteLocationSource;
+  /** Why no editor here can open it: no SSH destination is known. */
+  problem?: string;
 }
 
 export type BranchNaming = "prompt" | "random";
@@ -281,7 +327,8 @@ export interface UiFolderIndex {
 export interface WorkspaceHostCommands {
   /** Browses folders for the local-folder project source. */
   "create-scratch": { input: undefined; output: WorkspaceRef };
-  "create-project": { input: { name: string; parentPath?: string }; output: { workspace: WorkspaceRef; warning?: string } | undefined };
+  /** With `github` the host also asks Review Kit to create and push the repository; a failure is a `warning`. */
+  "create-project": { input: { name: string; parentPath?: string; github?: NewProjectGithub }; output: CreatedProject | undefined };
   "list-directories": { input: { path?: string } | undefined; output: UiDirectoryListing };
   /** Indexes the folders below `path` (the home folder without one) for the picker's finder. */
   "find-folders": { input: { path?: string } | undefined; output: UiFolderIndex };
@@ -359,6 +406,16 @@ export interface WorkspaceHostCommands {
   /** A new branch at the checkout's HEAD, switched to in place. */
   "create-branch": { input: { branch: string; workspace?: string }; output: HostActionResult };
   "list-editors": { input: undefined; output: UiEditor[] };
+  /** The project or file on its home machine, for an editor of another (routed there like any workspace call). */
+  "editor-target": { input: { relPath?: string; workspace?: string }; output: EditorTarget };
+  /** This device's editors and whether each opens a project at `location` (stays on the window's machine). */
+  "remote-editors": { input: { location: RemoteLocation }; output: UiPlacedEditor[] };
+  /** Opens another machine's project in an editor of this device (stays on the window's machine). */
+  "open-remote-editor": { input: { editorId: string; location: RemoteLocation; root: string; path?: string; platform?: RemotePlatform } & EditorPosition; output: void };
+  /** What this device keeps per other machine for its editors, by host id. */
+  "editor-machines": { input: undefined; output: Record<string, EditorMachineSetting> };
+  /** `null` clears a field. */
+  "set-editor-machine": { input: { machine: string; ssh?: string | null; openOn?: EditorOpenOn | null }; output: Record<string, EditorMachineSetting> };
   /** `file-manager` reveals the file in Finder, Explorer or Files; a line reaches editors that take one. */
   "open-in-editor": { input: { editorId: string; relPath?: string; workspace?: string } & EditorPosition; output: void };
   "list-terminals": { input: undefined; output: UiTerminal[] };
@@ -387,7 +444,7 @@ export type HostExtensionInvoke = (command: string, input?: unknown) => Promise<
 
 export interface WorkspaceHostClient {
   createScratch(): Promise<WorkspaceRef>;
-  createProject(name: string, parentPath?: string): Promise<{ workspace: WorkspaceRef; warning?: string } | undefined>;
+  createProject(name: string, parentPath?: string, github?: NewProjectGithub): Promise<CreatedProject | undefined>;
   listDirectories(path?: string): Promise<UiDirectoryListing>;
   findFolders(path?: string): Promise<UiFolderIndex>;
   pickFolder(): Promise<WorkspaceRef | undefined>;
@@ -428,6 +485,8 @@ export interface WorkspaceHostClient {
   createBranch(branch: string, workspace?: string): Promise<HostActionResult>;
   listEditors(): Promise<UiEditor[]>;
   openInEditor(editorId: string, relPath?: string, workspace?: string, position?: EditorPosition): Promise<void>;
+  /** Routed to the project's home machine like `openInEditor`. */
+  editorTarget(relPath?: string, workspace?: string): Promise<EditorTarget>;
   listTerminals(): Promise<UiTerminal[]>;
   openTerminal(terminalId?: string, workspace?: string): Promise<void>;
   checkpoints(sessionId: string): Promise<WorkspaceCheckpointList>;
@@ -447,7 +506,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     invoke(command, input) as Promise<WorkspaceHostCommands[K]["output"]>;
   return {
     createScratch: () => call("create-scratch", undefined),
-    createProject: (name, parentPath) => call("create-project", { name, ...(parentPath ? { parentPath } : {}) }),
+    createProject: (name, parentPath, github) => call("create-project", { name, ...(parentPath ? { parentPath } : {}), ...(github ? { github } : {}) }),
     listDirectories: (path) => call("list-directories", path === undefined ? undefined : { path }),
     findFolders: (path) => call("find-folders", path === undefined ? undefined : { path }),
     pickFolder: () => call("pick-folder", undefined),
@@ -488,6 +547,7 @@ export function createWorkspaceHostClient(invoke: HostExtensionInvoke): Workspac
     createBranch: (branch, workspace) => call("create-branch", workspace ? { branch, workspace } : { branch }),
     listEditors: () => call("list-editors", undefined),
     openInEditor: (editorId, relPath, workspace, position) => call("open-in-editor", { editorId, relPath, workspace, ...position }),
+    editorTarget: (relPath, workspace) => call("editor-target", { ...(relPath ? { relPath } : {}), ...(workspace ? { workspace } : {}) }),
     listTerminals: () => call("list-terminals", undefined),
     openTerminal: (terminalId, workspace) => call("open-terminal", { terminalId, workspace }),
     checkpoints: (sessionId) => call("checkpoints", { sessionId }),
@@ -534,7 +594,12 @@ export interface WorkspaceKitState {
   changes: UiWorkspaceChanges;
   workspace?: WorkspaceInfo;
   workspaceBusy: boolean;
-  editors: UiEditor[];
+  /** This machine's editors; for a project of another machine, this device's, each with why it cannot open it. */
+  editors: UiPlacedEditor[];
+  /** Set while the shown project is on another machine and opens in an editor of this device. */
+  editorRemote?: EditorRemoteState;
+  /** The project's home machine, whose own editors are listed because its Settings say its projects open there. */
+  editorOnMachine?: string;
   terminals: UiTerminal[];
   fileTree: FileNode[];
   /** The project's root listing is on its way; an empty tree then means "not yet", not "no files". */

@@ -3,10 +3,12 @@ import { createServer } from "node:net";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawnOwnedProcess, type OwnedProcessInput } from "tau/host-extension";
 import { renameReplacing } from "../_shared/atomic-rename.js";
-import { join } from "node:path";
-import { DEFAULT_SETTINGS, TOOLS, type ActionInput, type Device, type DeviceHost, type DeviceSettings, type HubState, type FoldState, type Target } from "./protocol.js";
+import { isAbsolute, join } from "node:path";
+import { DEFAULT_SETTINGS, MAX_FORWARD_PORTS, TOOLS, type ActionInput, type Device, type DeviceHost, type DeviceHostListing, type DeviceSettings, type HubState, type FoldState, type ProjectSyncResult, type Target, type TunnelState } from "./protocol.js";
 import { quote, run, stop, type Run } from "./process.js";
+import { syncHint, syncProject } from "./project-sync.js";
 import { Toolchain } from "./toolchain.js";
+import { PortTunnel } from "./tunnel.js";
 
 async function port(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -32,6 +34,15 @@ const choice = (value: unknown, choices: readonly string[], name: string): strin
   if (typeof value !== "string" || !choices.includes(value)) throw new Error(`Unsupported ${name}.`);
   return value;
 };
+/** Unprivileged, distinct ports; an empty list means no tunnel. */
+export function validatePorts(value: unknown): number[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("Forwarded ports must be a list of port numbers.");
+  if (value.length > MAX_FORWARD_PORTS) throw new Error(`Forward at most ${MAX_FORWARD_PORTS} ports per machine.`);
+  for (const entry of value) if (!Number.isInteger(entry) || entry < 1024 || entry > 65535) throw new Error("Forwarded ports must be whole numbers from 1024 to 65535.");
+  if (new Set(value).size !== value.length) throw new Error("Each forwarded port can appear only once.");
+  return [...value] as number[];
+}
 export function validateSettings(value: unknown): DeviceSettings {
   if (!value || typeof value !== "object") throw new Error("Invalid device settings.");
   const input = value as DeviceSettings;
@@ -46,7 +57,8 @@ export function validateSettings(value: unknown): DeviceSettings {
     if (!/^[a-zA-Z0-9_][a-zA-Z0-9_.@-]*$/.test(ssh)) throw new Error("Use an SSH config alias or user@host, without options.");
     const remoteDirectory = string(host.remoteDirectory, "remote directory", 1024);
     if (!remoteDirectory.startsWith("/")) throw new Error("Remote tool directory must be an absolute path.");
-    return { id, name: string(host.name, "host name", 120), ssh, remoteDirectory };
+    const forwardPorts = validatePorts(host.forwardPorts);
+    return { id, name: string(host.name, "host name", 120), ssh, remoteDirectory, ...(forwardPorts.length ? { forwardPorts } : {}) };
   });
   if (!ids.has("local")) throw new Error("Keep the local device machine.");
   return { agentControl: input.agentControl, hosts, node: string(input.node, "Node executable", 1024), npm: string(input.npm, "npm executable", 1024) };
@@ -67,6 +79,8 @@ export function remoteHubCommand(args: string[]): string {
 }
 /** What a running hub depends on; the display name is not part of it. */
 const hubKey = (host: DeviceHost, node: string): string => host.ssh ? JSON.stringify([host.ssh, host.remoteDirectory]) : JSON.stringify([node]);
+/** What a running port tunnel depends on. */
+const tunnelKey = (host: DeviceHost): string | undefined => host.ssh && host.forwardPorts?.length ? JSON.stringify([host.ssh, host.forwardPorts]) : undefined;
 interface RunningHub { origin: string; child: ChildProcess; devices: Device[] }
 export class DeviceManager {
   readonly tools: Toolchain;
@@ -78,11 +92,27 @@ export class DeviceManager {
   private agentHosts = new Map<string, DeviceHost>();
   private actions = new Map<string, Promise<unknown>>();
   private scales = new Map<string, number>();
+  private tunnels = new Map<string, { key: string; tunnel: PortTunnel }>();
+  private syncs = new Set<string>();
   private load: Promise<void>;
   constructor(readonly directory: string, private execute: Run = run, private request: typeof fetch = fetch, private launch: typeof spawn = spawn, private own: (input: OwnedProcessInput) => ChildProcess = spawnOwnedProcess) {
     this.tools = new Toolchain(directory, execute);
     this.load = readFile(join(directory, "settings.json"), "utf8").then((text) => { this.settings = validateSettings(JSON.parse(text)); }).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
-    this.load.catch(() => undefined);
+    this.load.then(() => this.syncTunnels(), () => undefined);
+  }
+  /** Starts, restarts or stops each machine's port tunnel to match the saved settings. */
+  private syncTunnels(): void {
+    if (this.closed) return;
+    const wanted = new Map(this.settings.hosts.flatMap((host) => { const key = tunnelKey(host); return key ? [[host.id, { key, host }] as const] : []; }));
+    for (const [id, running] of this.tunnels) {
+      if (wanted.get(id)?.key === running.key) continue;
+      running.tunnel.stop();
+      this.tunnels.delete(id);
+    }
+    for (const [id, { key, host }] of wanted) if (!this.tunnels.has(id)) this.tunnels.set(id, { key, tunnel: new PortTunnel(host.ssh!, host.forwardPorts!, this.own) });
+  }
+  private tunnelStates(): Record<string, TunnelState> {
+    return Object.fromEntries([...this.tunnels].map(([id, { tunnel }]) => [id, tunnel.state()]));
   }
   async configure(value: unknown): Promise<HubState> {
     await this.load;
@@ -103,11 +133,12 @@ export class DeviceManager {
       this.hubs.delete(host.id); this.starting.delete(host.id);
       for (const key of this.scales.keys()) if (key.startsWith(`${host.id}/`)) this.scales.delete(key);
     }
+    this.syncTunnels();
     return this.state();
   }
   async state(checkLatest = false): Promise<HubState> {
     await this.load;
-    return { settings: structuredClone(this.settings), tools: await this.tools.states(checkLatest), devices: [...this.hubs.values()].flatMap((hub) => hub.devices) };
+    return { settings: structuredClone(this.settings), tools: await this.tools.states(checkLatest), devices: [...this.hubs.values()].flatMap((hub) => hub.devices), tunnels: this.tunnelStates() };
   }
   async consent(): Promise<void> {
     await this.load;
@@ -198,6 +229,16 @@ export class DeviceManager {
       for (const name of names) if (!hub.devices.some((device) => device.platform === "android" && device.name === name)) hub.devices.push({ id: name, hostId, name, platform: "android", version: "Android", booted: false, physical: false });
     } catch { /* An iOS-only host has no Android SDK. The hub still lists its simulators. */ }
     return hub.devices;
+  }
+  /** Every configured machine with its devices, so an agent learns remote host IDs; one unreachable machine does not hide the others. */
+  async discoverAll(): Promise<{ hosts: DeviceHostListing[] }> {
+    await this.load;
+    const hosts = await Promise.all(this.settings.hosts.map(async (host): Promise<DeviceHostListing> => {
+      const tunnel = this.tunnels.get(host.id)?.tunnel.state();
+      const listing: DeviceHostListing = { id: host.id, name: host.name, remote: !!host.ssh, ...(host.ssh ? { ssh: host.ssh } : {}), ...(tunnel ? { tunnel } : {}) };
+      try { return { ...listing, devices: await this.discover(host.id) }; } catch (error) { return { ...listing, error: error instanceof Error ? error.message : String(error) }; }
+    }));
+    return { hosts };
   }
   private async target(input: Target): Promise<{ device: Device; hub: RunningHub; host: DeviceHost }> {
     const hostId = string(input.hostId, "host id", 80), deviceId = string(input.deviceId, "device id", 512);
@@ -327,8 +368,26 @@ export class DeviceManager {
     this.agentHosts.set(host.id, { ...host });
     return this.hostRun(host, host.ssh ? "node" : this.settings.node, [entry, ...args, ...target], signal);
   }
+  /** Copies the project folder to `<remoteDirectory>/projects/…` on an SSH machine. The caller has checked the path is a project. */
+  async syncProject(hostId: string, projectPath: string, signal?: AbortSignal): Promise<ProjectSyncResult> {
+    await this.load;
+    if (this.closed) throw new Error("The Simulators extension is stopped.");
+    const host = this.host(string(hostId, "host id", 80));
+    if (!host.ssh || !host.remoteDirectory) throw new Error("Project sync copies to an SSH machine; this machine already has the project.");
+    if (typeof projectPath !== "string" || !isAbsolute(projectPath)) throw new Error("The project path must be absolute.");
+    const key = JSON.stringify([host.ssh, host.remoteDirectory, projectPath]);
+    if (this.syncs.has(key)) throw new Error("This project is already being synced to that machine.");
+    this.syncs.add(key);
+    try {
+      const sent = await syncProject({ execute: this.execute, launch: this.launch, ssh: host.ssh, remoteDirectory: host.remoteDirectory, projectPath, signal });
+      const forwardPorts = host.forwardPorts ?? [];
+      return { hostId: host.id, hostName: host.name, ssh: host.ssh, projectPath, ...sent, forwardPorts, hint: syncHint(host.ssh, sent.remotePath, forwardPorts) };
+    } finally { this.syncs.delete(key); }
+  }
   dispose(): void {
     this.closed = true;
+    for (const { tunnel } of this.tunnels.values()) tunnel.stop();
+    this.tunnels.clear();
     for (const hub of this.hubs.values()) stop(hub.child);
     this.hubs.clear();
     for (const host of this.agentHosts.values()) {

@@ -2,9 +2,11 @@ import { open } from "node:fs/promises";
 import { HostCommandError } from "tau/host-extension";
 import type { Job, SchedulingState } from "./protocol.js";
 import { decodeConfig, object, text, timestamp } from "./validation.js";
+import { REMEMBERED_DELIVERIES } from "./webhooks.js";
 
 export function assertStateBudget(state: SchedulingState): void {
-  const bytes = Buffer.byteLength(JSON.stringify(state.jobs.map(({ id, config, workspaceId }) => ({ id, config, workspaceId }))));
+  // Remembered deliveries count too: a webhook's replay record may outgrow its reserve.
+  const bytes = Buffer.byteLength(JSON.stringify(state.jobs.map(({ id, config, workspaceId, deliveries }) => ({ id, config, workspaceId, deliveries }))));
   if (bytes + state.jobs.length * 8192 > 2_097_152) throw new HostCommandError("Configuration exceeds the 2 MiB scheduling store budget, including reserved run records.");
 }
 
@@ -23,7 +25,7 @@ export async function readState(file: string): Promise<SchedulingState> {
   if (value.version !== 1 || typeof value.enabled !== "boolean" || !Array.isArray(value.jobs) || value.jobs.length > 100) throw new HostCommandError("Unsupported scheduling state. It was not changed.");
   const ids = new Set<string>();
   const jobs = value.jobs.map((input): Job => {
-    const v = object(input, ["id", "config", "workspaceId", "detail", "enabled", "status", "nextAt", "lastRun", "secretRef", "deliveries"]);
+    const v = object(input, ["id", "config", "workspaceId", "detail", "enabled", "status", "nextAt", "lastRun", "secretRef", "deliveries", "origin"]);
     const id = text(v.id, "Job ID", 36);
     if (!/^[a-f0-9-]{36}$/u.test(id) || ids.has(id) || typeof v.enabled !== "boolean" || !["ready", "held", "starting", "running", "completed", "failed", "uncertain"].includes(v.status as string)) throw new HostCommandError("Invalid persisted scheduling job.");
     ids.add(id);
@@ -35,8 +37,12 @@ export async function readState(file: string): Promise<SchedulingState> {
       if (!/^[a-f0-9-]{36}$/u.test(job.secretRef)) throw new HostCommandError("Invalid private secret reference.");
     }
     if (v.deliveries !== undefined) {
-      if (!Array.isArray(v.deliveries) || v.deliveries.length > 100 || v.deliveries.some((deliveryId) => typeof deliveryId !== "string" || !/^\d{13}:[A-Za-z0-9._-]{1,64}$/u.test(deliveryId))) throw new HostCommandError("Invalid webhook delivery history.");
+      if (!Array.isArray(v.deliveries) || v.deliveries.length > REMEMBERED_DELIVERIES || v.deliveries.some((deliveryId) => typeof deliveryId !== "string" || !/^\d{13}:[A-Za-z0-9._-]{1,64}$/u.test(deliveryId))) throw new HostCommandError("Invalid webhook delivery history.");
       job.deliveries = [...v.deliveries] as string[];
+    }
+    if (v.origin !== undefined) {
+      const origin = object(v.origin, ["threadId"]);
+      job.origin = { threadId: text(origin.threadId, "Origin thread ID", 256) };
     }
     if (v.lastRun !== undefined) {
       const r = object(v.lastRun, ["intentId", "at", "threadId", "outcome", "detail"]);

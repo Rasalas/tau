@@ -294,6 +294,37 @@ describe("Thread Title Generator host extension", () => {
     ]);
   });
 
+  it("reopens a released thread for a title the user asked for, never for an automatic one", async () => {
+    const released = piThread({ sessionId: "s2" });
+    const reopenThread = vi.fn(async () => released);
+    const setThreadTitle = vi.fn(async () => undefined);
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => undefined, reopenThread, complete: async () => "Pong check", setThreadTitle,
+    });
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "generate", { sessionId: "s2" })).rejects.toThrow(/not open any more/u);
+    expect(reopenThread).not.toHaveBeenCalled();
+    await expect(registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { sessionId: "s2" })).resolves.toEqual({ title: "Pong check" });
+    expect(reopenThread).toHaveBeenCalledWith("s2");
+    expect(setThreadTitle).toHaveBeenCalledWith("s2", "Pong check", "generated");
+  });
+
+  it("follows Text generation's runtime: Pi never asks the harness, the thread's runtime always does, Pi's effort only on Pi", async () => {
+    const own = vi.fn(async () => "Harness title");
+    const complete = vi.fn(async () => "Pi title");
+    const harness = piThread({ backendKind: "claude-code", model: { provider: "anthropic", id: "sonnet" }, completionModels: async () => [{ provider: "anthropic", id: "haiku", name: "Haiku" }], complete: own });
+    const registry = await activateHostKit(createThreadTitlesHostExtension(), {
+      runtimeOwner: () => "tau", thread: () => harness, complete, setThreadTitle: async () => undefined,
+    });
+    // Automatic: the harness offers the chosen model, so its login writes the title.
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { sessionId: "s1", provider: "anthropic", modelId: "haiku", thinkingLevel: "low" });
+    expect(own).toHaveBeenLastCalledWith("anthropic", "haiku", expect.not.objectContaining({ thinkingLevel: expect.anything() }));
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { sessionId: "s1", provider: "anthropic", modelId: "haiku", thinkingLevel: "low", runtime: "pi" });
+    expect(complete).toHaveBeenLastCalledWith(expect.objectContaining({ thinkingLevel: "low", maxTokens: 16_384 }), { provider: "anthropic", id: "haiku" });
+    await registry.invoke(THREAD_TITLES_HOST_EXTENSION_ID, "regenerate", { sessionId: "s1", runtime: "thread" });
+    expect(own).toHaveBeenLastCalledWith("anthropic", "sonnet", expect.objectContaining({ maxTokens: 256 }));
+    expect(complete).toHaveBeenCalledOnce();
+  });
+
   it("hands the attached Pi a small model, else the thread's own", async () => {
     const invoke = vi.fn(async () => ({ title: "Attached title" }));
     const registry = await activateHostKit(createThreadTitlesHostExtension(), {

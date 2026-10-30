@@ -24,8 +24,16 @@ function decodeDeliverAt(channel: string, value: unknown): number | undefined {
 }
 function resumeWhen(value: unknown) {
   const when = decodeString("resume-limited", "when", value);
-  if (when !== "now" && when !== "reset" && when !== "cancel") throw new Error('resume-limited: "when" must be "now", "reset" or "cancel".');
+  if (when !== "now" && when !== "reset" && when !== "cancel" && when !== "at") throw new Error('resume-limited: "when" must be "now", "reset", "at" or "cancel".');
   return when;
+}
+/** `at` names its time; the other choices take none. */
+function resumeArgs(p: readonly unknown[]) {
+  const sessionId = decodeString("resume-limited", "sessionId", p[0]);
+  const when = resumeWhen(p[1]);
+  const at = when === "at" ? decodeDeliverAt("resume-limited", p[2]) : undefined;
+  if (when === "at" && at === undefined) throw new Error('resume-limited: "at" needs a time in epoch milliseconds.');
+  return [sessionId, when, at] as const;
 }
 function goalAction(value: unknown) {
   const action = decodeString("thread-goal", "action", value);
@@ -54,7 +62,7 @@ export const HOST_TURN_COMMANDS = attachCommandMetadata(HOST_TURN_COMMAND_METADA
   "take-queued": command<UiQueuedPrompt[]>()({ audit: { label: "took a queued message", thread: 0 }, decode: (p) => [decodeString("take-queued", "sessionId", p[0]), decodeOptionalString("take-queued", "id", p[1])] as const }),
   "move-queued": command<void>()({ audit: { label: "reordered queued messages", thread: 0 }, decode: (p) => [decodeString("move-queued", "sessionId", p[0]), decodeString("move-queued", "id", p[1]), decodeIndex("move-queued", p[2])] as const }),
   "plan-queued": command<void, [sessionId: string, id: string, deliverAt?: number | null]>()({ audit: { label: "planned a queued message", thread: 0 }, decode: (p) => [decodeString("plan-queued", "sessionId", p[0]), decodeString("plan-queued", "id", p[1]), decodeDeliverAt("plan-queued", p[2])] as const }),
-  "resume-limited": command<void>()({ audit: { label: "resumed a thread after a limit", thread: 0 }, decode: (p) => [decodeString("resume-limited", "sessionId", p[0]), resumeWhen(p[1])] as const }),
+  "resume-limited": command<void, [sessionId: string, when: "now" | "reset" | "cancel" | "at", at?: number]>()({ audit: { label: "resumed a thread after a limit", thread: 0 }, decode: resumeArgs }),
   "thread-goal": command<void>()({ audit: { label: "changed a goal", thread: 0 }, decode: (p) => [decodeString("thread-goal", "sessionId", p[0]), goalAction(p[1]), decodeOptionalText("thread-goal", "objective", p[2])] as const }),
   "thread-background-stop": command<void>()({ audit: { label: "stopped background work", thread: 0 }, decode: (p) => [decodeString("thread-background-stop", "sessionId", p[0]), decodeOptionalString("thread-background-stop", "taskId", p[1])] as const }),
   "abort": command<void>()({ audit: { label: "stopped a run", thread: 0 }, decode: (p) => [decodeOptionalString("abort", "sessionId", p[0])] as const }),

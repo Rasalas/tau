@@ -94,6 +94,8 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   // alongside device credentials; they never borrow a runtime or thread identity.
   "./external-mcp-authorization.js", "./external-mcp-policy.js",
   "./external-mcp-http.js", "./external-mcp-read-tools.js", // Scoped external HTTP identity and bounded host reads.
+  // Thread control under a grant's execution ceiling, and the loopback listener for local clients (ADR 0046).
+  "./external-mcp-control-tools.js", "./external-mcp-threads.js", "./external-mcp-serve.js", "./external-mcp-local.js",
   "./host-http-route.js", // Shared route dispatch before static/protocol HTTP fallback.
   // Bonjour through the system's responder while Local network is on (API 1.13.0).
   "./host-discovery.js",   "./host-discovery-windows.js",
@@ -165,7 +167,7 @@ const CORE_MODULE_ALLOWLIST = new Set<string>([
   "./startup-workspace.js",   "./system-prompt-resolver.js",   "./tau-runtime-owner.js",
   "./thread-activation.js",   "./thread-binding.js",   "./thread-index.js",   "./thread-projection.js",
   "./agent-session-control.js",   "./thread-runtime-backend.js",   "./thread-runtime-lifecycle.js",   "./thread-runtime.js",
-  "./thread-runtimes.js",   "./thread-trash.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
+  "./thread-runtimes.js",   "./runtime-switches.js",   "./prompt-image-files.js",   "./thread-trash.js",   "./tool-output-batcher.js",   "./transcript-cursor.js",
   "./turn-delivery.js",   "./turn-reconciliation.js",   "./turns-in-flight.js",   "./unavailable-thread-backend.js",
   "./queued-messages.js",   "./thread-stop.js",   "./quit-shortcut.js",   "./release-notes.js",   "./thread-limits.js",   "./turn-settlement.js",   "./provider-limits.js",
   "./user-themes.js",   "./workbench-build.js",

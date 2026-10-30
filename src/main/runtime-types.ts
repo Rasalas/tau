@@ -35,13 +35,19 @@ import type { ExtensionUiBridge } from "./extension-ui.js";
 export type ThreadTitleSource = "derived" | "generated" | "renamed";
 
 export interface ThreadBackendPromptInput {
+  /** Host-owned context from a previous runtime; never accepted from a client prompt. */
+  continuationContext?: string;
   text: string;
   delivery: "prompt" | "steer" | "followUp";
   /** Correlates the turn with the renderer's optimistic message. */
   identity?: ClientTurnIdentity;
   prepared?: PreparedPrompt;
   signal?: AbortSignal;
-  /** Untrusted composer attachments; each backend decodes what its runtime takes. */
+  /**
+   * Untrusted composer attachments, then a file for each image: the host's copy
+   * on this machine (`PromptImageFiles`). Each backend decodes what its runtime
+   * takes and names files to its model by path.
+   */
   attachments?: readonly UiPromptAttachment[];
   /** The prompt queues behind a run that is already in flight. */
   queued?: boolean;
@@ -348,6 +354,8 @@ export interface ThreadSystemPromptCapability {
 }
 
 export interface ThreadBackendCapabilities {
+  /** Visible history retained across an executing-runtime change. */
+  conversation?: { history(): readonly UiMessage[]; offset: number; activity(): readonly UiTurnActivityEntry[] };
   journal?: ThreadJournalCapability;
   tree?: ThreadTreeCapability;
   fork?: ThreadForkCapability;
@@ -388,6 +396,7 @@ export class UnsupportedOperationError extends Error {
 }
 
 const CAPABILITY_LABELS: Record<ThreadCapabilityName, string> = {
+  conversation: "retained conversation history",
   journal: "The session journal",
   tree: "The session tree",
   fork: "Forking",

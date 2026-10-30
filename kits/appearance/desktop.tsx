@@ -10,7 +10,8 @@ import { TextSizeStore } from "./text-size.js";
 /**
  * The desktop half of `tau.appearance`: Settings → Appearance, the theme
  * editor floating over the window, and what applies the values — density,
- * contrast, a theme per scheme, the prompt and code faces, panel motion.
+ * contrast, a theme per scheme, the prompt and code faces, panel motion,
+ * the chat's width.
  */
 export const appearanceExtension: DesktopExtension = {
   id: APPEARANCE_EXTENSION_ID,
@@ -36,6 +37,7 @@ export const appearanceExtension: DesktopExtension = {
         { id: "setting-appearance-themes", label: "Themes", keywords: ["theme", "colors", "colours", "vs code", "import", "new theme"] },
         { id: "setting-appearance-density", label: "Density", keywords: ["compact", "comfortable", "spacing"] },
         { id: "setting-appearance-contrast", label: "Contrast", keywords: ["hairlines", "quiet text"] },
+        { id: "setting-appearance-chat-width", label: "Chat width", keywords: ["transcript", "max width", "narrow", "wide", "full width", "conversation", "reading width"] },
         { id: "setting-appearance-timestamps", label: "Timestamps", keywords: ["12-hour", "24-hour", "clock", "time"] },
         { id: "setting-appearance-panel-animations", label: "Panel animations", keywords: ["motion", "animation", "sidebar", "dock"] },
         { id: "setting-appearance-text-size", label: "Text size", keywords: ["font size", "larger text", "smaller text", "zoom", "readable"] },
@@ -43,7 +45,7 @@ export const appearanceExtension: DesktopExtension = {
         { id: "setting-appearance-prompt-font", label: "Prompt font", keywords: ["font", "composer", "monospace"] },
         { id: "setting-appearance-code-font", label: "Code font", keywords: ["font", "monospace", "diff"] },
       ],
-      keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "vs code", "colors", "colours", "timestamps", "12-hour", "24-hour", "text size", "larger text", "animation", "motion", "panels"],
+      keywords: ["theme", "dark", "light", "density", "compact", "contrast", "font", "font size", "typeface", "monospace", "vs code", "colors", "colours", "timestamps", "12-hour", "24-hour", "text size", "larger text", "animation", "motion", "panels", "chat width", "transcript width"],
       Component: (props: SettingsPageProps) => <AppearancePage {...props} preferences={plugin.preferences} editor={editor} textSize={textSize} />,
     });
     // The title bar is always there, so the editor outlives the Settings page it was opened from.

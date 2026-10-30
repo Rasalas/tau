@@ -45,6 +45,19 @@ describe("the catalog of saved machines", () => {
     expect(again.get("host-studio")).toEqual(studio);
   });
 
+  it("keeps a machine's Tau Connect route beside its addresses and SSH forward, sealed like its token", async () => {
+    const file = path();
+    const connect = { relay: "https://relay.example", id: "0123abcd-0123-4567-89ab-0123456789ab", token: "R".repeat(43), port: 41000 };
+    const entry: SavedEnvironment = {
+      ...studio,
+      endpoints: [{ url: "http://127.0.0.1:4721/" }, { url: "https://127.0.0.1:41000/" }],
+      managed: { ssh: { target: "me@studio", platform: "linux", port: 4721 }, connect },
+    };
+    await (await EnvironmentCatalog.open(file, box())).save(entry);
+    expect(readFileSync(file, "utf8")).not.toContain("R".repeat(43));
+    expect((await EnvironmentCatalog.open(file, box())).get("host-studio")).toEqual(entry);
+  });
+
   it("saves nothing where nothing can be encrypted", async () => {
     const catalog = await EnvironmentCatalog.open(path(), box(false));
     await expect(catalog.save(studio)).rejects.toBeInstanceOf(SecretStorageUnavailableError);

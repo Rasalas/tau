@@ -12,7 +12,7 @@ export interface RequestTarget {
 export interface RequestClient {
   status(fresh?: boolean, workspace?: string): Promise<ReviewRequestStatus>;
   request(workspace: string, fresh?: boolean): Promise<ReviewRequest | undefined>;
-  draft(model?: { provider: string; id: string }, base?: string, writing?: { instructions?: string; template?: boolean }): Promise<ReviewRequestDraft>;
+  draft(model?: { provider: string; id: string }, base?: string, writing?: { instructions?: string; template?: boolean; thinkingLevel?: string; runtime?: "auto" | "pi" | "thread" }): Promise<ReviewRequestDraft>;
   /** `uploadConfirmed`: the user saw which pictures the body names go where. */
   create(input: { workspace: string; branch: string; title: string; body: string; base: string; draft: boolean; uploadConfirmed?: boolean }): Promise<{ status: ReviewRequestStatus; url?: string; uploaded?: number; kept?: number }>;
   merge(target: RequestTarget, method: MergeMethod, deleteBranch?: boolean): Promise<ReviewRequestStatus & { merge?: MergeOutcome }>;
@@ -30,6 +30,8 @@ export function requestClient(host: HostExtensionClient): RequestClient {
       ...(base ? { base } : {}),
       ...(writing?.instructions ? { instructions: writing.instructions } : {}),
       ...(writing?.template === false ? { template: false } : {}),
+      ...(writing?.thinkingLevel ? { thinkingLevel: writing.thinkingLevel } : {}),
+      ...(writing?.runtime ? { runtime: writing.runtime } : {}),
     }) as Promise<ReviewRequestDraft>,
     create: (input) => host.invoke("pr-create", input) as Promise<{ status: ReviewRequestStatus; url?: string; uploaded?: number; kept?: number }>,
     merge: (target, method, deleteBranch) => host.invoke("pr-merge", { ...target, method, ...(deleteBranch ? { deleteBranch } : {}) }) as Promise<ReviewRequestStatus & { merge?: MergeOutcome }>,

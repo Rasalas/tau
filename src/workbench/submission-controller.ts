@@ -306,7 +306,11 @@ export class SubmissionController {
     const visibleStreaming = threads.getActivity().isStreaming || snapshot?.isCompacting === true;
     if (deliverAt !== undefined && (pendingNewThread || !snapshot)) return { accepted: false, message: "Send the first message before planning one." };
     const queueIt = deliverAt !== undefined || Boolean(retry && delivery === "followUp")
-      || shouldQueueSubmission({ isPendingNewThread: Boolean(pendingNewThread), hasSnapshot: Boolean(snapshot), visibleStreaming, delivery });
+      || shouldQueueSubmission({
+        isPendingNewThread: Boolean(pendingNewThread), hasSnapshot: Boolean(snapshot), visibleStreaming, delivery,
+        // The held modifier still sends at once, for a thread switched to a model the limit does not cover.
+        awaitingResume: !alternate && snapshot !== undefined && threads.getThread(snapshot.sessionId)?.limit?.resumeAt !== undefined,
+      });
     const built = buildOptimisticMessage({ text, attachments, skillDraft, sequence: this.turnSequence++, newThreadRequestId, ...(retry ? {
       identity: { clientTurnId: retry.message.clientTurnId!, clientMessageId: retry.message.clientMessageId! }, submittedAt: retry.message.timestamp,
     } : {}) });

@@ -1,4 +1,4 @@
-import type { EnvironmentTarget, HostDisplayKind, HostReadiness, HostResources, RuntimeReadiness, RuntimeReadinessState, UiEnvironment, UiEnvironments, WorkbenchActions } from "tau";
+import { platformLabel, type EnvironmentTarget, type HostDisplayKind, type HostReadiness, type HostResources, type RuntimeReadiness, type RuntimeReadinessState, type UiEnvironment, type UiEnvironments, type WorkbenchActions } from "tau";
 
 /** `5m`, `3h`, `2d`, then a date: the rail's own spelling. */
 export function shortAge(timestamp: number, now: number): string {
@@ -169,9 +169,10 @@ function gigabytes(bytes: number): string {
   return `${value >= 100 ? Math.round(value) : value.toFixed(1)} GB`;
 }
 
-/** "2 cores · CPU 14 % · 5.2 of 8.0 GB free · 1 turn running · on battery". */
+/** "macOS arm64 · 2 cores · CPU 14 % · 5.2 of 8.0 GB free · 1 turn running · on battery". */
 export function resourcesText(resources: HostResources): string {
   const parts = [
+    platformLabel(resources),
     `${resources.cpuCount} ${resources.cpuCount === 1 ? "core" : "cores"}`,
     resources.cpuUtilization !== undefined ? `CPU ${Math.round(resources.cpuUtilization * 100)} %` : undefined,
     `${gigabytes(resources.availableMemory)} of ${gigabytes(resources.totalMemory)} free`,

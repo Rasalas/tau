@@ -40,9 +40,16 @@ export class ThreadRuntime implements LiveTurnState {
   private deferredRecords?: DeferredThreadRecord[];
 
   constructor(
-    readonly backend: ThreadRuntimeBackend,
+    private ownedBackend: ThreadRuntimeBackend,
     readonly runtime?: AgentSessionRuntime,
   ) {}
+
+  get backend(): ThreadRuntimeBackend { return this.ownedBackend; }
+  decorateBackend(decorate: (backend: ThreadRuntimeBackend) => ThreadRuntimeBackend): void {
+    const next = decorate(this.ownedBackend);
+    if (next.threadId !== this.threadId || next.kind !== this.backend.kind || next.cwd !== this.cwd) throw new Error("A backend decorator cannot change its identity.");
+    this.ownedBackend = next;
+  }
 
   get runtimeAdapter(): AgentRuntimeAdapter { return this.backend.runtimeAdapter; }
   get threadId(): string { return this.backend.threadId; }

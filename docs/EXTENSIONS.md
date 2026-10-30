@@ -1656,6 +1656,15 @@ that value to its run only when the selected model supports it. Review's writers
 allow 16,384 output tokens and two minutes with active reasoning, so thinking
 does not consume the old short-text limit; default and off keep that limit.
 
+`emptyLabel` (API 1.79.0) names what an unset model option means where it is
+not the thread's model, such as "Default model" for an override of another
+option. Review's page uses it for Text generation (`kits/_shared/text-generation.ts`):
+one default model, effort and runtime for thread titles, commit messages and
+request descriptions, and each kind's own. A runtime of `thread` writes on the
+thread's own runtime (its login and its own effort); `pi` on Pi's models.
+Thread Titles reads the titles' choice there, its own old `model` value until
+the new one is written, and Review copies the older choices in once.
+
 On and off is the host's choice, not a device's: the switch writes
 `disabledExtensions` in the host's config, and every client connected to that
 host follows it at once. The host pushes `config-changed` after each write,
@@ -3366,6 +3375,13 @@ builds its `thread-rename`, `thread-send` and `thread-model` commands on these
 three, so another machine's window renames, attaches to and re-models a thread
 that lives here; a proxy thread of a third machine is refused.
 
+`services.reopenThread(sessionId)` (new in API 1.79.0, in-process only; absent
+on an older host) answers the thread as `thread(sessionId)` does after
+reopening a released runtime off screen, for work the user asked for on a
+thread they are not reading. Thread Title Generator's `regenerate` command uses
+it when the rail regenerates the titles of a selection; its automatic
+`generate` never reopens a thread.
+
 API 1.47.0 exports `transferPromptAttachments(machines, machine, attachments)`
 and `withReceivedPromptAttachments(services, input, caller, use)` from
 `tau/host-extension`. The first uploads files through `machines.upload`,
@@ -4580,7 +4596,7 @@ have a project of the same name; another machine gets the prompt with
 it there. A thread that started stays where it runs.
 
 `host-resources` answers `HostResources` (`src/shared/host-resources.ts`, on
-`tau/host-extension` and `tau`): `cpuCount`, `cpuUtilization` (0–1 across all
+`tau/host-extension` and `tau`): `platform` and `arch` (`process.platform` and `process.arch`, API 1.79.0; `platformLabel` in `tau` writes them as "macOS arm64"), `cpuCount`, `cpuUtilization` (0–1 across all
 cores; the last reading is the start of the next one when it is at most 30 s
 old, otherwise the host watches the counters for 5 s), `totalMemory`,
 `availableMemory` (free plus reclaimable cache: `MemAvailable` on Linux,

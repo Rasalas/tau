@@ -1593,8 +1593,11 @@ export type ExtensionOption =
   | { id: string; kind: "toggle"; label: string; defaultValue: boolean }
   | { id: string; kind: "chips"; label: string; values: string[] }
   | { id: string; kind: "select"; label: string; values: Array<{ value: string; label: string }>; defaultValue: string }
-  /** A model choice stored as `provider/id`; unset means the thread's model. `thinkingLevelValue` names an optional Pi effort value (API 1.63.0). */
-  | { id: string; kind: "model"; label: string; thinkingLevelValue?: string };
+  /**
+   * A model choice stored as `provider/id`; unset means the thread's model. `thinkingLevelValue` names an optional Pi effort value (API 1.63.0).
+   * `emptyLabel` says what an unset choice means where it is not the thread's model, such as another option's default (API 1.79.0).
+   */
+  | { id: string; kind: "model"; label: string; thinkingLevelValue?: string; emptyLabel?: string };
 
 /**
  * How threads relate to one another, published by the extension that made the

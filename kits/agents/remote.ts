@@ -90,6 +90,63 @@ export async function resolveMachine(
   return { machine: { id: machine.id, name: machine.name }, ...(reason ? { reason } : {}) };
 }
 
+/** One machine as `tau_list_machines` shows it to an agent. */
+export interface AgentMachineListing {
+  id: string;
+  name: string;
+  /** The machine the calling thread runs on. */
+  self?: true;
+  status: string;
+  /** "macOS arm64"; absent while unknown. */
+  os?: string;
+  cores?: number;
+  readOnly?: true;
+  /** Why the operating system is unknown. */
+  note?: string;
+}
+
+const OS_NAMES: Record<string, string> = { darwin: "macOS", linux: "Linux", win32: "Windows" };
+
+function osName(platform: unknown, arch: unknown): string | undefined {
+  if (typeof platform !== "string" || !platform) return undefined;
+  const name = OS_NAMES[platform] ?? platform;
+  return typeof arch === "string" && arch ? `${name} ${arch}` : name;
+}
+
+/**
+ * Every machine a spawn could name, this one first, with its operating system:
+ * an agent on Linux finds the Mac that builds for iOS. A machine's platform
+ * never changes while it runs, so `known` keeps each answer; a host before
+ * API 1.79.0 does not say it.
+ */
+export async function listAgentMachines(
+  machines: HostMachineServices | undefined,
+  here: { platform: string; arch: string },
+  known: Map<string, { os?: string; cores?: number }>,
+  timeoutMs = RESOURCES_TIMEOUT_MS,
+): Promise<AgentMachineListing[]> {
+  const self: AgentMachineListing = { id: machines?.self.id ?? "local", name: machines?.self.name ?? "This machine", self: true, status: "connected", os: osName(here.platform, here.arch)! };
+  if (!machines) return [self];
+  const others = await Promise.all(machines.list().map(async (machine): Promise<AgentMachineListing> => {
+    const base: AgentMachineListing = { id: machine.id, name: machine.name, status: machine.status, ...(machine.readOnly ? { readOnly: true as const } : {}) };
+    let facts = known.get(machine.id);
+    if (!facts && machine.status === "connected") {
+      try {
+        const resources = await machines.request(machine.id, "host-resources", [], { timeoutMs }) as { platform?: unknown; arch?: unknown; cpuCount?: unknown } | undefined;
+        const os = osName(resources?.platform, resources?.arch);
+        const cores = typeof resources?.cpuCount === "number" && resources.cpuCount > 0 ? Math.floor(resources.cpuCount) : undefined;
+        facts = { ...(os ? { os } : {}), ...(cores ? { cores } : {}) };
+        if (os) known.set(machine.id, facts);
+        else return { ...base, ...facts, note: `Its Tau${machine.hostVersion ? ` ${machine.hostVersion}` : ""} does not say its operating system; update it.` };
+      } catch (error) {
+        return { ...base, note: `It did not answer: ${errorText(error)}` };
+      }
+    }
+    return { ...base, ...facts, ...(!facts && machine.detail ? { note: machine.detail } : {}) };
+  }));
+  return [self, ...others];
+}
+
 /** A remote child's checkout as the panel and the tools show it: the worktree there, and its branch here once back. */
 function workspaceOf(link: RemoteThreadLink, before: AgentWorkspace | undefined): AgentWorkspace | undefined {
   if (!link.transfer && !before) return undefined;

@@ -1,4 +1,4 @@
-import { readFile, realpath, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { extractIcnsPng } from "./icns.js";
 
@@ -51,6 +51,15 @@ export const PROJECT_ICON_CANDIDATES = [
 
 const ICON_SOURCE_FILES = ["index.html", "public/index.html", "src/index.html"] as const;
 
+/** Folders a web or app project keeps its icon in; each is listed once rather than probed per spelling. */
+const ICON_FOLDERS = ["", "public", "static", "app", "src/app", "src", "assets", "src/assets", "public/icons", "public/images", "static/icons", "resources", "build"] as const;
+/** favicon-32x32.png, icon.webp, apple-icon.png, apple-touch-icon-180x180-precomposed.png … */
+const ICON_FILE_NAME = /^(favicon|icon|apple-icon|apple-touch-icon)(?:[-_.@]?\d+(?:x\d+)?)?(?:-precomposed)?\.([a-z]+)$/iu;
+const NAME_RANK = ["favicon", "icon", "apple-icon", "apple-touch-icon"];
+/** Scalable first, then the formats that draw sharpest small. */
+const EXTENSION_RANK = [".svg", ".png", ".webp", ".avif", ".ico", ".gif", ".jpg", ".jpeg", ".icns"];
+const MANIFEST_FILES = ["site.webmanifest", "manifest.webmanifest", "manifest.json", "public/site.webmanifest", "public/manifest.webmanifest", "public/manifest.json", "static/site.webmanifest", "static/manifest.json", "app/manifest.json", "app/manifest.webmanifest"] as const;
+
 function staysWithin(root: string, path: string): boolean {
   const child = relative(root, path);
   return child === "" || (!child.startsWith("..") && !isAbsolute(child));
@@ -81,7 +90,7 @@ async function linkedIconPaths(root: string): Promise<string[]> {
       const source = await readFile(sourcePath, "utf8");
       for (const match of source.matchAll(/<link\b[^>]*>/giu)) {
         const rel = tagAttribute(match[0], "rel")?.toLocaleLowerCase().split(/\s+/u) ?? [];
-        if (!rel.includes("icon")) continue;
+        if (!rel.includes("icon") && !rel.includes("apple-touch-icon")) continue;
         const href = tagAttribute(match[0], "href")?.split(/[?#]/u)[0];
         if (!href || /^(?:data:|https?:|\/\/)/iu.test(href)) continue;
         paths.push(href.startsWith("/")
@@ -90,6 +99,49 @@ async function linkedIconPaths(root: string): Promise<string[]> {
       }
     } catch {
       // Missing source files are normal for non-web projects.
+    }
+  }
+  return paths;
+}
+
+/** Icon-named files in the usual folders (any size or format), and any `.ico` at the root, best first. */
+async function conventionalIconPaths(root: string): Promise<string[]> {
+  const found: Array<{ path: string; folder: number; name: number; extension: number; size: number }> = [];
+  for (const [folder, directory] of ICON_FOLDERS.entries()) {
+    let names: string[];
+    try { names = await readdir(resolve(root, directory)); } catch { continue; }
+    for (const name of names) {
+      const match = ICON_FILE_NAME.exec(name);
+      const extension = extname(name).toLocaleLowerCase();
+      if (!ICON_MIME_TYPES.has(extension) || (!match && !(directory === "" && extension === ".ico"))) continue;
+      const size = Number(/(\d+)(?:x\d+)?(?:-precomposed)?\.[a-z]+$/iu.exec(name)?.[1] ?? 0);
+      found.push({ path: directory ? `${directory}/${name}` : name, folder, name: match ? NAME_RANK.indexOf(match[1]!.toLocaleLowerCase()) : NAME_RANK.length, extension: EXTENSION_RANK.indexOf(extension), size });
+    }
+  }
+  return found
+    .sort((a, b) => a.name - b.name || a.folder - b.folder || a.extension - b.extension || b.size - a.size || a.path.localeCompare(b.path))
+    .map((entry) => entry.path);
+}
+
+/** The icons a web app manifest lists, largest first; `/x` is served from `public/`. */
+async function manifestIconPaths(root: string): Promise<string[]> {
+  const paths: string[] = [];
+  for (const manifestFile of MANIFEST_FILES) {
+    const manifestPath = resolve(root, manifestFile);
+    try {
+      const metadata = await stat(manifestPath);
+      if (!metadata.isFile() || metadata.size > MAX_ICON_SOURCE_BYTES) continue;
+      const icons = (JSON.parse(await readFile(manifestPath, "utf8")) as { icons?: unknown } | null)?.icons;
+      if (!Array.isArray(icons)) continue;
+      const listed = icons.flatMap((icon: { src?: unknown; sizes?: unknown }) => {
+        const src = typeof icon?.src === "string" ? icon.src.split(/[?#]/u)[0] : undefined;
+        if (!src || /^(?:data:|https?:|\/\/)/iu.test(src)) return [];
+        const sizes = typeof icon.sizes === "string" ? icon.sizes.split(/\s+/u).map((size) => Number(size.split("x")[0]) || (size === "any" ? 4096 : 0)) : [0];
+        return [{ path: src.startsWith("/") ? resolve(root, "public", src.slice(1)) : resolve(dirname(manifestPath), src), size: Math.max(0, ...sizes) }];
+      });
+      paths.push(...listed.sort((a, b) => b.size - a.size).map((entry) => entry.path));
+    } catch {
+      // No manifest, or one that is not JSON: nothing to follow.
     }
   }
   return paths;
@@ -127,7 +179,8 @@ export async function resolveProjectIcon(projectPath: string): Promise<string | 
     const icon = await iconDataUrl(root, candidate);
     if (icon) return icon;
   }
-  for (const candidate of await linkedIconPaths(root)) {
+  // Then the declared ones (the page's links, the app manifest), then any icon-named file in the usual folders.
+  for (const candidate of [...await linkedIconPaths(root), ...await manifestIconPaths(root), ...await conventionalIconPaths(root)]) {
     const icon = await iconDataUrl(root, candidate);
     if (icon) return icon;
   }

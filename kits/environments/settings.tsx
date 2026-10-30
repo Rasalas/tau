@@ -61,7 +61,8 @@ function MachineRow({ machine, shown, environments, now, onRemove, onProblem, ag
   // This machine answers its own host; another one only over its agents' connection.
   const health = host && agents && (machine.local || agent?.status === "connected");
   const details = [
-    machine.local ? "This machine" : machine.address?.replace(/^wss?:\/\//u, "").replace(/\/$/u, ""),
+    // The relay's bridge listens on this device's loopback; its address says nothing to the person.
+    machine.local ? "This machine" : machine.via === "connect" ? "Tau Connect" : machine.address?.replace(/^wss?:\/\//u, "").replace(/\/$/u, ""),
     statusText(machine, now),
     machine.hostVersion ? `Tau ${machine.hostVersion}` : undefined,
     machine.threadCount ? `${machine.threadCount} thread${machine.threadCount === 1 ? "" : "s"}` : undefined,

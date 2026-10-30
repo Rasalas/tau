@@ -10,6 +10,12 @@ export const TITLE_FAILED_EVENT = "title-failed";
 export const THREAD_TITLES_SERVICE = "tau.thread-titles/titles";
 export interface ThreadTitlesService {
   regenerate(actions: WorkbenchActions): Promise<void>;
+  /**
+   * Names one thread again by id, on screen or not, with the model the settings
+   * name; rejects with the reason it could not. The rail's selection calls it
+   * for each thread it regenerates.
+   */
+  regenerateThread(sessionId: string): Promise<void>;
 }
 
 /**

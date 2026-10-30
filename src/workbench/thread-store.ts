@@ -95,7 +95,8 @@ function threadEqual(left: UiSession, right: UiSession): boolean {
     same(left.queued, right.queued) &&
     same(left.usage, right.usage) &&
     same(left.goal, right.goal) &&
-    same(left.background, right.background);
+    same(left.background, right.background) &&
+    same(left.mcpClient, right.mcpClient);
 }
 
 /** Small host-owned records, a fresh object each publication: compared field by field, never as JSON. */

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Upload, Wand2 } from "lucide-react";
 import { Button, NumberField, SegmentedControl, SettingRow, SettingsSection, Slider, TextField, useSetting, userThemes, type PreferencesStore, type SettingHandle, type SettingsPageProps, type UserTheme } from "tau";
-import { DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, PANEL_MOTION_RANGE, TIMESTAMP_FORMATS, cleanFontFamily, readContrast, readDensity, readPanelMotion, readSize, readTimestamps, type Density, type TimestampFormat } from "./apply.js";
+import { CHAT_WIDTHS, DEFAULT_CODE_FONT_SIZE, DEFAULT_PROMPT_FONT_SIZE, FONT_SIZE_RANGE, PANEL_MOTION_RANGE, TIMESTAMP_FORMATS, cleanFontFamily, readChatWidth, readContrast, readDensity, readPanelMotion, readSize, readTimestamps, type ChatWidth, type Density, type TimestampFormat } from "./apply.js";
 import { draftFromWindow, type ThemeDraft, type ThemeEditorStore } from "./editor.js";
 import { ModeTiles, PanelMotionPreview, ThemeCard, baseColors, themeColors, withoutOwnStyles, type Mode, type PreviewColors, type ThemeCardModel } from "./previews.js";
 import { APPEARANCE_EXTENSION_ID as ID, SETTING_KEYS, type Appearance } from "./protocol.js";
@@ -27,6 +27,7 @@ export function DensityRow({ description }: { description?: string }) {
   );
 }
 const MODE_LABELS: Record<string, string> = { system: "System", light: "Light", dark: "Dark" };
+const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = { narrow: "Narrow", default: "Default", wide: "Wide", full: "Full" };
 const TIMESTAMP_LABELS: Record<TimestampFormat, string> = { locale: "Locale", "12h": "12-hour", "24h": "24-hour" };
 const value = (key: string) => `values.${ID}.${key}`;
 const readString = (raw: unknown) => (typeof raw === "string" ? raw : undefined);
@@ -172,6 +173,7 @@ export function AppearancePage({ onNotify, preferences, editor, textSize }: Sett
   const codeFamily = useSetting<string>(value(SETTING_KEYS.codeFontFamily), { defaultValue: "", read: readString, format: (next) => next || "System monospace" });
   const codeSize = useSetting<number | undefined>(value(SETTING_KEYS.codeFontSize), { defaultValue: undefined, read: readSize, write: String, format: (next) => (next ? `${next}px` : `${DEFAULT_CODE_FONT_SIZE}px`) });
 
+  const chatWidth = useSetting<ChatWidth>(value(SETTING_KEYS.chatWidth), { defaultValue: "default", read: readChatWidth, format: (next) => CHAT_WIDTH_LABELS[next], offline: (next) => preferences.setValue(ID, SETTING_KEYS.chatWidth, next) });
   const timestamps = useSetting<TimestampFormat>(value(SETTING_KEYS.timestamps), { defaultValue: "24h", read: readTimestamps, format: (next) => TIMESTAMP_LABELS[next] });
   const panelMotion = useSetting<number>(value(SETTING_KEYS.panelMotion), { defaultValue: 0, read: readPanelMotion, write: String, format: (next) => `${next} ms`, offline: (next) => preferences.setValue(ID, SETTING_KEYS.panelMotion, String(next)) });
   // The preview follows the thumb; the value is written where it stops.
@@ -208,6 +210,13 @@ export function AppearancePage({ onNotify, preferences, editor, textSize }: Sett
           description="Draws hairlines and quiet text closer to the ink."
           setting={contrast}
           control={<Slider label="Contrast" value={contrast.value} min={0} max={100} step={5} unit="%" onCommit={contrast.set} />}
+        />
+        <SettingRow
+          id="setting-appearance-chat-width"
+          title="Chat width"
+          description="How wide messages and the composer may grow when the window has room. Full uses the whole column."
+          setting={chatWidth}
+          control={<SegmentedControl label="Chat width" value={chatWidth.value} options={CHAT_WIDTHS.map((next) => ({ value: next, label: CHAT_WIDTH_LABELS[next] }))} onChange={chatWidth.set} />}
         />
         <SettingRow
           id="setting-appearance-timestamps"

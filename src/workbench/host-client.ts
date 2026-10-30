@@ -229,6 +229,8 @@ export interface HostClient {
   configureConnect?: CommandClient<"connect-configure">;
   createConnectLink?: CommandClient<"connect-link">;
   removeConnect?: CommandClient<"connect-remove">;
+  /** Owner only: local MCP tokens and their loopback listener (`local-*`), and the HTTPS OAuth grants (ADR 0046). */
+  manageExternalMcp?: CommandClient<"external-mcp-manage">;
   /** Reads the served certificates again; `changed` when a listener now serves another one. */
   reloadCertificate: CommandClient<"connections-reload-certificate">;
   /** Tau hosts that announce themselves on the host's network, after a few seconds of looking. */
@@ -350,7 +352,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     takeQueued: (sessionId, id) => commandCall("take-queued", [sessionId, id]),
     moveQueued: (sessionId, id, toIndex) => commandCall("move-queued", [sessionId, id, toIndex]),
     planQueued: (sessionId, id, deliverAt) => commandCall("plan-queued", [sessionId, id, deliverAt ?? null]),
-    resumeLimited: (sessionId, when) => commandCall("resume-limited", [sessionId, when]),
+    resumeLimited: (sessionId, when, at) => commandCall("resume-limited", [sessionId, when, at]),
     threadGoal: (sessionId, action, objective) => commandCall("thread-goal", objective === undefined ? [sessionId, action] : [sessionId, action, objective]),
     stopBackground: (sessionId, taskId) => commandCall("thread-background-stop", taskId === undefined ? [sessionId] : [sessionId, taskId]),
     runShellAction: (command, includeInContext, expectedCwd) =>
@@ -469,6 +471,7 @@ export function createHostClient(connection: HostConnection, local?: HostConnect
     configureConnect: (input) => commandCall("connect-configure", [input]),
     createConnectLink: () => commandCall("connect-link"),
     removeConnect: () => commandCall("connect-remove"),
+    manageExternalMcp: (input) => commandCall("external-mcp-manage", [input]),
     reloadCertificate: () => commandCall("connections-reload-certificate"),
     discoverHosts: (options) => commandCall("connections-discover", [options ?? {}]),
     serviceStatus: () => commandCall("service-status"),

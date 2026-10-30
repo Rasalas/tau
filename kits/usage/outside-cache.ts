@@ -85,6 +85,8 @@ export interface OutsideRootReport {
   found: boolean;
   files: number;
   failed: number;
+  /** Why files could not be read, one line per file: its name and the reason. */
+  problems?: string[];
 }
 
 export interface OutsideScan {
@@ -341,7 +343,7 @@ async function readDatabaseUnit(path: string, stamp: Stamp, horizon: number, now
     ...(previous?.final && previous.cursors ? { cursors: previous.cursors } : {}),
     onRestart: () => { final = new UnitTally(undefined, horizon); },
   }, sqlite, () => yieldToLoop(), (sessionId, record, settled) => { (settled ? final : recent).add(sessionId, record); });
-  if (read.unsupported) throw new Error("the database has no message table this version reads");
+  if (read.unsupported) throw new Error(`the database has no message table this version reads (${read.unsupportedReason ?? "unknown layout"})`);
   const places = read.sessions;
   const identity = (sessionId: string): OutsideIdentity => {
     const place = places.get(sessionId);
@@ -435,7 +437,7 @@ function decodeSessions(value: unknown, models: string[]): OutsideSessionUsage[]
   return sessions;
 }
 
-type Listed = { root: OutsideRoot; files: string[] | undefined; failed: Set<string> };
+type Listed = { root: OutsideRoot; files: string[] | undefined; failed: Map<string, string> };
 
 /**
  * What the agent CLIs' own logs hold, kept by path with the size and mtime
@@ -489,7 +491,7 @@ export class OutsideUsageCache {
         units.push({ root, unit });
         read += 1;
       }
-      roots.push({ root, found: files !== undefined, files: read, failed: failed.size });
+      roots.push({ root, found: files !== undefined, files: read, failed: failed.size, ...(failed.size > 0 ? { problems: [...failed].map(([path, problem]) => `${basename(path)}: ${problem}`) } : {}) });
     }
     return { roots, units, reading: this.reading, horizon: this.now() - OUTSIDE_HORIZON_MS };
   }
@@ -505,7 +507,7 @@ export class OutsideUsageCache {
       // Another instance naming the same folder reads no file twice.
       const files = (await listOutsideFiles(root))?.filter((path) => !seen.has(path));
       for (const path of files ?? []) seen.add(path);
-      listed.set(key, { root, files, failed: new Set() });
+      listed.set(key, { root, files, failed: new Map() });
     }
     this.listed = listed;
     for (const path of [...this.units.keys()]) if (!seen.has(path)) this.drop(path);
@@ -526,8 +528,8 @@ export class OutsideUsageCache {
         const unit = await (format === "opencode"
           ? readDatabaseUnit(path, stamp, horizon, this.now(), previous)
           : readLogUnit(path, format, stamp, this.claims, horizon, orphaned ? { ...previous!, resume: undefined } as OutsideUnit : previous)
-        ).catch(() => undefined);
-        if (!unit) { entry.failed.add(path); continue; }
+        ).catch((error: unknown) => { entry.failed.set(path, error instanceof Error ? error.message : String(error)); return undefined; });
+        if (!unit) continue;
         this.units.set(path, unit);
         this.dirty = true;
         if (++sinceSave >= SAVE_EVERY) { sinceSave = 0; await this.save(); }

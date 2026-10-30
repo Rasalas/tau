@@ -10,13 +10,14 @@ const feed = (...urls) => `version: 0.7.15\nfiles:\n${urls.map((url) => `  - url
 const FEEDS = {
   "latest-mac.yml": feed("Tau-0.7.15-arm64-mac.zip", "Tau-0.7.15-arm64.dmg", "Tau-0.7.15-mac.zip", "Tau-0.7.15.dmg"),
   "latest.yml": feed("Tau-Setup-0.7.15.exe"),
+  "latest-arm64.yml": feed("Tau-Setup-0.7.15-arm64.exe"),
   "latest-linux.yml": feed("Tau-0.7.15.AppImage", "Tau_0.7.15_amd64.deb"),
   ...Object.fromEntries(HOST_FEEDS.map((name) => {
     const target = name.slice("latest-host-".length, -".yml".length);
     return [name, feed(`Tau-host-0.7.15-${target}.${target.startsWith("win32-") ? "zip" : "tar.gz"}`)];
   })),
 };
-const INSTALLERS = ["Tau-0.7.15-arm64-mac.zip", "Tau-0.7.15-arm64.dmg", "Tau-0.7.15-mac.zip", "Tau-0.7.15.dmg", "Tau-Setup-0.7.15.exe"];
+const INSTALLERS = ["Tau-0.7.15-arm64-mac.zip", "Tau-0.7.15-arm64.dmg", "Tau-0.7.15-mac.zip", "Tau-0.7.15.dmg", "Tau-Setup-0.7.15.exe", "Tau-Setup-0.7.15-arm64.exe"];
 const COMPLETE = [
   ...Object.keys(FEEDS), ...Object.keys(FEEDS).map((name) => `${name}.sig`),
   ...INSTALLERS, ...INSTALLERS.map((name) => `${name}.blockmap`),
@@ -24,7 +25,7 @@ const COMPLETE = [
   ...HOST_FEEDS.map((name) => /url: (\S+)/u.exec(FEEDS[name])[1]),
 ];
 const read = (name) => FEEDS[name];
-const STABLE = ["Tau-mac-arm64.dmg", "Tau-mac-x64.dmg", "Tau-windows-x64.exe", "Tau-linux-amd64.deb", "Tau-linux-x86_64.AppImage", "Tau-android.apk"];
+const STABLE = ["Tau-mac-arm64.dmg", "Tau-mac-x64.dmg", "Tau-windows-x64.exe", "Tau-windows-arm64.exe", "Tau-linux-amd64.deb", "Tau-linux-x86_64.AppImage", "Tau-android.apk"];
 // The Android build's APK: a stable release carries it, no feed names it.
 const APK = "Tau-0.7.15.apk";
 
@@ -101,6 +102,7 @@ describe("the fixed download names", () => {
       { name: "Tau-mac-arm64.dmg", source: "Tau-0.7.15-arm64.dmg" },
       { name: "Tau-mac-x64.dmg", source: "Tau-0.7.15.dmg" },
       { name: "Tau-windows-x64.exe", source: "Tau-Setup-0.7.15.exe" },
+      { name: "Tau-windows-arm64.exe", source: "Tau-Setup-0.7.15-arm64.exe" },
       { name: "Tau-linux-amd64.deb", source: "Tau_0.7.15_amd64.deb" },
       { name: "Tau-linux-x86_64.AppImage", source: "Tau-0.7.15.AppImage" },
       { name: "Tau-android.apk", source: APK },

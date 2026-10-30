@@ -7,6 +7,8 @@ export const CURSOR_HOST_EXTENSION_ID = "tau.cursor";
 export const USAGE_KIT_ID = "tau.usage";
 /** Search Kit indexes the text of threads nobody has open (`thread-texts`). */
 export const SEARCH_KIT_ID = "tau.search";
+/** Onboarding lists and imports the sessions Cursor ran outside Tau (`import-scan`, `import-sessions`). */
+export const ONBOARDING_KIT_ID = "tau.onboarding";
 /** Older CLIs lack `agent acp` with the parameterized model picker Tau asks for. */
 export const MIN_CURSOR_VERSION = "2026.04.08";
 

@@ -98,6 +98,45 @@ describe("Access Kit desktop extension", () => {
     expect(screen.getByRole("button", { name: "Access: Full access" })).toBeTruthy();
   });
 
+  it("shows a thread's own narrowing when it is stricter than the level picked, and follows the host when it changes", async () => {
+    let narrowing: string | null = "ask";
+    const calls: unknown[][] = [];
+    const { registry, preferences } = createKitHarness(async (...args) => {
+      calls.push(args);
+      return args[1] === "thread-narrowing" ? narrowing : undefined;
+    });
+    preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "full");
+    registry.activate(accessKitExtension);
+    const control = registry.getComposerControls().find((entry) => entry.id === "access.status")!;
+    const snapshot = { threadId: "client-thread", sessionId: "client-thread" } as unknown as HostSnapshot;
+    let draftPending = false;
+    const actions = { activeThread: () => ({ draftPending }) } as never;
+    const view = render(<KitShell registry={registry}><control.Component snapshot={snapshot} actions={actions} /></KitShell>);
+    // An MCP client's ceiling (ADR 0046): the thread may do no more than ask, whatever the composer says.
+    const chip = await screen.findByRole("button", { name: "Access: Ask before edits" });
+    expect(chip.hasAttribute("data-narrowed")).toBe(true);
+    expect(chip.getAttribute("data-tooltip")).toContain("whatever the composer's level (Full access)");
+    expect(calls).toContainEqual([ACCESS_HOST_EXTENSION_ID, "thread-narrowing", { threadId: "client-thread" }]);
+    // A stricter pick wins over the narrowing.
+    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "read-only"); });
+    expect(screen.getByRole("button", { name: "Access: Read only" }).hasAttribute("data-narrowed")).toBe(false);
+    act(() => { preferences.setValue(ACCESS_HOST_EXTENSION_ID, "level", "full"); });
+    narrowing = null;
+    act(() => { registry.dispatchExtensionEvent({ type: "extension-event", extensionId: ACCESS_HOST_EXTENSION_ID, name: "thread-narrowing", payload: { threadId: "another" } }); });
+    await settled();
+    expect(screen.getByRole("button", { name: "Access: Ask before edits" })).toBeTruthy();
+    act(() => { registry.dispatchExtensionEvent({ type: "extension-event", extensionId: ACCESS_HOST_EXTENSION_ID, name: "thread-narrowing", payload: { threadId: "client-thread" } }); });
+    expect(await screen.findByRole("button", { name: "Access: Full access" })).toBeTruthy();
+    // A new thread's draft carries the last thread's id; it shows the level picked.
+    narrowing = "read-only";
+    draftPending = true;
+    calls.length = 0;
+    view.rerender(<KitShell registry={registry}><control.Component snapshot={{ ...snapshot }} actions={actions} /></KitShell>);
+    await settled();
+    expect(screen.getByRole("button", { name: "Access: Full access" })).toBeTruthy();
+    expect(calls).toEqual([]);
+  });
+
   it("offers one palette command per level", () => {
     const { registry, preferences } = activate();
     const commands = registry.getCommands().filter((command) => command.id.startsWith("access."));

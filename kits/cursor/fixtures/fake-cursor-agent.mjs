@@ -34,6 +34,11 @@ const dataDir = env.CURSOR_DATA_DIR || join(env.HOME ?? ".", ".fake-cursor");
 const sessionsFile = join(dataDir, "fake-sessions.json");
 const readSessions = () => { try { return JSON.parse(readFileSync(sessionsFile, "utf8")); } catch { return {}; } };
 const saveSession = (id, value) => { mkdirSync(dataDir, { recursive: true }); writeFileSync(sessionsFile, JSON.stringify({ ...readSessions(), [id]: value })); };
+// With FAKE_CURSOR_LIST_SESSIONS set the agent lists its sessions (`session/list`) from `fake-session-info.json`: `{ id: { cwd, title?, updatedAt } }`.
+const listing = Boolean(env.FAKE_CURSOR_LIST_SESSIONS);
+const infoFile = join(dataDir, "fake-session-info.json");
+const readInfo = () => { try { return JSON.parse(readFileSync(infoFile, "utf8")); } catch { return {}; } };
+const saveInfo = (id, value) => { mkdirSync(dataDir, { recursive: true }); writeFileSync(infoFile, JSON.stringify({ ...readInfo(), [id]: value })); };
 
 const MODELS = [
   { value: "default", name: "Auto" },
@@ -128,7 +133,7 @@ const handlers = {
     protocolVersion: 1,
     agentInfo: { name: "cursor-agent", version: env.FAKE_CURSOR_VERSION ?? "2026.09.18-fake000" },
     authMethods: [{ id: "cursor_login", name: "Cursor login" }],
-    agentCapabilities: { loadSession: true, promptCapabilities: { image: true, embeddedContext: false } },
+    agentCapabilities: { loadSession: true, ...(listing ? { sessionCapabilities: { list: {} } } : {}), promptCapabilities: { image: true, embeddedContext: false } },
     _meta: { echoedCapabilities: params?.clientCapabilities ?? null },
   }),
   authenticate: () => {
@@ -140,8 +145,13 @@ const handlers = {
     state.mcpServers = params?.mcpServers ?? [];
     state.history = [];
     saveSession(state.sessionId, []);
+    saveInfo(state.sessionId, { cwd: params?.cwd, updatedAt: new Date().toISOString() });
     update({ sessionUpdate: "available_commands_update", availableCommands: [{ name: "compress", description: "Summarize the conversation" }] });
     return setup();
+  },
+  "session/list": () => {
+    if (!listing) throw Object.assign(new Error("Method not found: session/list"), { code: -32601 });
+    return { sessions: Object.entries(readInfo()).map(([sessionId, info]) => ({ sessionId, ...info })) };
   },
   "session/load": (params) => {
     const stored = readSessions()[params?.sessionId];

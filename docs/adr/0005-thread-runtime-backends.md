@@ -373,3 +373,39 @@ be cleared at settlement.
 Handlers no longer call back into `PiHost` to construct a second handler or
 update the same tool bookkeeping. Generation checks prevent delayed snapshots
 from a completed turn from overwriting the next turn's state.
+
+## Amendment, 2026-10-29: conversations may change their executing runtime
+
+A user may switch an idle conversation to another installed runtime while keeping
+its Tau thread ID, workspace, permissions and stage. This supersedes the opening
+paragraph's lifetime ownership rule for the user-facing thread. Each underlying
+runtime session still has one immutable backend owner. It is never rewritten into
+another vendor's format.
+
+Core keeps the preceding visible messages, tool activity and target-session offset
+in a private `runtime-switches.json`. The selected backend's subsequent messages
+follow that prefix. Returning to a previous runtime resumes its provider session,
+while excluding its old segment from the visible tail. Pi gets a separate session
+file with the same Tau ID. Previous sessions remain intact. The index projects
+all underlying records to the selected runtime and one conversation; old paths
+resolve to its current path. Purge retains a tombstone so an older provider record
+cannot resurrect the conversation.
+
+The next prompt carries preceding conversational text as host-owned context after
+prepared-prompt validation. Shell records and excluded messages are omitted. Pi
+receives a hidden custom context message; other runtimes receive context alongside
+the new prompt while persisting only the user's visible message. Pending context
+survives restart and is retained after a refused prompt. This transfers visible
+conversation context, not private reasoning, provider internals or previous image
+pixels. Conversations above 500,000 text characters keep the existing summarized
+"Continue in" path rather than silently truncating.
+
+Switching refuses an active turn, queued messages, native background work or an
+unfinished native goal. Runtime/project enablement is checked again. An attached
+Pi session must first be taken over. The Handoff extension owns the menu; core owns
+identity, admission and persistence. Remote proxies route the action to their home
+machine. Safe mode keeps the original Pi recovery path.
+
+Verification includes backend fixtures for switch, restart and return, source
+history preservation and pending-context retries. Vendor entitlement and every
+runtime's live inference remain separate integration checks.

@@ -122,3 +122,16 @@
 .handoff-move-dialog footer button { padding: 6px 12px; border: 0; border-radius: var(--radius-sm); background: var(--raised); color: var(--ink); font: 500 var(--text-sm) var(--sans); cursor: pointer; }
 .handoff-move-dialog footer button.primary { background: var(--acid); color: var(--acid-ink); }
 .handoff-move-dialog footer button:disabled { opacity: .5; cursor: default; }
+
+.handoff-switch-runtime {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  min-height: 26px;
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.handoff-switch-runtime:hover { color: var(--ink); }
+.handoff-switch-runtime:disabled { opacity: 0.5; cursor: default; }

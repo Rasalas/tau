@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiQueuedMessage } from "../../shared/contracts";
 import { QueueShelf, queueOrder } from "./QueueShelf";
+import { shortWhen } from "./when-pick";
 import { TestProviders } from "../test-support/test-providers";
 
 afterEach(cleanup);
@@ -35,6 +36,13 @@ describe("QueueShelf", () => {
     expect(on.onEdit).toHaveBeenNthCalledWith(2, "first");
     fireEvent.click(within(shelf).getByRole("button", { name: "Remove from the queue" }));
     expect(on.onRemove).toHaveBeenCalledWith("first");
+  });
+
+  it("says a message waiting for a usage limit goes at the resume time", () => {
+    const resumeAt = new Date(Date.now() + 60_000).setSeconds(0, 0);
+    render(<QueueShelf queue={[queued("first", "after the reset")]} streaming={false} held resumeAt={resumeAt} {...handlers()} />);
+    expect(screen.getByText(`Next · sends at ${shortWhen(resumeAt, Date.now())}`)).toBeTruthy();
+    expect(screen.queryByText(/sends now|after your next message/u)).toBeNull();
   });
 
   it("opens the rest, where a message moves to the front, steers or leaves", () => {

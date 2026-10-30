@@ -6,6 +6,23 @@ export type HostApi = <K extends keyof Commands>(command: K, input: Commands[K][
 
 const NO_ENTRIES: readonly StashEntry[] = [];
 
+/** A project's folder name, for a list that names where an entry was stashed. */
+export function projectLabel(project: string | undefined): string {
+  if (!project) return "another project";
+  const parts = project.split(/[\\/]+/u).filter(Boolean);
+  return parts.at(-1) ?? project;
+}
+
+/**
+ * A file chip names a path inside its project. Brought back into another
+ * project it would name a file there, so it comes back as text naming the
+ * file where it was: the project's path joined with the file's.
+ */
+function fileFromProject(chip: StashedChip, project: string | undefined): string {
+  const path = typeof chip.payload.path === "string" ? chip.payload.path : chip.label;
+  return project ? `@${project.replace(/[\\/]+$/u, "")}/${path.replace(/^[\\/]+/u, "")}` : `@${path} (in ${projectLabel(project)})`;
+}
+
 /** A chip as text, for a composer without Composer Context to hold it. */
 export function chipAsText(chip: StashedChip): string {
   const payload = chip.payload;
@@ -24,6 +41,8 @@ export function chipAsText(chip: StashedChip): string {
  */
 export class StashController {
   private readonly entries = new Map<string, readonly StashEntry[]>();
+  /** Other projects' entries, as last read for the project on screen. */
+  private others: { project: string; entries: readonly StashEntry[] } | undefined;
   private readonly listeners = new Set<() => void>();
   chips: ComposerContextChips | undefined;
 
@@ -41,6 +60,25 @@ export class StashController {
   async refresh(project: string): Promise<void> {
     this.entries.set(project, await this.host("stash-list", { project }));
     this.changed();
+  }
+
+  /** The entries of every other project's stash on this machine, newest first. */
+  listOthers(project: string | undefined): readonly StashEntry[] {
+    return project && this.others?.project === project ? this.others.entries : NO_ENTRIES;
+  }
+
+  async refreshOthers(project: string): Promise<void> {
+    this.others = { project, entries: await this.host("stash-list-others", { project }) };
+    this.changed();
+  }
+
+  /** After a change the host reported: the project's own list, and the others' once they were read. */
+  async changedOn(project: string): Promise<void> {
+    const current = this.others?.project;
+    await Promise.all([
+      project ? this.refresh(project) : undefined,
+      current && current !== project ? this.refreshOthers(current) : undefined,
+    ]);
   }
 
   /** Whether the composer on screen holds anything a stash would keep. */
@@ -70,16 +108,28 @@ export class StashController {
     return true;
   }
 
-  /** Brings an entry back into the composer, stashing what was there first. */
-  async restore(actions: WorkbenchActions, id: string): Promise<void> {
+  /**
+   * Brings an entry back into the composer, stashing what was there first.
+   * `from` is another project's entry: its text, images and attachments come
+   * along, and a file it named comes back as that file's path in its project.
+   * Images carry their bytes and attachments sit on this device's machine, so
+   * sending them to a thread on another machine copies them as any draft's do.
+   */
+  async restore(actions: WorkbenchActions, id: string, from?: StashEntry): Promise<void> {
     const project = actions.activeThread()?.cwd;
     if (!project) return;
+    const elsewhere = from !== undefined && from.project !== project;
     if (this.hasDraft(actions)) await this.stash(actions);
-    const entry = await this.host("stash-take", { project, id });
-    await this.refresh(project);
+    const entry = elsewhere
+      ? await this.host("stash-take", from.project ? { project: from.project, id } : { id, anyProject: true })
+      : await this.host("stash-take", { project, id });
+    await Promise.all([this.refresh(project), elsewhere ? this.refreshOthers(project) : undefined]);
     if (!entry) throw new Error("That stashed prompt is no longer there.");
+    const source = entry.project ?? from?.project;
     const loose: string[] = [];
+    let moved = 0;
     for (const chip of entry.chips) {
+      if (elsewhere && chip.kind === "file") { loose.push(fileFromProject(chip, source)); moved += 1; continue; }
       try {
         if (!this.chips) throw new Error("no chip service");
         this.chips.addChip({ kind: chip.kind, label: chip.label, payload: chip.payload });
@@ -90,12 +140,19 @@ export class StashController {
     actions.setComposerDraft?.([...loose, entry.text].filter((part) => part.trim()).join("\n\n"));
     const images = entry.images.flatMap((image) => image.data === undefined ? [] : [{ ...image, data: image.data }]);
     if (images.length > 0) actions.setComposerImages?.(images);
+    if (moved > 0) actions.notify(`${moved === 1 ? "A file" : `${moved} files`} from ${projectLabel(source)} came back as ${moved === 1 ? "its path" : "their paths"} there.`);
     actions.focusComposer();
   }
 
   async drop(project: string, id: string): Promise<void> {
     await this.host("stash-drop", { project, id });
     await this.refresh(project);
+  }
+
+  /** Deletes another project's entry from the list of others. */
+  async dropOther(project: string, entry: StashEntry): Promise<void> {
+    await this.host("stash-drop", entry.project ? { project: entry.project, id: entry.id } : { id: entry.id, anyProject: true });
+    await this.refreshOthers(project);
   }
 
   private changed(): void {

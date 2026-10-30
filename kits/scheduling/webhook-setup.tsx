@@ -1,0 +1,14 @@
+import type { WebhookFormat } from "./protocol.js";
+
+export const FORMAT_LABELS: Record<WebhookFormat, string> = { tau: "Tau signature", github: "GitHub", stripe: "Stripe", bearer: "Shared secret (curl)" };
+export const SECRET_PLACEHOLDERS: Record<WebhookFormat, string> = { tau: "Paste a secret of at least 32 characters", github: "Paste the webhook secret, at least 32 characters", stripe: "Paste the signing secret, whsec_…", bearer: "Paste a secret of at least 32 characters" };
+
+/** How to point a sender at this endpoint, per format; `url` is the endpoint when it is open. */
+export function WebhookSetup({ format, url, includePayload }: { format: WebhookFormat; url?: string; includePayload: boolean }) {
+  const endpoint = url ?? "the endpoint shown once the automation is on";
+  const payload = includePayload ? "The event and its payload, up to 32 KB, are added below the prompt as marked outside data." : "Only the event type and delivery ID are added to the prompt.";
+  if (format === "github") return <p>In the repository's Settings → Webhooks → Add webhook, set the payload URL to {url ? <code>{url}</code> : endpoint} through your reverse proxy, the content type to <code>application/json</code>, and the secret to the value you save here. Pick the events to send there. Tau checks <code>X-Hub-Signature-256</code> over the raw body. GitHub's ping starts no run. GitHub signs no time, so Tau remembers each delivery's body for seven days and drops a repeat even under a new delivery ID; a body sent again after that starts a run. A webhook with 2,000 remembered deliveries refuses new ones until the oldest age out. {payload}</p>;
+  if (format === "stripe") return <p>In Stripe Workbench → Webhooks → Create an event destination, choose the events and set the endpoint URL to {url ? <code>{url}</code> : endpoint} through your reverse proxy. Reveal the signing secret, which starts with <code>whsec_</code>, and save it here. Tau checks the <code>v1</code> signatures in <code>Stripe-Signature</code>, refuses timestamps more than five minutes off and drops a repeated event ID. {payload}</p>;
+  if (format === "bearer") return <p>For curl and scripts: send <code>Authorization: Bearer &lt;secret&gt;</code>, to {url ? <code>{url}</code> : endpoint}. Add an <code>Idempotency-Key</code> header to drop repeats. Nothing signs the body or a time: anyone with the secret can start runs, so prefer a signed format for senders on the internet. {payload}</p>;
+  return <p>Sign each POST to {url ? <code>{url}</code> : endpoint} with HMAC-SHA256 over <code>timestamp + "\n" + deliveryId + "\n" + rawBody</code>. Headers: <code>X-Tau-Timestamp</code> in epoch milliseconds, <code>X-Tau-Delivery</code> a unique ID, <code>X-Tau-Signature</code> lowercase hex. Deliver within five minutes. {payload}</p>;
+}

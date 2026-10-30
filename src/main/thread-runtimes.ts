@@ -76,6 +76,28 @@ export class ThreadRuntimeRegistry<TRuntime> {
     await this.evictIdle(record.threadId);
   }
 
+  /** Keeps an idle source alive until a replacement's activation has committed. */
+  stageReplacement(record: ThreadRuntimeRecord<TRuntime>): { commit(): Promise<void>; rollback(): Promise<void> } {
+    const previous = this.slots.get(record.threadId);
+    if (!previous || previous.busy || !this.canEvict(this.recordOf(previous))) throw new Error("The source runtime is no longer idle.");
+    const next: ThreadSlot<TRuntime> = { ...record, queue: previous.queue, busy: 0, lastUsedAt: this.now() };
+    this.slots.set(record.threadId, next);
+    let settled = false;
+    return {
+      commit: async () => {
+        if (settled) return;
+        settled = true;
+        await this.disposeRuntime(previous);
+      },
+      rollback: async () => {
+        if (settled) return;
+        settled = true;
+        if (this.slots.get(record.threadId) === next) this.slots.set(record.threadId, previous);
+        await this.disposeRuntime(next);
+      },
+    };
+  }
+
   get(threadId: string): ThreadRuntimeRecord<TRuntime> | undefined {
     const slot = this.slots.get(threadId);
     return slot ? this.recordOf(slot) : undefined;

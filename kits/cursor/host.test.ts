@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +23,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-async function harness(options: { customModels?: string; found?: boolean; env?: Record<string, string> } = {}) {
+async function harness(options: { customModels?: string; found?: boolean; env?: Record<string, string>; sessions?: unknown } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tau-cursor-host-"));
   directories.push(root);
   const log = join(root, "agent.log");
@@ -41,6 +41,7 @@ async function harness(options: { customModels?: string; found?: boolean; env?: 
     stateDir: join(root, "state"),
     settings: async () => ({ options: {}, values: { customModels: options.customModels ?? "" } }),
     noteSubprocess: () => undefined,
+    ...(options.sessions ? { sessions: options.sessions as never } : {}),
     registerRuntimeBackend: (provider) => {
       backends.push(provider);
       return () => { backends.splice(backends.indexOf(provider), 1); };
@@ -210,6 +211,40 @@ describe("Cursor host half", () => {
       removed: [],
     });
     await expect(usage.call!("thread-texts", {})).rejects.toThrow(/not allowed/u);
+  });
+
+  it("lists Cursor's own chats for Onboarding and imports them as threads that load the chat", async () => {
+    const { registry, provider, root, sent } = await harness({ env: { FAKE_CURSOR_LIST_SESSIONS: "1" }, sessions: { refreshIndex: async () => ({ type: "thread-index" }) } });
+    // Synthetic chats in the CLI's data folder, as the fake CLI keeps them.
+    const data = join(root, "cursor-data");
+    await mkdir(data, { recursive: true });
+    await writeFile(join(data, "fake-sessions.json"), JSON.stringify({ "c-1": [{ role: "user", text: "Explain the router" }, { role: "assistant", text: "It maps paths." }] }));
+    await writeFile(join(data, "fake-session-info.json"), JSON.stringify({ "c-1": { cwd: root, updatedAt: "2026-04-01T08:00:00Z" } }));
+    const onboarding = caller("tau.onboarding");
+    const stranger = caller("acme.stranger");
+    await registry.activate(onboarding);
+    await registry.activate(stranger);
+    await expect(stranger.call!("import-sessions", { paths: ["c-1"] })).rejects.toThrow(/not allowed/u);
+    await expect(onboarding.call!("import-scan")).resolves.toEqual({ source: "cursor", truncated: false, sessions: [{ path: "c-1", sessionId: "c-1", cwd: root, title: "Untitled conversation", updatedAt: Date.parse("2026-04-01T08:00:00Z"), imported: false }] });
+    const outcome = await onboarding.call!("import-sessions", { paths: ["c-1"] }) as { imported: string[] };
+    expect(outcome).toEqual({ imported: [expect.any(String)], skipped: 0, failed: [], update: { type: "thread-index" } });
+    const threadId = outcome.imported[0]!;
+    expect(await provider.listThreads!()).toEqual([expect.objectContaining({ threadId, cwd: root, title: "Explain the router" })]);
+    const thread = await provider.open(threadId, root, { resume: true }, context);
+    try {
+      await expect(thread.prompt({ text: "Hi", delivery: "prompt" })).resolves.toEqual({ assistantText: "pong from default in agent mode" });
+    } finally {
+      await thread.dispose();
+    }
+    // The scan's process loaded nothing; the import loaded once, and so did the thread.
+    expect((await sent()).filter((message) => message.method === "session/load").map((message) => message.params?.sessionId)).toEqual(["c-1", "c-1"]);
+  });
+
+  it("says Cursor's chats cannot be imported when the CLI does not list them", async () => {
+    const { registry } = await harness();
+    const onboarding = caller("tau.onboarding");
+    await registry.activate(onboarding);
+    await expect(onboarding.call!("import-scan")).resolves.toEqual({ source: "cursor", sessions: [], truncated: false, unsupported: "Cursor 2026.09.18-fake000 does not list its sessions to other apps, so Tau cannot find them." });
   });
 
   it("lists what each thread cost from its store, as its open thread shows it", async () => {

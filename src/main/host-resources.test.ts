@@ -33,6 +33,7 @@ function fakeOs(platform: NodeJS.Platform = "linux") {
   const cores = [0, 1].map(() => ({ user: 0, nice: 0, sys: 0, idle: 0, irq: 0 }));
   const os: ResourceOs = {
     platform: () => platform,
+    arch: () => "arm64",
     cpus: () => cores.map((times) => ({ times: { ...times } })),
     totalmem: () => 8 * GB,
     freemem: () => 1 * GB,
@@ -66,7 +67,8 @@ describe("the machine's load, read when asked", () => {
     const { resources, sleep, now } = sampler({ available: 3 * GB });
     const first = await resources.sample();
     expect(sleep).toHaveBeenCalledWith(5_000);
-    expect(first).toEqual({ sampledAt: now(), cpuCount: 2, cpuUtilization: 0.25, totalMemory: 8 * GB, availableMemory: 3 * GB, runningTurns: 0 });
+    // The platform tells an agent on Linux which machine can build for iOS.
+    expect(first).toEqual({ platform: "linux", arch: "arm64", sampledAt: now(), cpuCount: 2, cpuUtilization: 0.25, totalMemory: 8 * GB, availableMemory: 3 * GB, runningTurns: 0 });
   });
 
   it("answers at once from the last reading while it is recent, and the same answer within five seconds", async () => {

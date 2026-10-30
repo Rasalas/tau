@@ -593,7 +593,7 @@ export class CodexThreadRuntimeBackend implements ThreadRuntimeBackend {
       await this.store.appendMessages(this.threadId, this.cwd, [user]);
       this.deliver(user);
       input.onAdmitted?.(true);
-      const codexInput = userInput(prepared.runtimeText, input.attachments);
+      const codexInput = userInput(input.continuationContext ? `Previous conversation from another runtime:\n${input.continuationContext}\n\nCurrent message:\n${prepared.runtimeText}` : prepared.runtimeText, input.attachments);
       const context = await this.options.appContext?.().catch(() => undefined);
       if (context) codexInput.push({ type: "text", text: context.text, text_elements: [] });
       const delivered = context ? () => { void context.commit().catch(() => undefined); } : undefined;

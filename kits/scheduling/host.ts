@@ -2,11 +2,22 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { HostCommandError, tryProcessLock, writePersistedJson, type HostExtension, type SecretStore } from "tau/host-extension";
 import { nextRuns } from "./cron.js";
-import { SCHEDULING_ID, repeats, type Job, type JobConfig, type SchedulingState } from "./protocol.js";
+import { SCHEDULING_ID, repeats, type AccessLevel, type Job, type JobConfig, type SchedulingState } from "./protocol.js";
 import { decodeAccessLevel, decodeConfig, object, text } from "./validation.js";
 import { assertStateBudget, readState } from "./store.js";
-import { DELIVERY_WINDOW_MS, SECRET_SERVICE, WebhookListener, verifyDelivery, webhookSecretStore, type WebhookDelivery } from "./webhooks.js";
+import { DELIVERY_WINDOW_MS, REMEMBERED_DELIVERIES, SECRET_SERVICE, WebhookListener, deliveryPrompt, deliveryRetention, rememberedAs, remembers, verifyWebhook, webhookSecretProblem, webhookSecretStore, type WebhookDelivery } from "./webhooks.js";
 import { WebhookSecrets } from "./secrets.js";
+import { ScheduleRequests, strictest } from "./agent-tools.js";
+
+/**
+ * Statuses during which an automation's run owns its continued thread, and its
+ * access ceiling holds. A failed run keeps it until the owner resolves the job:
+ * whatever it started may still wake the thread with the run's input in context.
+ */
+const OWNS_THREAD = ["starting", "running", "uncertain", "failed"];
+const IN_RUN = ["starting", "running"];
+
+const formatOf = (job: Job) => job.config.schedule.kind === "webhook" ? job.config.schedule.format ?? "tau" : undefined;
 
 function nextAt(config: JobConfig, now: number): string | undefined {
   if (config.schedule.kind === "webhook") return undefined;
@@ -43,14 +54,17 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
         let stopped = false;
         const secretStore = options.secretStore ?? webhookSecretStore((name) => services.findCommand(name));
         let webhookProblem: string | undefined;
-        const webhook = new WebhookListener(services.stateDir, async (id, delivery) => {
+        const webhook = new WebhookListener(services.stateDir, async (id, request) => {
           const job = state.jobs.find((j) => j.id === id);
           if (!state.enabled || !job?.enabled || job.config.schedule.kind !== "webhook" || !job.secretRef || !secretStore) return 404;
           const key = await secretStore.get({ service: SECRET_SERVICE, account: job.secretRef });
-          if (!key || !verifyDelivery(delivery, key)) return 401;
+          if (!key) return 401;
+          const verdict = verifyWebhook(job.config.schedule.format, request, key);
+          if (!("delivery" in verdict)) return verdict.status;
+          const { delivery } = verdict;
           const current = state.jobs.find((entry) => entry.id === id);
           if (!state.enabled || !current?.enabled || current.secretRef !== job.secretRef) return 404;
-          if (current.deliveries?.some((entry) => entry.slice(14) === delivery.id)) return 200;
+          if (current.deliveries?.some((entry) => remembers(entry, delivery))) return 200;
           try { const result = await run(id, { firedAt: Date.now(), delivery, secretRef: job.secretRef }); return result.status === "running" || result.status === "completed" ? 202 : 409; }
           catch { return 409; }
         }, () => { webhookProblem = undefined; context.emit("webhook-endpoint", { url: webhook.url }); });
@@ -86,6 +100,41 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
             }
             if (!state.enabled || !job.enabled || !job.nextAt || !["ready", "completed"].includes(job.status)) continue;
             wake(job.id, Date.parse(job.nextAt));
+          }
+        };
+        /** Continued threads whose ceiling this host set, and the level it set. */
+        const continued = new Map<string, AccessLevel>();
+        /** A continued thread's own turn for the current run: `null` until the host admits the sent message. */
+        const ownTurns = new Map<string, string | null>();
+        /** The job whose run is in a continued thread now. */
+        const continuing = (threadId: string) => state.jobs.find((job) => job.config.target?.threadId === threadId && job.lastRun?.threadId === threadId && IN_RUN.includes(job.status));
+        const scheduledLevel = (threadId: string): AccessLevel | undefined => {
+          const entry = services.thread(threadId)?.entries().find((candidate) => {
+            const value = candidate as { type?: string; customType?: string };
+            return value.type === "custom" && value.customType === "tau.scheduling/access";
+          }) as { data: { level: unknown } } | undefined;
+          try { return entry ? decodeAccessLevel(entry.data.level) : undefined; } catch { return undefined; }
+        };
+        /** The strictest of a scheduled thread's own level and every run that owns it as a continued thread. */
+        const ceilingFor = (threadId: string): AccessLevel | undefined => {
+          let level = scheduledLevel(threadId);
+          for (const job of state.jobs) {
+            if (job.config.target?.threadId !== threadId || job.lastRun?.threadId !== threadId || !OWNS_THREAD.includes(job.status) || !job.config.accessLevel) continue;
+            level = level ? strictest(level, job.config.accessLevel) : job.config.accessLevel;
+          }
+          return level;
+        };
+        /** Lifts a continued thread's ceiling once its run is over, and sets it where a run owns one. */
+        const reconcileCeilings = async () => {
+          const threads = new Set(continued.keys());
+          for (const job of state.jobs) if (job.config.target && OWNS_THREAD.includes(job.status)) threads.add(job.config.target.threadId);
+          for (const threadId of threads) {
+            const level = ceilingFor(threadId);
+            if (continued.get(threadId) === level) continue;
+            try {
+              await context.invokeHostExtension("tau.access", "thread-level", { threadId, level: level ?? null });
+              if (level) continued.set(threadId, level); else continued.delete(threadId);
+            } catch (error) { services.log("scheduling.access", String(error).slice(0, 300)); }
           }
         };
         let pendingWrite: Promise<void> | undefined;
@@ -125,7 +174,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           queued++;
           const turn = queue.then(async () => {
             try { return await work(); }
-            finally { try { await flushOutcomes(); } finally { queued--; arm(); } }
+            finally { try { await flushOutcomes(); await reconcileCeilings(); } finally { queued--; arm(); } }
           });
           queue = turn.catch(() => undefined);
           return turn;
@@ -150,19 +199,62 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           return job;
         };
         const defaultAccessLevel = async () => decodeAccessLevel(await context.invokeHostExtension("tau.access", "level"));
+        const threadLevelOf = async (threadId: string) => decodeAccessLevel(await context.invokeHostExtension("tau.access", "thread-level-of", { threadId }));
+        /** The index's row for a thread on this host, freshly scanned; undefined when there is none. */
+        const indexedThread = async (threadId: string) => {
+          const update = await services.sessions.refreshIndex({ requireComplete: true });
+          if (update.type !== "thread-index") throw new HostCommandError("The thread list is unavailable. Try again.");
+          return update.index.sessions.find((session) => session.id === threadId);
+        };
+        const remoteThread = "The thread lives on another machine. An automation continues only threads on this machine.";
+        /** Why an automation cannot continue this thread now: gone or elsewhere (`failed`), or busy (`held`). */
+        const targetProblem = async (threadId: string): Promise<{ status: "held" | "failed"; detail: string } | undefined> => {
+          let session: Awaited<ReturnType<typeof indexedThread>>;
+          try { session = await indexedThread(threadId); }
+          catch (error) { return { status: "held", detail: `The thread list could not be read. ${String(error).slice(0, 300)}` }; }
+          if (!session) {
+            const trashed = await services.sessions.trash().then((entries) => entries.some((entry) => entry.sessionId === threadId), () => false);
+            return { status: "failed", detail: trashed
+              ? "The thread this automation continues is in the trash. Restore it, or edit the automation to start a new thread."
+              : "The thread this automation continues was deleted. Edit the automation to continue another thread or start a new one." };
+          }
+          if (session.backendKind === "machine" || session.machine) return { status: "failed", detail: remoteThread };
+          if (services.thread(threadId)?.isIdle() === false || session.queued?.length || session.queueHeld) return { status: "held", detail: "The thread is still running or has queued messages." };
+          return undefined;
+        };
         const validate = async (input: unknown) => {
           const config = decodeConfig(input);
           config.workspace = await services.knownWorkspacePath(config.workspace);
           config.accessLevel ??= await defaultAccessLevel();
+          if (config.target) {
+            const session = await indexedThread(config.target.threadId);
+            if (!session) throw new HostCommandError("Unknown thread. Choose a thread on this machine.");
+            if (session.backendKind === "machine" || session.machine) throw new HostCommandError(remoteThread);
+          }
           return config;
         };
-        context.registerCommand("create", (input) => mutate(async () => {
+        /** Overdue enabled jobs wait for a decision instead of starting when automations turn on. */
+        const holdOverdue = (next: SchedulingState) => {
+          for (const job of next.jobs) if (job.enabled && job.nextAt && Date.parse(job.nextAt) <= Date.now() && ["ready", "completed"].includes(job.status)) job.status = "held";
+        };
+        const createJob = (input: unknown, approved?: { threadId: string; turnOn: boolean }) => mutate(async () => {
           if (state.jobs.length >= 100) throw new HostCommandError("At most 100 scheduling jobs are allowed.");
           const config = await validate(input);
           const job: Job = { id: randomUUID(), config, workspaceId: services.workspaceRef(config.workspace).workspaceId, enabled: false, status: "ready", nextAt: nextAt(config, Date.now()) };
-          await save({ ...state, jobs: [...state.jobs, job] });
+          const next = { ...snapshot(), jobs: [...snapshot().jobs, job] };
+          if (approved) {
+            if (config.schedule.kind === "webhook") throw new HostCommandError("An agent cannot create a webhook automation.");
+            // Read again at approval: the thread may run lower now than when it asked.
+            config.accessLevel = strictest(config.accessLevel!, await threadLevelOf(approved.threadId));
+            job.origin = { threadId: approved.threadId };
+            job.enabled = true;
+            if (approved.turnOn && !next.enabled) { next.enabled = true; holdOverdue(next); }
+            if (next.enabled && job.nextAt && Date.parse(job.nextAt) <= Date.now()) job.status = "held";
+          }
+          await save(next);
           return structuredClone(job);
-        }), { access: "owner" });
+        });
+        context.registerCommand("create", (input) => createJob(input), { access: "owner" });
         for (const command of ["enable", "disable", "delete", "update"] as const) {
           context.registerCommand(command, (input) => mutate(async () => {
             const job = lookup(input, command === "update" ? ["id", "config"] : ["id"]);
@@ -172,7 +264,8 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
             if (command === "update") {
               copy.config = await validate((input as { config: unknown }).config);
               copy.workspaceId = services.workspaceRef(copy.config.workspace).workspaceId;
-              if (copy.workspaceId !== job.workspaceId || copy.config.schedule.kind !== "webhook") { copy.secretRef = undefined; copy.deliveries = undefined; }
+              // Another provider signs with another secret; a key never moves between formats or projects.
+              if (copy.workspaceId !== job.workspaceId || copy.config.schedule.kind !== "webhook" || formatOf(copy) !== formatOf(job)) { copy.secretRef = undefined; copy.deliveries = undefined; }
               copy.status = "ready"; copy.detail = undefined;
               copy.enabled = false;
               copy.nextAt = nextAt(copy.config, Date.now());
@@ -190,7 +283,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           const job = structuredClone(lookup({ id }));
           const scheduled = trigger !== undefined, delivery = trigger?.delivery;
           if (delivery && (!job.enabled || job.secretRef !== trigger?.secretRef)) throw new HostCommandError("This webhook changed before the delivery could start.");
-          if (delivery && job.deliveries?.some((entry) => entry.slice(14) === delivery.id)) return job;
+          if (delivery && job.deliveries?.some((entry) => remembers(entry, delivery))) return job;
           if (["starting", "running"].includes(job.status)) throw new HostCommandError("This job is already running.");
           if (["held", "uncertain", "failed"].includes(job.status)) throw new HostCommandError("Resolve this job explicitly first.");
           if (!state.enabled) throw new HostCommandError("Scheduling is off. Explicitly enable it first.");
@@ -214,13 +307,25 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
             await replace(job);
             throw new HostCommandError(job.detail);
           }
+          const target = job.config.target;
+          if (target) {
+            const problem = await targetProblem(target.threadId);
+            if (problem) { job.status = problem.status; job.detail = problem.detail; await replace(job); throw new HostCommandError(problem.detail); }
+          }
           job.status = "starting"; job.detail = undefined;
           if (delivery) {
-            const recent = (job.deliveries ?? []).filter((entry) => Date.now() - Number(entry.split(":")[0]) <= DELIVERY_WINDOW_MS);
-            if (recent.length >= 100) throw new HostCommandError("This webhook has received 100 deliveries in five minutes. Try later with a new delivery.");
-            job.deliveries = [...recent, `${delivery.timestamp}:${delivery.id}`];
+            // A sender that signs no time is only kept from replaying by what is remembered here,
+            // so nothing inside the retention window is dropped to make room: a full record refuses.
+            const now = Date.now(), retention = deliveryRetention(delivery.format);
+            const age = (entry: string) => now - Number(entry.split(":")[0]);
+            const kept = (job.deliveries ?? []).filter((entry) => age(entry) <= retention);
+            if (kept.filter((entry) => age(entry) <= DELIVERY_WINDOW_MS).length >= 100) throw new HostCommandError("This webhook has received 100 deliveries in five minutes. Try later with a new delivery.");
+            if (kept.length >= REMEMBERED_DELIVERIES) throw new HostCommandError(`This webhook remembers ${REMEMBERED_DELIVERIES} recent deliveries to refuse replays and is full. New deliveries start again when the oldest age out.`);
+            job.deliveries = [...kept, `${delivery.timestamp}:${rememberedAs(delivery)}`];
           }
-          job.lastRun = { intentId: randomUUID(), at: new Date().toISOString(), outcome: "starting" };
+          const schedule = job.config.schedule;
+          const prompt = job.config.prompt + (delivery ? deliveryPrompt(delivery, schedule.kind === "webhook" && schedule.includePayload === true) : "");
+          job.lastRun = { intentId: randomUUID(), at: new Date().toISOString(), outcome: "starting", ...(target ? { threadId: target.threadId } : {}) };
           job.nextAt = repeats(job.config.schedule) ? nextAt(job.config, Date.now()) : undefined;
           if (job.config.schedule.kind === "once") job.enabled = false;
           // Await the atomic intent write before the host can create a thread.
@@ -228,11 +333,23 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           if (stopped) throw new HostCommandError("Scheduling stopped before admission.");
           try {
             job.config.accessLevel ??= await defaultAccessLevel();
+            if (target) {
+              if (!services.sessions.send) throw new HostCommandError("This machine cannot send messages to threads.");
+              // The ceiling is set before the message can start a turn; `prepare` sets it again on each turn of the run.
+              const level = strictest(ceilingFor(target.threadId) ?? job.config.accessLevel, job.config.accessLevel);
+              await context.invokeHostExtension("tau.access", "thread-level", { threadId: target.threadId, level });
+              continued.set(target.threadId, level);
+              ownTurns.set(target.threadId, null);
+              await services.sessions.send(target.threadId, prompt, { delivery: "queue", wake: { source: "automation", label: job.config.name } });
+              job.status = "running"; job.lastRun.outcome = "running";
+              if (!stopped) await replace(job);
+              return structuredClone(job);
+            }
             const cwd = job.config.workspaceStrategy === "worktree"
               ? (await context.invokeHostExtension("tau.workspace", "create-worktree", { workspace: job.workspaceId, branch: `scheduled/${job.lastRun.intentId}`, startFromOrigin: false }) as { path: string }).path
               : job.config.workspace;
             if (typeof cwd !== "string" || !cwd || (job.config.workspaceStrategy === "worktree" && cwd === job.config.workspace)) throw new HostCommandError("A separate worktree could not be created.");
-            const thread = await services.sessions.start({ cwd, backend: job.config.backend, title: `Scheduled: ${job.config.name}`, prompt: job.config.prompt,
+            const thread = await services.sessions.start({ cwd, backend: job.config.backend, title: `Scheduled: ${job.config.name}`, prompt,
               beforePrompt: async (created) => {
                 await context.invokeHostExtension("tau.access", "thread-level", { threadId: created.sessionId, level: job.config.accessLevel });
                 created.appendEntry("tau.scheduling/access", { level: job.config.accessLevel });
@@ -277,9 +394,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
           const v = object(input, ["enabled"]);
           if (typeof v.enabled !== "boolean") throw new HostCommandError("enabled must be a boolean.");
           const next = snapshot(); next.enabled = v.enabled;
-          if (v.enabled) for (const job of next.jobs) {
-            if (job.enabled && job.nextAt && Date.parse(job.nextAt) <= Date.now() && ["ready", "completed"].includes(job.status)) job.status = "held";
-          }
+          if (v.enabled) holdOverdue(next);
           await save(next); return snapshot();
         }), { access: "owner" });
         const bindSecret = (id: string, reference: string, valid?: () => boolean) => mutate(async () => {
@@ -296,34 +411,75 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
         });
         const secrets = new WebhookSecrets(context, secretStore, (id) => lookup({ id }), bindSecret);
         secrets.register();
-        context.registerCommand("manage", async (_input, call) => ({ ...snapshot(), defaultAccessLevel: await defaultAccessLevel().catch(() => undefined), canManage: call.owner, secretRequests: secrets.list(), secretStore: secretStore?.name, webhookUrl: webhook.url, webhookProblem }), { access: "read" });
+        const schedules = new ScheduleRequests(context, {
+          jobs: () => snapshot().jobs,
+          create: (config, origin) => createJob(config, origin),
+          threadLevel: threadLevelOf,
+          cancel: (threadId, id) => mutate(async () => {
+            const job = lookup({ id });
+            if (job.origin?.threadId !== threadId) throw new HostCommandError("Only an automation this thread proposed can be cancelled here.");
+            if (["starting", "running"].includes(job.status)) throw new HostCommandError("This automation is running now. Cancel it after the run ends.");
+            await save({ ...state, jobs: state.jobs.filter((entry) => entry.id !== id) });
+            if (job.secretRef) await secretStore?.delete({ service: SECRET_SERVICE, account: job.secretRef }).catch(() => undefined);
+          }),
+        });
+        schedules.register();
+        context.registerCommand("manage", async (_input, call) => ({ ...snapshot(), defaultAccessLevel: await defaultAccessLevel().catch(() => undefined), canManage: call.owner, secretRequests: secrets.list(), scheduleRequests: schedules.list(), secretStore: secretStore?.name, webhookUrl: webhook.url, webhookProblem }), { access: "read" });
         context.registerCommand("set-webhook-secret", async (input) => {
           const v = object(input, ["id", "value"]);
           const id = text(v.id, "Automation ID", 36);
           const value = text(v.value, "Secret", 8192);
           if (!secretStore) throw new HostCommandError("No operating-system secret store is available on this machine.");
+          const problem = webhookSecretProblem(formatOf(lookup({ id })), value);
+          if (problem) throw new HostCommandError(problem);
           const reference = randomUUID();
           const item = { service: SECRET_SERVICE, account: reference, label: `Webhook signature: ${lookup({ id }).config.name}` };
           try { await secretStore.set(item, value); await bindSecret(id, reference); }
           catch { await secretStore.delete(item).catch(() => undefined); throw new HostCommandError("Couldn't save the signature key. Try again."); }
           return { saved: true };
         }, { access: "owner" });
+        /**
+         * The run that continued a thread is over once the thread is quiet: no
+         * turn, nothing queued and no background work that could wake it. Until
+         * then later automatic turns stay under the run's ceiling.
+         */
+        const settleContinued = async (threadId: string, outcome: "completed" | "failed") => {
+          if (outcome === "completed") {
+            if (services.thread(threadId)?.isIdle() === false) return;
+            const row = await indexedThread(threadId).catch(() => undefined);
+            if (!row || row.queued?.length || row.queueHeld || row.background?.length) return;
+          }
+          if (stopped || !continuing(threadId)) return;
+          ownTurns.delete(threadId);
+          if (busy()) { if (outcomes.size < 100) outcomes.set(threadId, { status: outcome }); return; }
+          outcomes.set(threadId, { status: outcome });
+          await mutate(async () => { await flushOutcomes(); });
+        };
         const stopObserver = services.registerTurnObserver({
+          // Every turn: a scheduled thread's own level, and the ceiling of a run that continues this thread.
           prepare: async (threadId) => {
-            const thread = services.thread(threadId);
-            const entry = thread?.entries().find((candidate) => {
-              const value = candidate as { type?: string; customType?: string };
-              return value.type === "custom" && value.customType === "tau.scheduling/access";
-            }) as { data: { level: unknown } } | undefined;
-            if (entry) await context.invokeHostExtension("tau.access", "thread-level", { threadId, level: entry.data.level });
+            const level = ceilingFor(threadId);
+            if (!level) return;
+            await context.invokeHostExtension("tau.access", "thread-level", { threadId, level });
+            // Remembered so the ceiling lifts when the run is resolved, also after a restart.
+            if (state.jobs.some((job) => job.config.target?.threadId === threadId)) continued.set(threadId, level);
           },
           stopped: (threadId) => {
             const pending = secrets.list().some((request) => request.threadId === threadId && request.status === "pending");
             secrets.end(threadId);
-            return pending ? ["ended the private secret request"] : [];
+            const proposed = schedules.end(threadId);
+            return [...(pending ? ["ended the private secret request"] : []), ...(proposed ? ["ended the automation proposal"] : [])];
+          },
+          accepted: (threadId, turnId) => {
+            if (ownTurns.get(threadId) === null) ownTurns.set(threadId, turnId);
+          },
+          // A continued thread's run is not over when one turn ends: `runEnded` decides.
+          runEnded: (threadId, outcome) => {
+            if (stopped || expiring.has(threadId) || typeof ownTurns.get(threadId) !== "string" || !continuing(threadId)) return;
+            void settleContinued(threadId, outcome).catch((error: unknown) => services.log("scheduling.continue", String(error).slice(0, 300)));
           },
           ended: async (threadId, _turnId, outcome) => {
-            if (stopped || expiring.has(threadId)) return;
+            if (stopped || expiring.has(threadId) || continuing(threadId)) return;
             const current = state.jobs.find((j) => j.lastRun?.threadId === threadId && j.status === "running");
             // A fast turn can finish before start returns its thread id. Do not
             // wait here: a backend may be awaiting this observer itself.
@@ -336,7 +492,7 @@ export function createSchedulingHostExtension(options: { secretStore?: SecretSto
         arm();
         return async () => {
           stopped = true; clearTimers(); stopObserver();
-          secrets.close(); await webhook.close();
+          secrets.close(); schedules.close(); await webhook.close();
           await pendingWrite?.catch(() => undefined);
           lock.release();
         };

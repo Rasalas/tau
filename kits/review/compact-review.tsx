@@ -6,9 +6,10 @@ import {
 import {
   ConfirmDialog, DiffView, Empty, errorMessage, MiddleTruncate, Popover, Spinner, tooltipProps, useHostCapabilities,
   type CommitResult, type DiffLineSlot, type DiffLoadOptions, type HostExtensionClient, type PanelProps, type PushResult,
-  type UiChangedFile, type UiFileDiff, type UiWorkspaceChanges, type UiWorkspaceChangesPage, type WorkbenchActions, type WorkspaceInfo,
+  type PreferencesStore, type UiChangedFile, type UiFileDiff, type UiWorkspaceChanges, type UiWorkspaceChangesPage, type WorkbenchActions, type WorkspaceInfo,
 } from "tau";
 import { commentLocation, lineNumber, type ReviewCommentStore } from "./comments.js";
+import { chosenWritingModel, descriptionWriting } from "./commit-messages.js";
 import { handOffComments } from "./comment-views.js";
 import {
   BRANCH, commitQuestion, countLabel, defaultSource, pushQuestion, READ_ONLY_REASON, requestQuestion, selectionLabel, sourceKey, sourceLabel,
@@ -33,6 +34,8 @@ export interface CompactReviewDeps {
   requests: RequestClient;
   comments: ReviewCommentStore;
   store: CompactReviewStore;
+  /** Text generation's choice for a description; without it the host's default model writes. */
+  preferences?: PreferencesStore;
 }
 
 const HUNK_LIMIT = 40;
@@ -562,7 +565,9 @@ function RequestPage({ deps, info, actions, readOnly, refresh }: { deps: Compact
   const write = () => {
     setBusy("writing");
     setError(undefined);
-    void requests.draft(undefined, ready?.base).then((draft) => set({ title: draft.title, body: draft.body }), (problem: unknown) => setError(errorMessage(problem))).finally(() => setBusy(undefined));
+    // The description's model from Text generation, as on the desktop.
+    const preferences = deps.preferences;
+    void requests.draft(preferences && chosenWritingModel(preferences), ready?.base, preferences && descriptionWriting(preferences)).then((draft) => set({ title: draft.title, body: draft.body }), (problem: unknown) => setError(errorMessage(problem))).finally(() => setBusy(undefined));
   };
   const open = () => {
     if (!ready) return;

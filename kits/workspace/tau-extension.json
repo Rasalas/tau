@@ -13,7 +13,8 @@
     "sessions",
     "runtime:extend",
     "process",
-    "network"
+    "network",
+    "machines"
   ],
   "isolation": "in-process",
   "desktop": "./desktop.tsx",

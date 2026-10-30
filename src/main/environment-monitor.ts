@@ -53,6 +53,15 @@ export interface EnvironmentMonitorOptions {
   wakes?: HostWakeSource;
   /** Socket URLs in the order to try them; read again at every attempt. */
   urls(): string[];
+  /**
+   * A route taken only when none before it answers (Tau Connect's relay).
+   * While connected through one, the monitor checks the others now and then,
+   * less often each time one does not hold, and moves back to the first
+   * that answers with the machine's key.
+   */
+  fallback?(url: string): boolean;
+  /** The machine's host id: a route whose hello names another machine is not taken. */
+  hostId?: string;
   token: string;
   /** How to trust each `wss:` address, read at every attempt: a pin, or a CA. */
   trust?(url: string): EndpointTrust | undefined;
@@ -90,6 +99,11 @@ const BOOTSTRAP_TIMEOUT_MS = 30_000;
 const CALL_TIMEOUT_MS = 30_000;
 /** An unreachable machine is tried less and less often, but never less than twice a minute. */
 const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
+/** How long a connection through a fallback waits before it looks for a better route again; longer after each look. */
+const RETURN_MS = [15_000, 30_000, 60_000, 120_000, 300_000];
+/** A better route that answered and then held this long is trusted again: the next fallback looks back soon. */
+const RETURN_STABLE_MS = 120_000;
+const PROBE_TIMEOUT_MS = 5_000;
 
 
 function defaultSocket(url: string, trust: EndpointTrust | undefined, onPresented: (certificate: ReachedCertificate) => void): MonitorSocket {
@@ -125,6 +139,15 @@ export class EnvironmentMonitor {
   private wakeCheck?: { promise: Promise<void>; resolve(): void; reject(error: Error): void };
   private wakeGeneration = 0;
   private readonly observedRuns = new Map<string, boolean>();
+  /** The address of the socket in use or being tried. */
+  private url: string | undefined;
+  /** Addresses that failed since the last connection, and why one of them was another machine. */
+  private readonly cycle = new Set<string>();
+  private mismatch: string | undefined;
+  private connectedAt: number | undefined;
+  private returnTimer: unknown;
+  private returnStep = 0;
+  private probe: MonitorSocket | undefined;
 
   constructor(private readonly options: EnvironmentMonitorOptions) {
     this.timers = new ConnectionTimers({
@@ -166,6 +189,8 @@ export class EnvironmentMonitor {
     this.clear(this.retryTimer);
     this.attempt = 0;
     this.urlIndex = 0;
+    this.cycle.clear();
+    this.mismatch = undefined;
     this.drop();
     this.set({ status: "connecting", detail: undefined });
     this.connect();
@@ -216,6 +241,7 @@ export class EnvironmentMonitor {
     let certificate: ReachedCertificate | undefined;
     const socket = (this.options.createSocket ?? defaultSocket)(url, this.options.trust?.(url), (seen) => { certificate = seen; });
     this.socket = socket;
+    this.url = url;
     const helloDeadline = this.timer(() => {
       if (!helloAnswered && this.socket === socket) this.fail(socket, `${url} did not answer in time.`);
     }, HELLO_TIMEOUT_MS);
@@ -240,7 +266,7 @@ export class EnvironmentMonitor {
       if (error instanceof HostCertificateRefusedError) {
         settled = true;
         this.clear(helloDeadline);
-        this.refuse(error.kind === "key"
+        this.refuseRoute(socket, url, error.kind === "key"
           ? `It presented a key with SHA-256 ${error.presented}, not the one saved when it was added. A renewed certificate keeps the key, so someone may be in between; remove it and add it again only if its key was replaced on purpose.`
           : `It presented a certificate with SHA-256 ${error.presented}, not the one saved when it was added. Someone may be in between; remove it and add it again only if its certificate was replaced on purpose.`);
       }
@@ -274,8 +300,16 @@ export class EnvironmentMonitor {
     }
     if (frame.type === "hello-reply") {
       const certificate = onHello();
-      this.attempt = 0;
       const reply = frame.reply;
+      if (this.options.hostId && reply.host && reply.host.id !== this.options.hostId) {
+        this.refuseRoute(socket, url, `${url} answered as another machine${reply.host.name ? `, ${reply.host.name}` : ""}, not the one saved when it was added. Remove it and add it again only if it was set up again on purpose.`);
+        return;
+      }
+      this.attempt = 0;
+      this.cycle.clear();
+      this.mismatch = undefined;
+      this.connectedAt = this.now();
+      this.scheduleReturn(url);
       this.set({
         status: "connected",
         detail: undefined,
@@ -434,6 +468,13 @@ export class EnvironmentMonitor {
   private fail(socket: MonitorSocket, detail: string): void {
     if (this.socket !== socket) return;
     const wasConnected = this.state.status === "connected";
+    if (wasConnected && this.url && !this.options.fallback?.(this.url) && this.now() - (this.connectedAt ?? 0) >= RETURN_STABLE_MS) this.returnStep = 0;
+    if (!wasConnected && this.url) this.cycle.add(this.url);
+    // Every route was tried and one of them was another machine: that says more than the silence of the rest.
+    if (this.mismatch && this.options.urls().every((url) => this.cycle.has(url))) {
+      this.refuse(this.mismatch);
+      return;
+    }
     this.drop();
     const delay = BACKOFF_MS[Math.min(this.attempt, BACKOFF_MS.length - 1)]!;
     this.attempt += 1;
@@ -448,6 +489,89 @@ export class EnvironmentMonitor {
     this.retryTimer = this.timer(() => this.connect(), delay);
   }
 
+  /**
+   * A route that presented another machine's key, or named another machine:
+   * it is never taken, and the next route is tried. When no route let the
+   * window in, the machine is refused as before.
+   */
+  private refuseRoute(socket: MonitorSocket, url: string, detail: string): void {
+    this.options.logger?.warn("environment.route.refused", { url, detail });
+    this.mismatch = detail;
+    this.fail(socket, detail);
+  }
+
+  /** While connected through a fallback, a look at the better routes later. */
+  private scheduleReturn(url: string): void {
+    this.stopReturn();
+    if (!this.options.fallback?.(url)) return;
+    const delay = RETURN_MS[Math.min(this.returnStep, RETURN_MS.length - 1)]!;
+    this.returnTimer = this.timer(() => {
+      this.returnTimer = undefined;
+      const socket = this.socket;
+      if (!socket || this.state.status !== "connected" || this.timers.paused) return;
+      this.returnStep += 1;
+      this.probeNext(socket, this.options.urls().filter((candidate) => !this.options.fallback?.(candidate)), 0);
+    }, delay);
+  }
+
+  /**
+   * Opens a socket to one better route and says nothing on it: no hello, no
+   * key. A pinned address opens only for the machine's key. The first one
+   * that opens is taken; when none does, the fallback stays and looks again later.
+   */
+  private probeNext(main: MonitorSocket, urls: readonly string[], index: number): void {
+    if (this.socket !== main || this.state.status !== "connected" || this.closed) return;
+    const url = urls[index];
+    if (!url) { if (this.url) this.scheduleReturn(this.url); return; }
+    let done = false;
+    let probe: MonitorSocket;
+    const finish = (opened: boolean): void => {
+      if (done) return;
+      done = true;
+      this.clear(timer);
+      if (this.probe === probe) this.probe = undefined;
+      try { (probe.terminate ?? probe.close).call(probe); } catch { /* already gone */ }
+      if (this.socket !== main || this.closed) return;
+      if (opened) this.switchTo(url);
+      else this.probeNext(main, urls, index + 1);
+    };
+    const timer = this.timer(() => finish(false), PROBE_TIMEOUT_MS);
+    try {
+      probe = (this.options.createSocket ?? defaultSocket)(url, this.options.trust?.(url), () => undefined);
+    } catch {
+      this.clear(timer);
+      this.probeNext(main, urls, index + 1);
+      return;
+    }
+    this.probe = probe;
+    probe.on("open", () => finish(true));
+    probe.on("message", () => undefined);
+    probe.on("error", (error) => {
+      if (error instanceof HostCertificateRefusedError) this.options.logger?.warn("environment.route.refused", { url, detail: error.message });
+      finish(false);
+    });
+    probe.on("close", () => finish(false));
+  }
+
+  /** Leaves the fallback for a better route that just answered; if it fails after all, the routes are tried in turn again. */
+  private switchTo(url: string): void {
+    this.options.logger?.info("environment.route.return", { from: this.url, to: url });
+    const index = this.options.urls().indexOf(url);
+    this.drop();
+    this.attempt = 0;
+    this.urlIndex = Math.max(index, 0);
+    this.set({ status: "connecting", detail: undefined, roundTripMs: undefined });
+    this.connect();
+  }
+
+  private stopReturn(): void {
+    this.clear(this.returnTimer);
+    this.returnTimer = undefined;
+    const probe = this.probe;
+    this.probe = undefined;
+    if (probe) try { (probe.terminate ?? probe.close).call(probe); } catch { /* already gone */ }
+  }
+
   /** A refusal that no retry can change. */
   private refuse(detail: string): void {
     this.drop();
@@ -458,6 +582,7 @@ export class EnvironmentMonitor {
   }
 
   private drop(): void {
+    this.stopReturn();
     this.observedRuns.clear();
     this.wakeCheck?.reject(new Error("The connection dropped while checking it after sleep."));
     this.wakeCheck = undefined;

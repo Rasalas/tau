@@ -1,6 +1,8 @@
 # ADR 0045: External MCP clients use separate OAuth grants
 
 Accepted, 2026-10-18. Extends [ADR 0022](0022-tau-tools-over-mcp.md).
+Amended 2026-10-30 by [ADR 0046](0046-external-mcp-clients-control-their-own-threads.md):
+`tau:threads` and thread control are available, and local clients use owner-issued loopback tokens.
 The private loopback MCP endpoint and its thread credentials remain unchanged.
 
 External OAuth clients are independent of workbench devices and agent threads.

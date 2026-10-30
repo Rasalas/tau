@@ -1,5 +1,5 @@
 import { errorMessage, type HostExtensionClient } from "tau";
-import type { ManagementState, SchedulingState, SecretRequest } from "./protocol.js";
+import type { ManagementState, ScheduleRequest, SchedulingState, SecretRequest } from "./protocol.js";
 
 export class SchedulingFeed {
   private value: { state?: ManagementState; error?: string } = {};
@@ -14,6 +14,7 @@ export class SchedulingFeed {
       this.stops = [
         this.host.onEvent("state", (payload) => this.merge(payload as SchedulingState)),
         this.host.onEvent("secret-requests", (payload) => this.merge({ secretRequests: payload as SecretRequest[] })),
+        this.host.onEvent("schedule-requests", (payload) => this.merge({ scheduleRequests: payload as ScheduleRequest[] })),
         this.host.onEvent("webhook-endpoint", (payload) => this.merge({ webhookUrl: (payload as { url?: string }).url, webhookProblem: (payload as { problem?: string }).problem })),
       ];
       void this.read();

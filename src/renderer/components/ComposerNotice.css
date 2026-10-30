@@ -14,6 +14,7 @@
 .composer-notice.warn > strong { color: var(--warn); }
 .composer-notice > p { margin: 0; overflow-wrap: anywhere; user-select: text; }
 .composer-notice > p > em { display: block; color: var(--fail-ink); font-style: normal; }
+.composer-notice-hint { color: var(--ink-3); }
 .composer-notice-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
 .composer-notice-actions > button {
   display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 0; border-radius: var(--radius-sm);

@@ -110,11 +110,13 @@ export function stepAfter(from: 0 | 1 | 2, empty: { projects: boolean; sessions:
 /**
  * Whether the projects and the conversations step have nothing to choose, so
  * the wizard goes past them. Not before the scan is in, and not when it failed:
- * then the step says so and offers a retry.
+ * then the step says so and offers a retry. Nor is the conversations step
+ * passed over while it has to say whose conversations cannot be imported.
  */
 export function emptySteps(state: Pick<FlowState, "discovery" | "discoverError">, known: ReadonlySet<string>): { projects: boolean; sessions: boolean } {
   const scanned = state.discovery !== undefined && !state.discoverError;
-  return { projects: scanned && projectCandidates(state.discovery, known).length === 0, sessions: scanned && pendingSessions(state.discovery).length === 0 };
+  const explains = (state.discovery?.unsupported?.length ?? 0) > 0;
+  return { projects: scanned && projectCandidates(state.discovery, known).length === 0, sessions: scanned && pendingSessions(state.discovery).length === 0 && !explains };
 }
 
 /** The default: repositories active in the last 30 days with at least three conversations. */

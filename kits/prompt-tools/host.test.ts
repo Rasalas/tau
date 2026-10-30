@@ -82,6 +82,40 @@ describe("Prompt Tools host: the stash", () => {
   });
 });
 
+describe("Prompt Tools host: other projects' stashes", () => {
+  it("lists every other project's entries with their project, newest first, and takes one by id", async () => {
+    const { invoke, events } = await harness();
+    await invoke("stash-add", { project: "/repo", text: "here", chips: [], images: [] });
+    const { entry: api } = await invoke<{ entry: StashEntry }>("stash-add", { project: "/work/api", text: "there", chips: [], images: [{ kind: "image", name: "a.png", mimeType: "image/png", size: 3, data: "AAAA" }] });
+    const { entry: web } = await invoke<{ entry: StashEntry }>("stash-add", { project: "/work/web", text: "and there", chips: [], images: [] });
+    expect(api.project).toBe("/work/api");
+
+    const others = await invoke<StashEntry[]>("stash-list-others", { project: "/repo" });
+    expect(others.map((entry) => [entry.text, entry.project])).toEqual([["and there", "/work/web"], ["there", "/work/api"]]);
+    expect(others[1]!.images).toEqual([{ kind: "image", name: "a.png", mimeType: "image/png", size: 3 }]);
+
+    events.length = 0;
+    const taken = await invoke<StashEntry>("stash-take", { id: api.id, anyProject: true });
+    expect(taken).toMatchObject({ text: "there", project: "/work/api", images: [{ kind: "image", name: "a.png", data: "AAAA" }] });
+    expect(events.map((event) => event.payload)).toEqual([{ project: "/work/api" }]);
+    expect(await invoke("stash-take", { id: api.id, anyProject: true })).toBeUndefined();
+    await invoke("stash-drop", { id: web.id, anyProject: true });
+    expect(await invoke<StashEntry[]>("stash-list-others", { project: "/repo" })).toEqual([]);
+    await expect(invoke("stash-take", { id: "../escape", anyProject: true })).rejects.toThrow(/not a stash entry/u);
+  });
+
+  it("names an entry stashed before entries named their project by a thread still working there", async () => {
+    const { root, invoke } = await harness([{ sessionId: "s1", cwd: "/work/api", modified: 1_000, prompts: [] }]);
+    const { entry } = await invoke<{ entry: StashEntry }>("stash-add", { project: "/work/api", text: "older", chips: [], images: [] });
+    const stash = join(root, "state", PROMPT_TOOLS_ID, "stash");
+    const [folder] = await readdir(stash);
+    // As an older Prompt Tools wrote it, without the project.
+    const { project: _project, ...old } = entry;
+    await writeFile(join(stash, folder!, `${entry.id}.json`), JSON.stringify(old));
+    expect((await invoke<StashEntry[]>("stash-list-others", { project: "/repo" }))[0]?.project).toBe("/work/api");
+  });
+});
+
 describe("Prompt Tools host: the project's prompts", () => {
   it("reads the other threads of the project, newest first, once each, without the context", async () => {
     const { invoke } = await harness([

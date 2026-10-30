@@ -392,6 +392,8 @@ export interface HostSessionServices {
    * they are reading; it resolves once the thread exists, not when it answers.
    */
   start(options: HostThreadStartOptions): Promise<HostStartedThread>;
+  /** Changes the executing runtime of an idle local conversation, retaining its visible history. */
+  switchRuntime?(id: string, kind: string): Promise<void>;
   /**
    * Takes over a Pi session another machine wrote: a new id, `cwd` in its
    * header, and the origin entry after it; every other entry is copied as it
@@ -1090,6 +1092,13 @@ export interface HostExtensionServices {
   runtimeOwner(): "tau" | "pi";
   /** An open thread by id, or the active one; `undefined` when it is not open. */
   thread(sessionId?: string): HostThread | undefined;
+  /**
+   * The thread by id, its released runtime reopened off screen first, for work
+   * the user asked for on a thread they are not reading (a title regenerated
+   * from the rail's selection). `undefined` for one Pi's terminal holds.
+   * Rejects for a thread that no longer exists. New in API 1.79.0.
+   */
+  reopenThread?(sessionId: string): Promise<HostThread | undefined>;
   /**
    * One short answer for a small job of the extension's own — a title, a
    * branch name, a commit message. It runs on the user's Pi model

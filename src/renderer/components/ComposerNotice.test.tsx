@@ -2,6 +2,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerNotice, SetupNotice } from "./ComposerNotice";
+import { HostClientProvider } from "../host-client-context";
+import { createFakeHostClient } from "../test-support/fake-host-client";
 
 afterEach(cleanup);
 
@@ -50,6 +52,39 @@ describe("ComposerNotice (2c)", () => {
     expect(screen.queryByRole("button", { name: "Replace key" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open Runtimes" }));
     expect(onReplaceKey).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ComposerNotice limit bar", () => {
+  function renderLimit(limit: Parameters<typeof ComposerNotice>[0]["limit"]) {
+    const resumeLimited = vi.fn(async () => undefined);
+    const client = createFakeHostClient({ resumeLimited });
+    render(<HostClientProvider client={client}><ComposerNotice sessionId="s" limit={limit} provider="anthropic" onReplaceKey={() => undefined} /></HostClientProvider>);
+    return resumeLimited;
+  }
+
+  it("offers to wait for a named reset", () => {
+    const resumeLimited = renderLimit({ message: "usage limit", resetsAt: Date.now() + 60 * 60_000 });
+    fireEvent.click(screen.getByRole("button", { name: "Wait" }));
+    expect(resumeLimited).toHaveBeenCalledWith("s", "reset");
+  });
+
+  it("says a message sent while a resume is scheduled waits for it", () => {
+    renderLimit({ message: "usage limit", resetsAt: Date.now() + 60 * 60_000, resumeAt: Date.now() + 61 * 60_000 });
+    expect(screen.getByRole("status").textContent).toContain("Messages you send now wait and go with it.");
+    expect(screen.getByRole("button", { name: "Don’t wait" })).toBeTruthy();
+  });
+
+  it("lets the user pick when to retry a limit without a named reset", () => {
+    const resumeLimited = renderLimit({ message: "rate_limit_error" });
+    expect(screen.queryByRole("button", { name: "Wait" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry later…" }));
+    const before = Date.now();
+    fireEvent.click(screen.getByRole("button", { name: "1 h" }));
+    expect(resumeLimited).toHaveBeenCalledWith("s", "at", expect.any(Number));
+    const at = (resumeLimited.mock.calls[0] as unknown as [string, string, number])[2];
+    expect(at - before).toBeGreaterThanOrEqual(60 * 60_000);
+    expect(at - before).toBeLessThan(60 * 60_000 + 5_000);
   });
 });
 

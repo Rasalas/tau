@@ -119,3 +119,34 @@ it("drops the end when a closed request opens again", async () => {
   expect(reopened).toMatchObject({ state: "open" });
   expect(reopened!.endedAt).toBeUndefined();
 });
+
+it("tells every runtime's agent how to link requests and put pictures in them", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tau-pr-instructions-"));
+  directories.push(directory);
+  const instructions: Array<() => string | undefined> = [];
+  const hooks: Array<(event: { systemPrompt: string }) => { systemPrompt: string }> = [];
+  await activateHostKit({
+    id: "tau.review", name: "Review", permissions: ["sessions", "runtime:extend"],
+    activate(context) {
+      return registerThreadLinks(context, { detail: vi.fn() } as never, vi.fn() as never, { detect: async () => undefined } as unknown as SourceControl).dispose;
+    },
+  }, {
+    stateDir: directory,
+    sessions: { list: async () => [] } as never,
+    registerRuntimeExtension: ((_name: string, setup: (pi: unknown) => void) => {
+      setup({ registerTool: () => undefined, on: (event: string, hook: (typeof hooks)[number]) => { if (event === "before_agent_start") hooks.push(hook); } });
+      return () => undefined;
+    }) as never,
+    mcp: { registerTools: () => () => undefined, gate: () => () => undefined, registerInstructions: (provider: () => string | undefined) => { instructions.push(provider); return () => undefined; }, connect: async () => undefined } as never,
+  });
+  const pi = hooks[0]!({ systemPrompt: "base" }).systemPrompt;
+  const mcp = instructions.map((provider) => provider()).join("\n");
+  for (const text of [pi, mcp]) {
+    expect(text).toContain("<pull_request_linking>");
+    expect(text).toContain("<pull_request_media>");
+    expect(text).toContain("--attach");
+    expect(text).toContain("GitHub CLI 2.99");
+    expect(text).toContain('"Attached files"');
+  }
+  expect(pi.startsWith("base\n\n")).toBe(true);
+});

@@ -312,7 +312,7 @@ it("annotates thread creation and delegated actions as writes, and inspection as
     for (const backend of bench.choices.map((choice) => choice.backend.kind)) {
       bench.backends.set("parent", backend);
       const tools = (await Promise.all(bench.mcpProviders.map((provider) => provider({ sessionId: "parent", cwd: "/project" })))).flat();
-      const reads = new Set(["tau_get_thread_status", "tau_wait_for_thread", "tau_list_threads"]);
+      const reads = new Set(["tau_get_thread_status", "tau_wait_for_thread", "tau_list_threads", "tau_list_machines"]);
       for (const tool of tools) expect(tool.annotations?.readOnlyHint, tool.name).toBe(reads.has(tool.name));
       expect(tools.find((tool) => tool.name === "tau_spawn_thread")?.annotations?.readOnlyHint).toBe(false);
       const create = tools.find((tool) => tool.name === "tau_create_thread");
@@ -463,6 +463,7 @@ describe("Agents Kit", () => {
       "tau_cancel_thread",
       "tau_apply_thread_changes",
       "tau_list_threads",
+      "tau_list_machines",
     ]);
   });
 

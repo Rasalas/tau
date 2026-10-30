@@ -295,6 +295,8 @@ export type {
 export type { DiscoveredHost, UiDiscoveredHosts } from "../shared/discovery";
 /** A machine's load and readiness, as `host-resources` and `readiness` answer them (API 1.15.0). */
 export type { HostDisplayKind, HostReadiness, HostResources, RuntimeReadiness, RuntimeReadinessState } from "../shared/host-resources";
+/** "macOS arm64" from a reading's `platform` and `arch`, which hosts send since API 1.79.0. */
+export { platformLabel } from "../shared/host-resources";
 /** The hosts one Bonjour search found, with a slot per host for an action (API 1.13.0). */
 export { NearbyMachineList } from "./deferred-surfaces";
 export type { ClientStorage } from "../workbench/client-storage";

@@ -5,6 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostExtensionContext, HostExtensionServices, HostThread, HostTurnObserver } from "tau/host-extension";
+import { HostCommandError } from "tau/host-extension";
 import { activateHostKit, type PublishedKitEvent } from "../../src/main/test-support/host-kit-harness.js";
 import { WORKSPACE_HEAD_TOPIC, createWorkspaceHostClient } from "./protocol.js";
 import { createWorkspaceHostExtension } from "./host.js";
@@ -998,4 +999,149 @@ it("allows Scheduling to create a separate worktree through its host authority",
     expect(existsSync(join(created.path, ".git"))).toBe(true);
     expect(git("branch", "--show-current").trim()).toBe("main");
   } finally { await registry.deactivate("tau.workspace"); }
+});
+
+describe("opening another machine's project in this device's editor", () => {
+  it("names the project, the file and this machine for an editor elsewhere", async () => {
+    const cwd = await workspace();
+    await mkdir(join(cwd, "src"));
+    await writeFile(join(cwd, "src", "a.ts"), "x\n");
+    const self = { id: "studio-host-id", name: "Studio", version: "1.0.0" };
+    const registry = await activated(cwd, { machines: { self } as unknown as HostExtensionServices["machines"] });
+    try {
+      expect(await registry.invoke("tau.workspace", "editor-target", { relPath: "src/a.ts" })).toEqual({
+        root: cwd, path: join(cwd, "src", "a.ts"), isFile: true, platform: process.platform === "win32" ? "win32" : "posix", machine: { id: "studio-host-id", name: "Studio" },
+      });
+      await expect(registry.invoke("tau.workspace", "editor-target", { relPath: "../outside" })).rejects.toThrow();
+    } finally { await registry.deactivate("tau.workspace"); }
+  });
+
+  it("routes the question to the project's home machine and keeps this device's editor commands here", async () => {
+    const { createMachineRoutingFixture, machine, workspace: remoteWorkspace } = await import("../../src/main/test-support/machine-routing-harness.js");
+    const registry = await activated(await workspace());
+    try {
+      const policy = registry.machineRoutingFor("tau.workspace")!.policy;
+      // The fixture stands the policy in for a kit id of its own; the routing reads only the policy.
+      const { routes } = createMachineRoutingFixture(policy);
+      expect(routes.routeOf("tau.terminal", { workspace: remoteWorkspace }, "editor-target")).toEqual({ machine, input: { workspace: remoteWorkspace } });
+      expect(routes.routeOf("tau.terminal", { workspace: remoteWorkspace }, "open-in-editor")).toEqual({ machine, input: { workspace: remoteWorkspace } });
+      for (const command of ["remote-editors", "open-remote-editor", "editor-machines", "set-editor-machine"]) {
+        expect(routes.routeOf("tau.terminal", { editorId: "code", location: { kind: "ssh", destination: "box" } }, command)).toBeUndefined();
+      }
+    } finally { await registry.deactivate("tau.workspace"); }
+  });
+
+  it("lists this machine's editors with why each cannot open a remote project, and keeps a destination per machine", async () => {
+    const state = await workspace();
+    const registry = await activated(await workspace(), {
+      stateDir: state,
+      findCommand: (name) => ({ code: "/usr/bin/code", subl: "/usr/bin/subl", "xdg-open": "/usr/bin/xdg-open" } as Record<string, string>)[name],
+    });
+    try {
+      const editors = await registry.invoke("tau.workspace", "remote-editors", { location: { kind: "ssh", destination: "studio" } }) as Array<{ id: string; unsupported?: string }>;
+      expect(editors.find((editor) => editor.id === "code")).toEqual({ id: "code", name: "VS Code" });
+      expect(editors.find((editor) => editor.id === "subl")?.unsupported).toMatch(/another machine/u);
+      await expect(registry.invoke("tau.workspace", "open-remote-editor", { editorId: "code", location: { kind: "ssh", destination: "studio" }, root: "/home/me/p", path: "/etc/passwd" }))
+        .rejects.toThrow(/inside the project/u);
+      await expect(registry.invoke("tau.workspace", "open-remote-editor", { editorId: "subl", location: { kind: "ssh", destination: "studio" }, root: "/home/me/p" }))
+        .rejects.toThrow(/Sublime Text cannot open/u);
+      // Nothing opens another machine's path as one of this computer's.
+      await expect(registry.invoke("tau.workspace", "open-remote-editor", { editorId: "code", location: { kind: "same-machine" }, root: "/home/me/p" }))
+        .rejects.toThrow(/SSH destination or a WSL distribution/u);
+      await expect(registry.invoke("tau.workspace", "set-editor-machine", { machine: "studio-host-id", ssh: "-oProxyCommand=x" })).rejects.toThrow(/not a host name/u);
+      expect(await registry.invoke("tau.workspace", "set-editor-machine", { machine: "studio-host-id", ssh: "me@studio:2222" })).toEqual({ "studio-host-id": { ssh: "me@studio:2222" } });
+      expect(await registry.invoke("tau.workspace", "editor-machines", undefined)).toEqual({ "studio-host-id": { ssh: "me@studio:2222" } });
+    } finally { await registry.deactivate("tau.workspace"); }
+  });
+});
+
+describe("a new project with a GitHub repository", () => {
+  /** Review Kit's `publish-repository` as granted to Workspace, answering from the checkout Workspace names. */
+  function fakeReview(answer: (input: Record<string, unknown>, root: string) => unknown) {
+    const calls: Array<Record<string, unknown>> = [];
+    const extension = {
+      id: "tau.review",
+      name: "Review",
+      permissions: [] as string[],
+      activate(context: HostExtensionContext) {
+        context.registerCommand("publish-repository", async (input) => {
+          const fields = input as Record<string, unknown>;
+          calls.push(fields);
+          // The real command reads the checkout through Workspace with the workspace it was given.
+          const git = await context.invokeHostExtension("tau.workspace", "review-request-context", { workspace: fields.workspace }) as { root: string };
+          return answer(fields, git.root);
+        }, { long: true, callers: ["tau.workspace"] });
+      },
+    };
+    return { extension, calls };
+  }
+
+  async function host(answer: (input: Record<string, unknown>, root: string) => unknown) {
+    vi.stubEnv("GIT_AUTHOR_NAME", "Fixture"); vi.stubEnv("GIT_AUTHOR_EMAIL", "fixture@example.invalid");
+    vi.stubEnv("GIT_COMMITTER_NAME", "Fixture"); vi.stubEnv("GIT_COMMITTER_EMAIL", "fixture@example.invalid");
+    vi.stubEnv("GIT_CONFIG_COUNT", "1"); vi.stubEnv("GIT_CONFIG_KEY_0", "commit.gpgsign"); vi.stubEnv("GIT_CONFIG_VALUE_0", "false");
+    // The host is busy with another project; the new one must still be the one published.
+    const registry = await activated(await workspace(), { knownWorkspacePath: async (id) => id.replace(/^ws1_/u, "") });
+    const review = fakeReview(answer);
+    await registry.activate(review.extension);
+    const parent = await workspace();
+    return { registry, review, parent, create: (github?: unknown) => registry.invoke("tau.workspace", "create-project", { name: "Quiet Lake", parentPath: parent, ...(github === undefined ? {} : { github }) }) as Promise<{ workspace: { workspaceId: string }; github?: unknown; warning?: string }> };
+  }
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("publishes the new project, private under the signed-in account unless an owner is named", async () => {
+    const roots: string[] = [];
+    const { review, parent, create } = await host((input, root) => {
+      roots.push(root);
+      const name = String(input.repository).includes("/") ? String(input.repository) : `octo/${String(input.repository)}`;
+      return { repository: name, url: `https://github.com/${name}`, remote: `https://github.com/${name}.git`, pushed: true, branch: "main" };
+    });
+    const created = await create({ visibility: "private" });
+    expect(created).toEqual({
+      workspace: { workspaceId: `ws1_${join(parent, "Quiet Lake")}`, displayPath: join(parent, "Quiet Lake") },
+      github: { repository: "octo/Quiet-Lake", url: "https://github.com/octo/Quiet-Lake", pushed: true, branch: "main" },
+    });
+    expect(review.calls).toEqual([{ workspace: created.workspace.workspaceId, service: "github", repository: "Quiet-Lake", visibility: "private", confirm: true }]);
+    expect(roots).toEqual([join(parent, "Quiet Lake")]);
+  });
+
+  it("names an organization and public visibility, and refuses a bad owner before making a folder", async () => {
+    const { review, parent, create } = await host((input) => ({ repository: input.repository, url: "u", remote: "r", pushed: true, branch: "main" }));
+    await expect(create({ owner: "-bad", visibility: "public" })).rejects.toThrow(/not a GitHub user or organization/u);
+    expect(existsSync(join(parent, "Quiet Lake"))).toBe(false);
+    await create({ owner: "acme", visibility: "public" });
+    expect(review.calls[0]).toMatchObject({ repository: "acme/Quiet-Lake", visibility: "public" });
+  });
+
+  it("keeps the project and says what to do when gh is missing, signed out or the name is taken", async () => {
+    for (const problem of [
+      "GitHub CLI (gh) is not installed or not on your PATH.",
+      "GitHub CLI (gh) is not signed in. Run `gh auth login` in a terminal, then try again.",
+      "A repository named Quiet-Lake already exists on GitHub. Choose another name, or add the existing one as origin by hand.",
+    ]) {
+      const { parent, create } = await host(() => { throw new HostCommandError(problem); });
+      const created = await create({ visibility: "private" });
+      expect(created.github).toBeUndefined();
+      expect(created.warning).toBe(`Project created, but not its GitHub repository: ${problem} Publish it later with "Publish repository…" in the Changes panel.`);
+      expect(await readFile(join(parent, "Quiet Lake", "README.md"), "utf8")).toBe("# Quiet Lake\n");
+    }
+  });
+
+  it("does not ask GitHub without the box ticked", async () => {
+    const { review, create } = await host(() => { throw new Error("unexpected"); });
+    expect((await create()).warning).toBeUndefined();
+    expect(review.calls).toEqual([]);
+  });
+
+  it("publishes on the machine that makes the project, which a window on another machine reaches unrouted", async () => {
+    const { createMachineRoutingFixture } = await import("../../src/main/test-support/machine-routing-harness.js");
+    const { registry, review, parent, create } = await host((input) => ({ repository: `octo/${String(input.repository)}`, url: "u", remote: "r", pushed: true, branch: "main" }));
+    // A thread on another machine is on screen; New project still runs on the host the window is attached to.
+    const { routes } = createMachineRoutingFixture(registry.machineRoutingFor("tau.workspace")!.policy);
+    expect(routes.routeOf("tau.terminal", { name: "Quiet Lake", github: { visibility: "private" } }, "create-project")).toBeUndefined();
+    const created = await create({ visibility: "private" });
+    // Review is asked on this registry, about this host's new folder, by its id here.
+    expect(review.calls[0]?.workspace).toBe(`ws1_${join(parent, "Quiet Lake")}`);
+    expect(created.workspace.workspaceId).toBe(review.calls[0]?.workspace);
+  });
 });

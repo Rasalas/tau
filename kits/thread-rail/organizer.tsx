@@ -53,6 +53,10 @@ export interface RailOrganizerPort {
 
 const EMPTY: RailSections = { pinned: [], active: [], working: [], snoozed: [], settled: [], archived: [] };
 
+/** Titles a selection regenerates at once: each is a model call, and a thread not open is reopened for it. */
+export const TITLE_CONCURRENCY = 2;
+const REGENERATE_TOAST = "tau.thread-rail.regenerate-titles";
+
 /** A menu item's icon; the OS's menu draws the same one by its name. */
 const glyph = (Icon: LucideIcon) => ({ icon: <Icon size={13} /> });
 
@@ -236,6 +240,46 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
   };
   /** Titles are made from a thread's live runtime. */
   const regenerateTitle = (session: UiSession, actions: WorkbenchActions) => port.titles?.() && onThread(session, actions, () => port.titles?.()?.regenerate(actions));
+
+  /**
+   * A selection's titles, a few at a time, without opening any of the threads.
+   * A loading toast counts them and ends with what failed; as with one title,
+   * there is nothing to undo.
+   */
+  const regenerateTitles = async (sessions: readonly UiSession[], actions: WorkbenchActions) => {
+    const regenerate = port.titles?.()?.regenerateThread;
+    if (!regenerate || sessions.length === 0) return;
+    const total = sessions.length;
+    const plural = (count: number) => `${count} title${count === 1 ? "" : "s"}`;
+    const progress = actions.toast?.({ id: REGENERATE_TOAST, type: "loading", title: `Regenerating ${plural(total)}`, description: `0 of ${total}`, timeoutMs: 0 });
+    const failed: Array<{ session: UiSession; message: string }> = [];
+    const waiting = [...sessions];
+    let finished = 0;
+    const work = async () => {
+      for (let session = waiting.shift(); session; session = waiting.shift()) {
+        try {
+          // oxlint-disable-next-line no-await-in-loop
+          await regenerate(session.id);
+        } catch (error) {
+          failed.push({ session, message: errorMessage(error) });
+        }
+        finished += 1;
+        progress?.update({ type: "loading", title: `Regenerating ${plural(total)}`, description: `${finished} of ${total}`, timeoutMs: 0 });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(TITLE_CONCURRENCY, total) }, work));
+    if (failed.length === 0) {
+      if (progress) progress.update({ type: "success", title: `Regenerated ${plural(total)}`, description: undefined, timeoutMs: 3_000 });
+      else notify(actions, `Regenerated ${plural(total)}.`);
+      return;
+    }
+    const title = failed.length === total ? `Could not regenerate ${plural(total)}` : `Regenerated ${total - failed.length} of ${plural(total)}`;
+    const details = failed.map(({ session, message }) => `${session.title}: ${message}`).join("\n");
+    const first = failed[0]!;
+    const description = `${failed.length === 1 ? "" : `${failed.length} failed. `}${first.session.title}: ${first.message}`;
+    if (progress) progress.update({ type: failed.length === total ? "error" : "warning", title, description, copyText: details, timeoutMs: 0 });
+    else notify(actions, `${title}. ${description}`, "error");
+  };
 
   /** A running thread cannot be archived, and archiving the thread on screen opens a new one in its project. */
   const archive = async (session: UiSession, actions: WorkbenchActions | undefined, confirmed = false) => {
@@ -521,6 +565,7 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
       const pinned = sessions.filter((session) => meta(session.id)?.pinned).length;
       const snoozable = sessions.every((session) => ["pinned", "active"].includes(sectionOf(meta(session.id), now())));
       const idle = sessions.filter((session) => !port.running(session.id)).length;
+      const titles = Boolean(port.titles?.()?.regenerateThread);
       return lockWrites([
         {
           items: [
@@ -528,6 +573,8 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
             { id: "settle", label: `Settle (${count})`, ...glyph(Check) },
             ...(snoozable ? [{ id: "snooze", label: `Snooze (${count})`, ...glyph(AlarmClock), submenu: snoozeSubmenu() }] : []),
             { id: "mark-unread", label: `Mark unread (${count})`, ...glyph(MessageSquareDot) },
+            // A running thread's title waits for its run, as the row's own item does.
+            ...(titles ? [{ id: "regenerate-titles", label: `Regenerate titles (${idle})`, ...glyph(Sparkles), disabled: idle === 0, ...(idle < count ? { description: "Running threads stay." } : {}) }] : []),
           ],
         },
         {
@@ -555,6 +602,8 @@ export function createRailOrganizer(store: RailStore, port: RailOrganizerPort, n
         store.openSnooze(sessions);
       } else if (itemId === "mark-unread") {
         for (const session of sessions) store.threadStore?.markUnread(session.id);
+      } else if (itemId === "regenerate-titles") {
+        void regenerateTitles(sessions.filter((session) => !port.running(session.id)), actions);
       } else if (itemId === "archive" || itemId === "delete") {
         // One after another: each may move the reader off the thread on screen.
         const leaving = new Set(sessions.map((session) => session.id));

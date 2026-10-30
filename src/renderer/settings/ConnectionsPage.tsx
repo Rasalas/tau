@@ -33,6 +33,7 @@ import { PairingQrCode } from "./PairingQrCode";
 import { NetworkAccessSection } from "./NetworkAccessSection";
 import { NearbyMachinesDialog } from "./NearbyMachines";
 import { ConnectSettings } from "./ConnectSettings";
+import { ExternalMcpSettings } from "./ExternalMcpSettings";
 import type { SettingsCardId, SettingsSectionProps } from "../extension-system";
 import { HostServiceSection } from "./HostServiceSection";
 import { AccessKeyRow } from "./AccessKeyRow";
@@ -243,6 +244,8 @@ export function ConnectionsPage({ onNotify, sections = [] }: {
       {sections.filter((section) => !section.card).map(({ id, Component }) => <Component key={id} onNotify={onNotify} onChanged={() => void refresh()} />)}
 
       <ConnectSettings onNotify={onNotify} />
+
+      <ExternalMcpSettings onNotify={onNotify} />
 
       <SettingsSection title="Other machines">
         <SettingRow

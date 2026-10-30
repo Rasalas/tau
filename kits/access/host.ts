@@ -8,6 +8,8 @@ import {
   ACCESS_THREAD_LEVEL_COMMAND,
   ACCESS_THREAD_LEVEL_OF_CALLERS,
   ACCESS_THREAD_LEVEL_OF_COMMAND,
+  ACCESS_THREAD_NARROWING_COMMAND,
+  ACCESS_THREAD_NARROWING_EVENT,
   DEFAULT_ACCESS_LEVEL,
   ACCESS_LEVEL_KEY as LEVEL_KEY,
   isAccessLevel,
@@ -21,6 +23,9 @@ import {
  * The level comes from the host's config (`values.tau.access.level`); a client
  * sends `set-level` only for a choice its user made there.
  */
+/** Not an extension id, so no kit's own narrowing can collide with the host's. */
+const CORE_NARROWING = "tau core";
+
 export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_ACCESS_LEVEL): HostExtension {
   return {
     id: ACCESS_HOST_EXTENSION_ID,
@@ -33,7 +38,13 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
       };
       // Read before the gate exists, so no turn runs at a level the config does not hold.
       let level = await configured() ?? initialLevel;
-      const threadLevels = new Map<string, AccessLevel>();
+      // Each kit narrows a thread on its own: lifting one kit's narrowing never lifts another's.
+      const threadLevels = new Map<string, Map<string, AccessLevel>>();
+      const narrowing = (sessionId: string): AccessLevel | undefined => {
+        let strictest: AccessLevel | undefined;
+        for (const value of threadLevels.get(sessionId)?.values() ?? []) strictest = strictest === undefined ? value : strictestAccessLevel(strictest, value);
+        return strictest;
+      };
       const apply = (next: AccessLevel) => {
         if (next === level) return;
         level = next;
@@ -47,7 +58,7 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
         const started = ++generation;
         void configured().then((next) => { if (next && started === generation) apply(next); });
       });
-      const levelFor = (sessionId?: string) => strictestAccessLevel(level, sessionId ? threadLevels.get(sessionId) : undefined);
+      const levelFor = (sessionId?: string) => strictestAccessLevel(level, sessionId ? narrowing(sessionId) : undefined);
       const onBlocked = (toolName: string, reason: string) => services.log("access.blocked", `${toolName}: ${reason}`);
       services.registerRuntimeExtension("tau-access", createAccessExtension({ level: levelFor, onBlocked }));
       // Tau's own tools reach other runtimes over MCP; the same decision gates them there.
@@ -61,19 +72,32 @@ export function createAccessHostExtension(initialLevel: AccessLevel = DEFAULT_AC
         apply(requested);
         return level;
       });
-      context.registerCommand(ACCESS_THREAD_LEVEL_COMMAND, (input) => {
+      // Only the machine's owner, the host and the named kits narrow or lift a thread; a paired device never.
+      context.registerCommand(ACCESS_THREAD_LEVEL_COMMAND, (input, call) => {
         const fields = input && typeof input === "object" ? input as { threadId?: unknown; level?: unknown } : {};
         if (typeof fields.threadId !== "string" || !fields.threadId) throw new Error('thread-level needs "threadId".');
-        if (fields.level === null || fields.level === undefined) threadLevels.delete(fields.threadId);
-        else if (isAccessLevel(fields.level)) threadLevels.set(fields.threadId, fields.level);
+        // The host's own narrowing (an MCP client's ceiling, ADR 0046) has a slot no kit can name.
+        const source = call.extension ?? CORE_NARROWING;
+        const before = narrowing(fields.threadId);
+        const levels = threadLevels.get(fields.threadId) ?? new Map<string, AccessLevel>();
+        if (fields.level === null || fields.level === undefined) levels.delete(source);
+        else if (isAccessLevel(fields.level)) levels.set(source, fields.level);
         else throw new Error("Access level must be read-only, ask, auto or full.");
-        return strictestAccessLevel(level, threadLevels.get(fields.threadId));
-      }, { callers: ACCESS_THREAD_LEVEL_CALLERS });
+        if (levels.size) threadLevels.set(fields.threadId, levels); else threadLevels.delete(fields.threadId);
+        if (narrowing(fields.threadId) !== before) context.emit(ACCESS_THREAD_NARROWING_EVENT, { threadId: fields.threadId });
+        return levelFor(fields.threadId);
+      }, { callers: ACCESS_THREAD_LEVEL_CALLERS, access: "owner" });
       context.registerCommand(ACCESS_THREAD_LEVEL_OF_COMMAND, (input) => {
         const threadId = input && typeof input === "object" ? (input as { threadId?: unknown }).threadId : undefined;
         if (typeof threadId !== "string" || !threadId) throw new Error('thread-level-of needs "threadId".');
         return levelFor(threadId);
       }, { callers: ACCESS_THREAD_LEVEL_OF_CALLERS });
+      // Read-only: a device that may only look still sees how far a thread may go.
+      context.registerCommand(ACCESS_THREAD_NARROWING_COMMAND, (input) => {
+        const threadId = input && typeof input === "object" ? (input as { threadId?: unknown }).threadId : undefined;
+        if (typeof threadId !== "string" || !threadId) throw new Error('thread-narrowing needs "threadId".');
+        return narrowing(threadId) ?? null;
+      }, { access: "read" });
       return () => { stopConfig(); releaseMcpGate(); services.setPermissionLevel(undefined); };
     },
   };

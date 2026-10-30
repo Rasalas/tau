@@ -54,8 +54,9 @@ function setup(options: Options = {}) {
 const card = () => screen.findByRole("dialog", { name: "Commit, push & PR" });
 
 describe("the Commit, push & PR card", () => {
-  it("uses the writer effort for the request description", async () => {
-    const { client } = setup({ values: { "commit-model": "test/writer", "commit-effort": "high" } });
+  it("uses the description's model and effort from Text generation for the request description", async () => {
+    // Review's activation copies an older commit model here (`migrateTextGeneration`).
+    const { client } = setup({ values: { "pr-model": "test/writer", "pr-effort": "high" } });
     await waitFor(() => expect(client.describe).toHaveBeenCalledWith(expect.objectContaining({ model: { provider: "test", id: "writer" }, thinkingLevel: "high" })));
   });
 

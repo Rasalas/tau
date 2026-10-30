@@ -1,3 +1,5 @@
+import { RuntimeSwitches } from "./runtime-switches.js";
+import { PromptImageFiles } from "./prompt-image-files.js";
 import { TurnEvents } from "./turn-events.js";
 import { handleRuntimeSessionEvent } from "./session-events.js";
 import { handleBackendRuntimeEvent } from "./backend-events.js";
@@ -168,6 +170,7 @@ export interface PiHostDeps {
   admitWorkspace(path: string): WorkspaceRef;
   prepareThread(session: HostSessionFile, manager: SessionManager, options: { previousSessionFile?: string }): Promise<HostPreparedThread>;
   startThread(options: HostThreadStartOptions): Promise<HostStartedThread>;
+  switchThreadRuntime?(id: string, kind: string): Promise<void>;
   removeThread(sessionId: string): Promise<void>;
   restoreThread(sessionId: string): Promise<void>;
   purgeThread(sessionId: string): Promise<void>;
@@ -204,6 +207,7 @@ export interface PiHostComponents {
     backend(threadId: string, event: ThreadRuntimeEvent): void;
   };
   readonly index: ThreadIndex;
+  readonly runtimeSwitches: RuntimeSwitches;
   /** Deleted threads until their retention runs out. */
   readonly trash: ThreadTrash;
   readonly publication: HostPublication;
@@ -452,7 +456,11 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     dir: options.threadTrashDir ?? join(tmpdir(), `tau-thread-trash-${randomBytes(6).toString("hex")}`),
     ...(options.logger ? { logger: { warn: (message, detail) => options.logger!.warn(message, detail) } } : {}),
   });
+  const runtimeSwitches = new RuntimeSwitches(options.dataFolder ? join(options.dataFolder, "runtime-switches.json") : undefined);
+  // Images sent with a prompt are kept as files on this machine too, so its agents can use them.
+  const promptImageFiles = new PromptImageFiles(join(options.dataFolder ?? join(tmpdir(), "tau-host"), "prompt-images"));
   const index = new ThreadIndex({
+    canonicalSession: session => safeMode ? session : runtimeSwitches.shell(session),
     inTrash: (sessionId) => trash.has(sessionId),
     cwd: () => deps.getCwd(),
     safeMode,
@@ -523,6 +531,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     },
     runtimeOwner: () => deps.ownedByPi(deps.getActive()) ? "pi" : "tau",
     thread: (sessionId) => deps.hostThread(sessionId),
+    reopenThread: async (sessionId) => { await runtimes.reopen(sessionId); return deps.hostThread(sessionId); },
     complete: (request, model) => completions.complete(request, model),
     completionModels: () => completions.models(),
     runtimeChoices: (cwd, kind) => runtimeChoices({
@@ -557,6 +566,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     recordOwnExtensionPackage: (made) => recordOwnPackage(ownPackagesFilePath(options.grantsFilePath), made),
     prepareThread: (session, manager, prepareOptions) => deps.prepareThread(session, manager, prepareOptions),
     startThread: (startOptions) => deps.startThread(startOptions),
+    switchThreadRuntime: (id, kind) => deps.switchThreadRuntime?.(id, kind) ?? Promise.reject(new Error("Runtime switching is unavailable.")),
     importThread: async (request) => {
       const imported = await importSessionFile(request, {
         sessionsDir: sessionsDirOverride,
@@ -720,6 +730,8 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     },
   });
   const runtimes: ThreadRuntimeLifecycle = new ThreadRuntimeLifecycle({
+    decorateBackend: backend => runtimeSwitches.wrap(promptImageFiles.wrap(backend)),
+    canonicalPath: path => safeMode ? undefined : runtimeSwitches.canonicalPath(path),
     safeMode,
     agentDir: getAgentDir(),
     cwd: () => deps.getCwd(),
@@ -861,7 +873,9 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
       const thread = deps.threadFor(sessionId);
       // Runtime idle also includes native children. They must not keep a
       // settled parent's next turn, including background results, in the queue.
-      return Boolean(thread && (thread.compactionPending || thread.state.streaming || thread.adapterStreaming || thread.adapterPending > 0 || extensionUi.hasOpen(sessionId)));
+      if (thread && (thread.compactionPending || thread.state.streaming || thread.adapterStreaming || thread.adapterPending > 0 || extensionUi.hasOpen(sessionId))) return true;
+      // A thread waiting for its limit's scheduled resume keeps what is queued until then: sent now, it would hit the limit again.
+      return limits.awaitsResume(sessionId);
     },
     waitForIdle: async (sessionId) => { await deps.threadFor(sessionId)?.backend.waitForIdle(); },
     admit: async (sessionId) => { const thread = deps.threadFor(sessionId); if (thread) await prompts.assertRuntimeOn(thread); },
@@ -885,7 +899,18 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   });
   const limits: ThreadLimits = new ThreadLimits({
     publish: (sessionId, limit) => index.setLimit(sessionId, limit),
-    resume: (sessionId): Promise<void> => sessionControl.continue(sessionId, LIMIT_CONTINUATION_PROMPT),
+    resume: async (sessionId, limitedAt): Promise<void> => {
+      // What the user wrote while the thread waited continues it in place of the
+      // continuation prompt; follow-ups queued before the limit wait for that prompt.
+      const waiting = queue.list(sessionId).filter((message) => !message.wake && message.deliverAt === undefined);
+      if (limitedAt === undefined || waiting.length === 0 || waiting.some((message) => message.queuedAt <= limitedAt)) {
+        return sessionControl.continue(sessionId, LIMIT_CONTINUATION_PROMPT);
+      }
+      queue.started(sessionId);
+      await queue.pump(sessionId);
+      // A refused delivery puts the message back and holds the queue again.
+      if (queue.isHeld(sessionId)) throw new Error("The thread did not take the queued message.");
+    },
     log: (label, detail) => deps.log(label, detail),
   }, { ...(options.threadLimitsPath ? { filePath: options.threadLimitsPath } : {}), ...persistedLogger });
   const settlement = new TurnSettlement({
@@ -897,7 +922,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
   // A released runtime ended its background work with it.
   turnObservers.add({ closed: async (sessionId) => { index.setBackground(sessionId, undefined); runClock.recheck(sessionId); } });
   // A thread gone for good takes what waited for it along.
-  threadLifecycle.add({ threadDeleted: async (sessionId) => { queue.forget(sessionId); limits.forget(sessionId); } });
+  threadLifecycle.add({ threadDeleted: async (sessionId) => { queue.forget(sessionId); limits.forget(sessionId); await promptImageFiles.forget(sessionId); const switched = runtimeSwitches.get(sessionId); if (switched) await runtimeSwitches.set(sessionId, { ...switched, deleted: true }); } });
   const turns = new TurnDelivery({
     clientTurns,
     clientMessages,
@@ -953,6 +978,7 @@ export function buildPiHostComponents(options: PiHostOptions, deps: PiHostDeps):
     clients,
     events,
     index,
+    runtimeSwitches,
     trash,
     publication,
     seam,

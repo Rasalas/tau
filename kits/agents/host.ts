@@ -48,7 +48,7 @@ import {
   type AgentPersona,
 } from "./persona.js";
 import { DEFAULT_AGENT_PRIORITY, priorityPrefix, readAgentPriority, type AgentPriority } from "./priority.js";
-import { RemoteChildren, resolveMachine, type MachineChoice, type MachineSource } from "./remote.js";
+import { listAgentMachines, RemoteChildren, resolveMachine, type MachineChoice, type MachineSource } from "./remote.js";
 import { remoteThreadsClient } from "../remote-work/threads-client.js";
 // Worktrees are Workspace Kit's, in every kit that needs one: this is the one
 // leaf module it lends, and nothing else of that kit is reachable from here.
@@ -1324,6 +1324,8 @@ export function createAgentsHostExtension(options: {
        * The tools of one thread: Pi registers them in its runtime, and every
        * other runtime reaches the same ones over the host's MCP endpoint.
        */
+      // A machine's operating system, once it said it: it does not change while it runs.
+      const machinePlatforms = new Map<string, { os?: string; cores?: number }>();
       const agentTools = (session: RuntimeSessionInfo): HostMcpTool[] => {
         const threadId = session.sessionId;
         const independent: HostMcpTool[] = nativeDelegation(services.thread(threadId)?.backendKind ?? "") ? [{
@@ -1370,7 +1372,7 @@ export function createAgentsHostExtension(options: {
               })),
               agent: Type.Optional(Type.String({ description: "Name of an agent definition in this project's .tau/agents/; a plain thread when left out." })),
               machine: Type.Optional(Type.String({
-                description: 'Where it runs: a machine\'s name or id, "local" for this machine, or "auto" to let Tau pick by load. The definition\'s machine, else the user\'s setting (this machine unless they chose otherwise), when left out.',
+                description: 'Where it runs: a machine\'s name or id (tau_list_machines names them with their operating system), "local" for this machine, or "auto" to let Tau pick by load. The definition\'s machine, else the user\'s setting (this machine unless they chose otherwise), when left out.',
               })),
               clientRequestId: Type.Optional(Type.String({ description: "Your own id for this spawn; a retry with the same id returns the thread the first call started." })),
             }),
@@ -1480,6 +1482,15 @@ export function createAgentsHostExtension(options: {
                 ...(link.model ? { model: link.model } : {}),
               })),
             }),
+          },
+          {
+            annotations: { readOnlyHint: true },
+            name: "tau_list_machines",
+            label: "List machines",
+            description: "List the machines tau_spawn_thread can run a child on, this one first, with each one's operating system and state. Use it to find a Mac for an iOS build or a Windows machine for a Windows test.",
+            promptSnippet: "tau_list_machines: find a machine by operating system for tau_spawn_thread",
+            parameters: Type.Object({}),
+            execute: async () => toolResult({ machines: await listAgentMachines(services.machines, { platform: process.platform, arch: process.arch }, machinePlatforms) }),
           },
         ];
       };

@@ -7,6 +7,16 @@ export type Density = (typeof DENSITIES)[number];
 export const TIMESTAMP_FORMATS = ["locale", "12h", "24h"] as const;
 export type TimestampFormat = (typeof TIMESTAMP_FORMATS)[number];
 
+/** How wide the transcript and the composer may grow in the conversation column; `default` is core's 780 px. */
+export const CHAT_WIDTHS = ["narrow", "default", "wide", "full"] as const;
+export type ChatWidth = (typeof CHAT_WIDTHS)[number];
+/** What each width sets as the column's content maximum; `full` leaves only the column's insets. */
+export const CHAT_WIDTH_VALUES: Readonly<Record<Exclude<ChatWidth, "default">, string>> = { narrow: "640px", wide: "1040px", full: "100%" };
+
+export function readChatWidth(raw: unknown): ChatWidth | undefined {
+  return CHAT_WIDTHS.includes(raw as ChatWidth) ? raw as ChatWidth : undefined;
+}
+
 export function readTimestamps(raw: unknown): TimestampFormat | undefined {
   return TIMESTAMP_FORMATS.includes(raw as TimestampFormat) ? raw as TimestampFormat : undefined;
 }
@@ -24,6 +34,8 @@ export interface AppearanceValues {
   timestamps?: TimestampFormat;
   /** How long panels take to open and close; 0, the default, is at once. */
   panelMotion: number;
+  /** How wide the transcript and the composer may grow. */
+  chatWidth: ChatWidth;
 }
 
 export const PANEL_MOTION_RANGE = { min: 0, max: 400, step: 25 } as const;
@@ -66,6 +78,7 @@ export function readAppearance(preferences: PreferencesStore): AppearanceValues 
     codeFontSize: readSize(value(SETTING_KEYS.codeFontSize)),
     timestamps: readTimestamps(value(SETTING_KEYS.timestamps)),
     panelMotion: readPanelMotion(value(SETTING_KEYS.panelMotion)) ?? 0,
+    chatWidth: readChatWidth(value(SETTING_KEYS.chatWidth)) ?? "default",
   };
 }
 
@@ -76,9 +89,9 @@ export function cleanFontFamily(value: string): string {
 
 /**
  * Keeps <html> in step with the values: `data-density` (the kit's stylesheet
- * turns it into `--density`), the typography properties core reads, and one
- * stylesheet for the themes per scheme and the contrast. Everything goes when
- * the kit does.
+ * turns it into `--density`), the typography and chat-width properties core
+ * reads, and one stylesheet for the themes per scheme and the contrast.
+ * Everything goes when the kit does.
  */
 export class AppearanceApplier {
   private style?: HTMLStyleElement;
@@ -100,6 +113,8 @@ export class AppearanceApplier {
     set("--code-font-family", cleanFontFamily(values.codeFontFamily) || undefined);
     set("--code-font-scale", values.codeFontSize ? String(values.codeFontSize / DEFAULT_CODE_FONT_SIZE) : undefined);
     set("--panel-motion", values.panelMotion > 0 ? `${values.panelMotion}ms` : undefined);
+    // Core's conversation column reads it as its `--content-max`.
+    set("--chat-max-width", values.chatWidth === "default" ? undefined : CHAT_WIDTH_VALUES[values.chatWidth]);
 
     const side = (id: string, scheme: "light" | "dark") => {
       const theme = id ? themes.find((entry) => entry.id === id) : undefined;
@@ -119,7 +134,7 @@ export class AppearanceApplier {
     const root = this.doc.documentElement;
     delete root.dataset.density;
     delete root.dataset.timestamps;
-    for (const name of ["--prompt-font-family", "--prompt-font-size", "--code-font-family", "--code-font-scale", "--panel-motion"]) root.style.removeProperty(name);
+    for (const name of ["--prompt-font-family", "--prompt-font-size", "--code-font-family", "--code-font-scale", "--panel-motion", "--chat-max-width"]) root.style.removeProperty(name);
     this.style?.remove();
     this.style = undefined;
   }

@@ -146,6 +146,7 @@ export function Composer({
   onCancelQueued,
   onSteerQueued,
   queueHeld = false,
+  queueResumeAt,
   onReturnQueued,
   onReorderQueue,
   onPlanQueued,
@@ -192,6 +193,8 @@ export function Composer({
   onSteerQueued(id: string): void;
   /** A restart, a stop or a limit held the queue: nothing in its line leaves until the user sends. */
   queueHeld?: boolean;
+  /** A usage limit's scheduled resume, which the queue waits for. */
+  queueResumeAt?: number | undefined;
   /** Takes a queued message back into the composer to edit. */
   onReturnQueued?(id: string): void;
   onReorderQueue?(id: string, toIndex: number): void;
@@ -1025,7 +1028,7 @@ export function Composer({
       <div className="composer-surface" data-composer-surface="true">
       {/* What waits, as a tab over the composer (design G1); a question and the composer tuck over it. */}
       {queue.length > 0 && !newThread ? (
-        <QueueShelf queue={queue} streaming={streaming} held={queueHeld} onSteer={onSteerQueued} onEdit={onReturnQueued ?? onCancelQueued} onRemove={onCancelQueued} onReorder={onReorderQueue} onPlan={onPlanQueued} />
+        <QueueShelf queue={queue} streaming={streaming} held={queueHeld} resumeAt={queueResumeAt} onSteer={onSteerQueued} onEdit={onReturnQueued ?? onCancelQueued} onRemove={onCancelQueued} onReorder={onReorderQueue} onPlan={onPlanQueued} />
       ) : null}
       {prompt ? (() => {
         // An extension that recognises the prompt draws it; core draws the four dialogs.

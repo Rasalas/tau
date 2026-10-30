@@ -38,6 +38,7 @@ import { coreThreadMenu, ThreadTitleMenu } from "./components/ThreadTitleMenu";
 import type { ThreadTreeMode } from "./components/ThreadTreeModal";
 import { TitleBar } from "./components/TitleBar";
 import { ThreadRuntimeBanner } from "./components/ThreadRuntimeBanner";
+import { ThreadMcpClientMark } from "./components/McpClientMark";
 import { TranscriptHistoryBoundary } from "./components/TranscriptHistoryBoundary";
 import { TranscriptViewport } from "./components/TranscriptViewport";
 import { JumpToLatestButton, JumpToLatestStore } from "./components/JumpToLatest";
@@ -774,6 +775,7 @@ export const Workbench = memo(function Workbench({ model }: { model: WorkbenchMo
               });
             }}
           />
+          <ThreadMcpClientMark sessionId={snapshot?.sessionId} />
         </>;
   // A view with a name of its own reads as "thread / view" in the head, the thread's title leading back (T3 Code's parent crumb).
   const ViewTitle = phone || !conversationView ? undefined : activeConversationView?.Title;
@@ -1291,6 +1293,7 @@ const ConversationComposer = memo(function ConversationComposer({ view, composer
     onCancelQueued={cancelQueued}
     onSteerQueued={steerQueued}
     queueHeld={shell?.queueHeld === true}
+    queueResumeAt={shell?.limit?.resumeAt}
     onReturnQueued={returnQueued}
     onReorderQueue={reorderQueue}
     onPlanQueued={planQueued}

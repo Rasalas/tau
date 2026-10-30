@@ -217,6 +217,19 @@ describe("workbench submission", () => {
     expect(environment).toHaveBeenCalledOnce();
   });
 
+  it("queues a message for an idle thread whose limit resumes it later, and sends one at once with the modifier", async () => {
+    const h = harness();
+    h.session.newThread.set(undefined);
+    const limited = { id: "previous", path: "/s", title: "Previous", projectPath: "/project", projectName: "Project", modifiedAt: 1, messageCount: 1 };
+    h.session.applyThreadIndex({ projects: [], sessions: [{ ...limited, limit: { message: "usage limit", resetsAt: 10, resumeAt: 20 } }] });
+    await expect(h.session.submit({ text: "do this at the reset" })).resolves.toEqual({ accepted: true });
+    expect(h.queueMessage).toHaveBeenCalledOnce();
+    expect(h.queueMessage.mock.calls[0]?.slice(0, 2)).toEqual(["previous", "do this at the reset"]);
+    expect(h.sendPrompt).not.toHaveBeenCalled();
+    await h.session.submit({ text: "on another model now", delivery: "alternate" });
+    expect(h.queueMessage).toHaveBeenCalledOnce();
+  });
+
   it("passes a planned message through the session queue port and accepts it after the host", async () => {
     const queueMessage = vi.fn(async () => ({ id: "planned" }));
     const accepted = vi.fn();

@@ -13,10 +13,17 @@ export const RESUME_MARGIN_MS = 60_000;
 /** setTimeout's ceiling; a later resume re-arms when this one fires. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
+/** The longest a user-chosen retry may wait: a week, past any provider's weekly window. */
+export const MAX_RETRY_WAIT_MS = 7 * 24 * 60 * 60 * 1000;
+
 export interface ThreadLimitsPort {
   publish(sessionId: string, limit: UiThreadLimit | undefined): void;
-  /** Continues the thread the limit stopped. */
-  resume(sessionId: string): Promise<void>;
+  /**
+   * Continues the thread the limit stopped: with the messages the user wrote
+   * while it waited, or with the continuation prompt. `limitedAt` is when the
+   * limit stopped it, so messages queued before it stay follow-ups.
+   */
+  resume(sessionId: string, limitedAt: number | undefined): Promise<void>;
   log(label: string, detail?: string): void;
   now?(): number;
 }
@@ -38,6 +45,7 @@ function decodeLimits(value: unknown): Map<string, UiThreadLimit> {
       message: item.message,
       ...(typeof item.resetsAt === "number" ? { resetsAt: item.resetsAt } : {}),
       ...(typeof item.resumeAt === "number" ? { resumeAt: item.resumeAt } : {}),
+      ...(typeof item.limitedAt === "number" ? { limitedAt: item.limitedAt } : {}),
     });
   }
   return limits;
@@ -52,6 +60,8 @@ function decodeLimits(value: unknown): Map<string, UiThreadLimit> {
 export class ThreadLimits {
   private readonly limits = new Map<string, UiThreadLimit>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  /** Threads whose resume is under way: their queue may send now. */
+  private readonly resuming = new Set<string>();
   private pending: Promise<void> = Promise.resolve();
   private loading?: Promise<void>;
   private frozen = false;
@@ -64,6 +74,11 @@ export class ThreadLimits {
 
   get(sessionId: string): UiThreadLimit | undefined {
     return this.limits.get(sessionId);
+  }
+
+  /** The thread waits for a scheduled resume: what is queued for it waits too, and leaves with the resume. */
+  awaitsResume(sessionId: string): boolean {
+    return this.limits.get(sessionId)?.resumeAt !== undefined && !this.resuming.has(sessionId);
   }
 
   /** Reads the resumes the previous run scheduled and arms them again; one that is due runs now. */
@@ -96,7 +111,7 @@ export class ThreadLimits {
   /** A turn stopped at a limit. */
   limited(sessionId: string, message: string, resetsAt?: number): void {
     this.disarm(sessionId);
-    const limit: UiThreadLimit = { message, ...(resetsAt !== undefined ? { resetsAt } : {}) };
+    const limit: UiThreadLimit = { message, ...(resetsAt !== undefined ? { resetsAt } : {}), limitedAt: this.now() };
     this.limits.set(sessionId, limit);
     this.port.publish(sessionId, limit);
     this.persist();
@@ -115,8 +130,21 @@ export class ThreadLimits {
   resumeAtReset(sessionId: string): UiThreadLimit {
     const limit = this.limits.get(sessionId);
     if (!limit) throw new Error("This thread is not waiting for a limit.");
-    if (limit.resetsAt === undefined) throw new Error("The provider did not say when its limit resets; resume the thread yourself.");
-    const next = { ...limit, resumeAt: Math.max(limit.resetsAt, this.now()) + RESUME_MARGIN_MS };
+    if (limit.resetsAt === undefined) throw new Error("The provider did not say when its limit resets; choose when to retry.");
+    return this.schedule(sessionId, limit, Math.max(limit.resetsAt, this.now()) + RESUME_MARGIN_MS);
+  }
+
+  /** Continues the thread at a time the user chose, for a limit whose reset nobody named (or one they would rather retry sooner). */
+  resumeAt(sessionId: string, at: number): UiThreadLimit {
+    const limit = this.limits.get(sessionId);
+    if (!limit) throw new Error("This thread is not waiting for a limit.");
+    if (!Number.isFinite(at) || at <= this.now()) throw new Error("Choose a time in the future.");
+    if (at - this.now() > MAX_RETRY_WAIT_MS) throw new Error("Choose a time within the next seven days.");
+    return this.schedule(sessionId, limit, at);
+  }
+
+  private schedule(sessionId: string, limit: UiThreadLimit, resumeAt: number): UiThreadLimit {
+    const next = { ...limit, resumeAt };
     this.limits.set(sessionId, next);
     this.arm(sessionId, next.resumeAt);
     this.port.publish(sessionId, next);
@@ -140,7 +168,17 @@ export class ThreadLimits {
   async resumeNow(sessionId: string): Promise<void> {
     if (!this.limits.has(sessionId)) throw new Error("This thread is not waiting for a limit.");
     this.disarm(sessionId);
-    await this.port.resume(sessionId);
+    await this.continue(sessionId);
+  }
+
+  /** While it runs, the thread's queue is free to send: the resume may be the user's queued message. */
+  private async continue(sessionId: string): Promise<void> {
+    this.resuming.add(sessionId);
+    try {
+      await this.port.resume(sessionId, this.limits.get(sessionId)?.limitedAt);
+    } finally {
+      this.resuming.delete(sessionId);
+    }
   }
 
   forget(sessionId: string): void {
@@ -167,7 +205,7 @@ export class ThreadLimits {
       if (this.limits.get(sessionId)?.resumeAt !== at) return;
       if (at > this.now()) { this.arm(sessionId, at); return; }
       this.port.log("limit.resuming", sessionId.slice(0, 8));
-      this.port.resume(sessionId).catch((error: unknown) => {
+      this.continue(sessionId).catch((error: unknown) => {
         this.port.log("limit.resume-failed", `${sessionId.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
         this.cancelResume(sessionId);
       });

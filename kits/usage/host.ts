@@ -219,6 +219,7 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
       const logSources = options.logSources ?? OUTSIDE_LOG_SOURCES;
       const outsideWait = options.outsideWaitMs ?? OUTSIDE_WAIT_MS;
       let loggedRoots: string | undefined;
+      let loggedProblems = "";
       let scan: UsageScan | undefined;
       let stale = true;
       let reading: Promise<UsageScan> | undefined;
@@ -251,7 +252,11 @@ export function createUsageHostExtension(options: UsageHostOptions = {}): Worker
         if (named !== loggedRoots) { loggedRoots = named; services.log("usage.outside-folders", named || "none"); }
         let finished = false;
         const done = outsideCache.refresh(roots).then(
-          () => { if (finished) stale = true; },
+          () => {
+            if (finished) stale = true;
+            const problems = outsideCache.snapshot().roots.flatMap((report) => (report.problems ?? []).map((problem) => `${report.root.path}/${problem}`)).sort().join("; ");
+            if (problems !== loggedProblems) { loggedProblems = problems; if (problems) services.log("usage.outside-unreadable", problems); }
+          },
           (error: unknown) => services.log("usage.outside-read-failed", reason(error)),
         );
         // Only a first read is waited for; after it, the last counts answer at once and new ones follow.

@@ -6,6 +6,10 @@
  */
 
 export interface HostResources {
+  /** `process.platform` of the host: `darwin`, `linux`, `win32`. Absent from hosts before it. */
+  platform?: string;
+  /** `process.arch` of the host: `arm64`, `x64`. */
+  arch?: string;
   /** Epoch ms of the reading on the host's clock; compare with the time it arrived, not with another clock. */
   sampledAt: number;
   cpuCount: number;
@@ -18,6 +22,15 @@ export interface HostResources {
   runningTurns: number;
   /** Absent on a machine without a battery or where the host cannot tell. */
   onBattery?: boolean;
+}
+
+const PLATFORM_NAMES: Record<string, string> = { darwin: "macOS", linux: "Linux", win32: "Windows" };
+
+/** "macOS arm64", "Linux x64"; undefined when the host did not say. */
+export function platformLabel(resources: Pick<HostResources, "platform" | "arch">): string | undefined {
+  if (!resources.platform) return undefined;
+  const name = PLATFORM_NAMES[resources.platform] ?? resources.platform;
+  return resources.arch ? `${name} ${resources.arch}` : name;
 }
 
 /** `ready`: can run a thread. `checking`: the runtime has not answered since the host started. */

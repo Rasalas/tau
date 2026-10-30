@@ -1008,6 +1008,16 @@ describe("thread runtime backends", () => {
     expect(events.find((event) => event.type === "user-message")).toMatchObject({ message: { images: [{ mimeType: "image/png", data: "AAAA" }] } });
   });
 
+  it("names the host's copy of an image between the image and the text, which keeps a slash command last", () => {
+    const image = { kind: "image" as const, name: "shot.png", mimeType: "image/png", data: "AAAA", size: 4 };
+    const copy = { kind: "file" as const, name: "abc-shot.png", mimeType: "image/png", path: "/data/prompt-images/t/abc-shot.png", size: 3 };
+    expect(promptContent("/review it", [image, copy])).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+      { type: "text", text: "Attached files:\n- /data/prompt-images/t/abc-shot.png" },
+      { type: "text", text: "/review it" },
+    ]);
+  });
+
   it("lists the plan's models, and keeps the chosen model and effort for the live session and the next one", async () => {
     const { filePath, store } = await scratchStore();
     const { adapter, opened, sessions } = scriptedAdapter(filePath, () => turn("ok"));

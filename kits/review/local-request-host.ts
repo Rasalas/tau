@@ -5,6 +5,7 @@ import type { ReviewRequestContext, ReviewRequestDraft } from "./protocol.js";
 import type { SourceControl } from "./provider-registry.js";
 import { buildDraftPrompt, draftSystemPrompt, fallbackDraft, parseDraft, withPendingCommit } from "./requests-host.js";
 import { modelEffort, writingBudget } from "./model-effort.js";
+import { readTextRuntime, threadWritingModel } from "../_shared/text-generation-host.js";
 import { withInstructions } from "./writing.js";
 
 /** Threads one view reads pictures of, at most; the rest are the oldest. */
@@ -94,18 +95,25 @@ export function registerLocalRequestCommands(context: HostExtensionContext, sour
     const { info } = sources.get(await sources.detect(git.remote?.url));
     const captions = (Array.isArray(fields.evidence) ? fields.evidence : []).filter((caption): caption is string => typeof caption === "string" && caption.trim().length > 0).slice(0, 30);
     if (services.runtimeOwner() === "pi") return { ...fallbackDraft(git), base: git.base, generated: false };
+    // The thread's runtime, when chosen, writes with its own login and effort.
+    const thread = readTextRuntime(fields.runtime) === "thread" ? services.thread() : undefined;
+    if (readTextRuntime(fields.runtime) === "thread" && !thread) throw new HostCommandError("Open a thread to write the description with its runtime.");
+    const own = thread ? await threadWritingModel(thread, modelRef(fields.model)).catch((error: unknown) => { throw new HostCommandError(message(error)); }) : undefined;
     // Nothing small reachable: the thread's own model, as a thread's title does.
-    const model = modelRef(fields.model) ?? await smallCompletionModel(services, modelRef(fields.prefer), { elsePrefer: true });
+    const model = own ?? modelRef(fields.model) ?? await smallCompletionModel(services, modelRef(fields.prefer), { elsePrefer: true });
     const label = model ? `${model.provider}/${model.id}` : "default model";
-    services.log("local-request.describe", label);
+    services.log("local-request.describe", own ? `${label} on the thread's runtime` : label);
     const prompt = [
       buildDraftPrompt(git),
       captions.length > 0 ? `Screenshots of the app taken while the change was made, embedded after the description; each caption names the action just before it. Mention what they show only where it helps a reviewer, never how they were taken, and add no image links:\n${captions.map((caption) => `- ${caption}`).join("\n")}` : "",
     ].filter(Boolean).join("\n\n");
-    const effort = await modelEffort(services, modelRef(fields.model) && model ? `${model.provider}/${model.id}` : "", fields.thinkingLevel, git.root);
+    const effort = own ? undefined : await modelEffort(services, modelRef(fields.model) && model ? `${model.provider}/${model.id}` : "", fields.thinkingLevel, git.root);
     let answer: string;
     try {
-      answer = await services.complete({ system: withInstructions(draftSystemPrompt(info.noun), fields.instructions), prompt, ...writingBudget(effort, 900), ...(effort ? { thinkingLevel: effort } : {}) }, model);
+      const system = withInstructions(draftSystemPrompt(info.noun), fields.instructions);
+      answer = thread && own
+        ? await thread.complete(own.provider, own.id, { system, prompt, maxTokens: 900, timeoutMs: 120_000 })
+        : await services.complete({ system, prompt, ...writingBudget(effort, 900), ...(effort ? { thinkingLevel: effort } : {}) }, model);
     } catch (error) {
       services.log("local-request.describe-failed", message(error));
       throw new HostCommandError(`The description could not be written: ${message(error)}`);

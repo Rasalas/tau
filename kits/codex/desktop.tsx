@@ -380,6 +380,19 @@ export function createChatGPTPlanBanner(host: HostExtensionClient) {
 export const fastTier = (settings: CodexThreadSettings | undefined) => settings?.serviceTier.choices.find((tier) => tier.id === "fast")
   ?? settings?.serviceTier.choices.find((tier) => /fast|priority/iu.test(tier.name));
 
+/** Whether `tier` runs the thread: chosen for it, or Codex's default for the model while nothing is chosen. */
+const runsOn = (settings: CodexThreadSettings, tier: { id: string }) => (settings.serviceTier.selected ?? settings.serviceTier.defaultTier) === tier.id;
+
+/**
+ * What the chip's Standard sends: the standard tier itself where Codex would
+ * otherwise default to another one, so a model that defaults to Fast can be
+ * slowed down; else nothing, leaving the choice to Codex.
+ */
+export const standardTier = (settings: CodexThreadSettings | undefined): string | null => {
+  const defaultTier = settings?.serviceTier.defaultTier;
+  return defaultTier && defaultTier !== "default" && settings?.serviceTier.choices.some((tier) => tier.id === "default") ? "default" : null;
+};
+
 /** Fast for Codex threads, drawn by core in the thinking chip (K142); a draft has none until its thread runs. */
 export function createCodexSpeed(host: HostExtensionClient): ComposerSpeedContribution {
   let asked: string | undefined;
@@ -390,7 +403,7 @@ export function createCodexSpeed(host: HostExtensionClient): ComposerSpeedContri
   const publish = (settings: CodexThreadSettings | undefined) => {
     const tier = fastTier(settings);
     held = tier
-      ? { fast: settings!.serviceTier.selected === tier.id, available: true, ...(tier.description ? { detail: tier.description } : {}) }
+      ? { fast: runsOn(settings!, tier), available: true, ...(tier.description ? { detail: tier.description } : {}) }
       : { fast: false, available: false, reason: settings ? "This account and model offer no Fast tier on Codex" : "Codex sets Fast once the thread runs" };
     for (const listener of listeners) listener();
   };
@@ -418,8 +431,9 @@ export function createCodexSpeed(host: HostExtensionClient): ComposerSpeedContri
     },
     async set(fast, snapshot) {
       const id = snapshot?.sessionId;
-      const tier = fastTier(await host.invoke("thread-settings", { threadId: id }) as CodexThreadSettings);
-      publish(await host.invoke("set-thread-tier", { threadId: id, tier: fast && tier ? tier.id : null }) as CodexThreadSettings);
+      const settings = await host.invoke("thread-settings", { threadId: id }) as CodexThreadSettings;
+      const tier = fastTier(settings);
+      publish(await host.invoke("set-thread-tier", { threadId: id, tier: fast && tier ? tier.id : standardTier(settings) }) as CodexThreadSettings);
     },
   };
 }

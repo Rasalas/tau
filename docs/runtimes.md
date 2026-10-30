@@ -28,7 +28,7 @@ Claude Code threads drive the installed `claude` CLI through the Claude Agent SD
 
 ## Antigravity
 
-Antigravity threads drive Google's Antigravity agent through the Agent Client Protocol: Tau downloads Google's ACP server once into its own state folder (from the official registry URL, verified by size and SHA-256) or uses a server of your own named on its Providers card (or by `TAU_ANTIGRAVITY_ACP_COMMAND`), and the sign-in with your Google account happens inside that server, in your browser; Tau never sees the token. Its card under Settings → Runtimes installs or updates that server, shows the account and signs out. The agent runs with a Gemini home of Tau's own, so it writes nothing into yours, but your `~/.gemini` skills are linked into it and your MCP servers are passed to it.
+Antigravity threads drive Google's Antigravity agent through the Agent Client Protocol: Tau downloads Google's ACP server once into its own state folder (from the official registry URL, verified by size and SHA-256) or uses a server of your own named on its Providers card (or by `TAU_ANTIGRAVITY_ACP_COMMAND`), and the sign-in with your Google account happens inside that server, in your browser; Tau never sees the token. Its card under Settings → Runtimes installs or updates that server, shows the account and signs out. The agent runs with a Gemini home of Tau's own, so it writes nothing into yours, but your `~/.gemini` skills are linked into it and your MCP servers are passed to it. For the same reason Onboarding cannot import your own Antigravity conversations; the wizard says so when it finds them. Antigravity has no read-only mode: it asks instead, so an MCP client whose execution ceiling is read-only cannot start Antigravity threads.
 
 ## Codex
 
@@ -54,7 +54,15 @@ OpenCode threads drive `opencode serve` over HTTP: Tau starts one server per liv
 
 Tau speaks both server APIs: OpenCode 1 (from 1.14.19, tested with 1.18.32) and OpenCode 2 (`@opencode/cli`, from 2.0.10, run against 2.0.26). The server tells which it is, so one card serves either; a thread keeps the server it started on. The card flags a release it did not run (2.0.10 to 2.0.25, or a newer major) and refuses ones that lack routes it needs (OpenCode 2 before 2.0.10, OpenCode 1 before 1.14.19), with the install command for the tested release of the line you have. A newer 2.x release is accepted without a warning.
 
-What works on both: sessions resumed by id, streamed text, reasoning and tool cards, stop, steering a running turn, the plan mode as OpenCode's plan agent, Tau's access levels as the session's permission rules, permission requests and questions in the thread (also those of OpenCode's sub-agents), the models of every connected provider with price and reasoning variants, Tau's own MCP tools, and Onboarding's import of OpenCode's sessions. OpenCode 2 differences you can see: "Allow for this session" grants the rule to that session only (OpenCode 2 would keep an "always" for the project), and a declined command or dismissed question lets the model go on instead of ending the run. OpenCode 2 keeps its data in a new database that Usage does not read yet, so work done outside Tau with it is not counted.
+What works on both: sessions resumed by id, streamed text, reasoning and tool cards, stop, steering a running turn, the plan mode as OpenCode's plan agent, Tau's access levels as the session's permission rules, permission requests and questions in the thread (also those of OpenCode's sub-agents), the models of every connected provider with price and reasoning variants, Tau's own MCP tools, and Onboarding's import of OpenCode's sessions. OpenCode 2 differences you can see: "Allow for this session" grants the rule to that session only (OpenCode 2 would keep an "always" for the project), and a declined command or dismissed question lets the model go on instead of ending the run. Usage also reads OpenCode 2's database (`opencode.db`, read-only), so work done outside Tau with it is counted once; a database whose layout changed is skipped with the reason shown in Usage.
+
+## Images sent with a prompt
+
+Each image goes to a vision model as image input and is also saved as a file in the thread's `prompt-images` folder on its home machine, so the agent can attach it to a pull request or process it. Codex, OpenCode and ACP runtimes receive that file as an attachment; Claude Code gets its path in an `Attached files:` block and Pi in a hidden context note. The folder is removed when the thread is purged.
+
+## Importing conversations
+
+Onboarding imports the sessions of Claude Code, Codex and OpenCode, and those of Cursor and Grok when the CLI lists them over ACP (`session/list`) and can replay them (`session/load`). Otherwise the wizard says why they can't be imported.
 
 ## Custom models for ACP runtimes
 
@@ -138,3 +146,46 @@ A Pi you start in Tau's own terminal holds the session lock instead: [The window
 ## Apply changes with `/reload`
 
 Enter `/reload` in Tau, or run "Apply changes and reload Tau" from the command palette. Tau builds its source first and then picks the shortest way to apply it: a change to kits or to the renderer reloads those and the window while every thread keeps running, so a turn in flight never notices it; a change to a kit's runtime half (`pi.cjs`) reloads Pi's resources too, and that is the only path that still offers to wait for or stop running threads; a change to the Electron main process or preload restarts Tau.
+
+## Muse Code and other ACP agents
+
+Settings → ACP agents includes Muse Code and lets you add an installed ACP command
+or select an agent from the official ACP registry. Install Muse Code and run
+`muse login` first. Its native ACP command is experimental; Tau enables
+`MUSE_EXPERIMENTAL_ACP=on` for that entry. Muse's current ACP limitations are
+listed in its [editor integration documentation](https://meta-models.github.io/muse-code-sdk/next/guides/editors-acp/).
+
+Each custom entry has a stable ID, executable, literal argument array, optional
+environment and authentication method. Use a separate ID for another account.
+Once an entry has threads, its launch configuration is locked; create another
+entry to change it. Agent processes inherit the host environment with the entry's
+overrides. Tau does not parse shell expressions in commands or arguments.
+
+Registry package versions stay pinned to their selected entry. npx or uvx fetches
+package agents when first used. Binary distributions download into Tau's own
+private state and require the advertised SHA-256. The registry does not install
+anything until you select Add agent. An unavailable registry leaves manual
+configuration usable. Agent authentication and available models remain the
+agent's own. A generic ACP agent without an advertised read-only mode cannot run
+at Tau's read-only access level.
+
+## Switch runtime in a conversation
+
+Choose **Switch runtime** above the composer, then a runtime under **Switch runtime
+in this conversation**. The conversation retains its ID, workspace and stage. Its
+visible history stays above replies from the new runtime. The next prompt gives
+that runtime the preceding conversational text. Provider-private state and old
+image pixels do not transfer. The original runtime session remains available for
+a later switch back.
+
+Finish the active turn, queued messages and native background work first. End a
+native goal before switching. Very long conversations use the existing Continue
+in handoff to a new summarized thread instead.
+
+## Diagnose a local installation
+
+Run `tau triage --agent codex` or `tau triage --agent claude` even if Tau cannot
+start. The command saves a private report with system information and bounded,
+redacted log tails, then opens that agent to investigate. `tau triage --print`
+only creates the report. Reports stay under this instance's diagnostics folder;
+publication of an issue is a separate user action.

@@ -13,7 +13,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { UPDATE_WAIT_MS, describeUpdate, parseMachinesArgs, runMachines } from "./tau-machines.mjs";
 import { parseKitArgs, runKit } from "./tau-kit.mjs";
 import { CONNECT_USAGE, parseConnectArgs, runConnect } from "./tau-connect.mjs";
-import { MCP_USAGE, parseMcpArgs, runMcp } from "./tau-mcp.mjs";
+import { MCP_USAGE, localMcpUrl, parseMcpArgs, runMcp, serveMcpStdio } from "./tau-mcp.mjs";
+import { parseTriageArgs, runTriage } from "./tau-triage.mjs";
 
 /** The userData folder of each app identity, as `src/main/app-identity.ts` names it. */
 export const USER_DATA_FOLDERS = { stable: "tau-pi-desktop-prototype", dev: "tau-dev" };
@@ -28,8 +29,9 @@ export const USAGE = `Usage: tau app [path]
        tau service <install|status|uninstall|restart>
        tau service install --display | --no-display
        tau update [--check | --status] [--json]
+       tau triage [--agent codex|claude] [--print] [problem]
        tau connect <register|status|link|disconnect> [options]
-       tau mcp <status|register|approve|deny|revoke|remove> [options]
+       tau mcp <status|register|approve|deny|revoke|remove|serve> [options]
        tau machines add --ssh <target> [--name <name>] [--agents] [--access full|read-only] [--json]
        tau machines list [--json]
        tau machines update <name or id> [--check | --status] [--json]
@@ -83,6 +85,7 @@ export function parseArgs(argv) {
   if (command === "mcp") return { command, mcp: parseMcpArgs(rest) };
   if (command === "kit") return { command, kit: parseKitArgs(rest) };
   if (command === "update") return { command, update: parseUpdateFlags(rest, "tau update") };
+  if (command === "triage") return { command, triage: parseTriageArgs(rest) };
   if (command !== "app") throw new Error(`Unknown command "${command}". ${USAGE}`);
   const paths = rest.filter((arg) => arg !== "--");
   if (paths.some((arg) => arg === "-h" || arg === "--help")) return { help: true };
@@ -311,6 +314,11 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   const start = io.launch ?? launch;
   const options = parseArgs(argv);
   if (options.help) { out(USAGE); return 0; }
+  if (options.command === "triage") {
+    let version = "unknown";
+    try { version = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version; } catch { /* Plain Node cannot read package.json inside an installed app.asar. */ }
+    return runTriage(options.triage, { userData: userDataDir(env), version, env, out, ...(io.cwd ? { cwd: io.cwd } : {}), ...io.triage });
+  }
   if (options.command === "service") {
     const launcher = io.serviceLauncher ?? serviceLauncher();
     if (!launcher) throw new Error("This copy of the command line cannot find Tau's app. Run it from a built checkout (npm run build) or an installed Tau.");
@@ -331,6 +339,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   }
   if (options.command === "mcp") {
     if (options.mcp.help) { out(MCP_USAGE); return 0; }
+    if (options.mcp.action === "serve") return (io.serveMcpStdio ?? serveMcpStdio)({ url: localMcpUrl(userDataDir(env), env), token: env.TAU_MCP_TOKEN });
     const host = (io.readRunningHost ?? readRunningHost)(userDataDir(env));
     if (!host) throw new Error("Start Tau or its host service before managing MCP clients.");
     const session = await (io.openSession ?? ((target) => openHostSession(target, io.WebSocket)))(host);

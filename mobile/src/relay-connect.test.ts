@@ -90,10 +90,13 @@ describe("saved relay credentials", () => {
     expect(await book.get(host.id)).toBeUndefined();
   });
 
-  it("forgets a transport when the device pairs again directly and consumes staged links once", async () => {
+  it("keeps a transport when the device pairs again directly under the same key, forgets it under another, and consumes staged links once", async () => {
     const book = new HostBook(memoryStore());
     await book.save(host, "host-client-token", connect);
+    // Tau Connect is one more route to the same machine, as on the desktop.
     await book.save({ ...host, connect: undefined }, "new-client-token");
+    expect(await book.connect(host.id)).toEqual(connect);
+    await book.save({ ...host, publicKey: FP, connect: undefined }, "set-up-again-token");
     expect(await book.connect(host.id)).toBeUndefined();
     await book.stageConnectLink(offer());
     expect(await book.takeConnectLink()).toBe(offer());

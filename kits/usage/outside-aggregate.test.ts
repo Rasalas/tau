@@ -86,6 +86,41 @@ describe("summarize with work outside Tau", () => {
     expect(summary.reading).toBeUndefined();
   });
 
+  it("counts an OpenCode session Tau ran once, the CLI's own outside Tau, and names a database it could not read", () => {
+    const openCodeSource = BACKEND_USAGE_SOURCES.find((source) => source.backend === "opencode")!;
+    const openCodeRoot: OutsideRoot = { format: "opencode", backend: "opencode", label: "OpenCode", path: "/opencode-data" };
+    const otherRoot: OutsideRoot = { ...openCodeRoot, path: "/opencode-other" };
+    const db = (path: string, sessions: OutsideSessionUsage[]): OutsideUnit => ({ ...unit(path, sessions), format: "opencode" });
+    const withOpenCode = scan();
+    withOpenCode.backends.push({ source: openCodeSource, answer: { threads: [{ threadId: "tau-oc", sessionId: "ses_tau", cwd: "/work/oc", updatedAt: NOW - 1_000, usage }] } });
+    withOpenCode.outside = {
+      errors: [],
+      scan: {
+        reading: false,
+        horizon: 0,
+        roots: [
+          { root: openCodeRoot, found: true, files: 1, failed: 0 },
+          { root: otherRoot, found: true, files: 0, failed: 1, problems: ["opencode.db: the database has no message table this version reads (no session_message table; no message table)"] },
+        ],
+        units: [{ root: openCodeRoot, unit: db("/opencode-data/opencode.db", [
+          { sessionId: "ses_tau", cwd: "/work/oc", buckets: [bucket(NOW - 1_000, 40)] },
+          // A sub-agent of the Tau thread's session is that thread's, too.
+          { sessionId: "ses_task", parentId: "ses_tau", cwd: "/work/oc", buckets: [bucket(NOW - 1_000, 4)] },
+          { sessionId: "ses_cli", cwd: "/work/terminal", buckets: [bucket(NOW - 1_000, 9)] },
+        ]) }],
+      },
+    };
+    const summary = summarize(withOpenCode);
+    expect(summary.rows.filter((row) => row.backend === "opencode").map((row) => [row.cwd, row.totalTokens, row.outside ?? false]).sort()).toEqual([
+      ["/work/oc", 5, false],
+      ["/work/terminal", 9, true],
+    ]);
+    const report = summary.sources.find((source) => source.backend === "opencode-outside");
+    expect(report?.detail).toContain("1 session outside Tau in this period");
+    expect(report?.detail).toContain("2 sessions were Tau's own");
+    expect(report?.detail).toContain("1 file could not be read (opencode.db: the database has no message table this version reads (no session_message table; no message table))");
+  });
+
   it("says a read is still under way", () => {
     const partial = scan();
     partial.outside!.scan.reading = true;

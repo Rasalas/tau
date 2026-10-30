@@ -55,7 +55,7 @@ export interface UpdateInfo extends DesktopReleaseInfo {
 
 export type UpdateFeedOptions =
   | { provider: "github"; owner: string; repo: string }
-  | { provider: "generic"; url: string };
+  | { provider: "generic"; url: string; channel?: string };
 
 /**
  * Where each channel reads its feed. Stable is the GitHub provider, which asks
@@ -381,9 +381,9 @@ export function createAppUpdates(options: AppUpdatesOptions): AppUpdates {
           if (channel === "nightly" && selected.channel === "stable" && compareVersions(selected.info.version, options.currentVersion ?? "") > 0) await options.preserveNightlyChannel?.();
           // Pin a stable winner to its tag. A GitHub provider with prereleases
           // enabled could select a different release than the one compared.
-          updater.setFeedURL(selected.channel === "nightly" ? feedFor("nightly", options.feed!) : {
+          updater.setFeedURL({ ...(selected.channel === "nightly" ? feedFor("nightly", options.feed!) : {
             provider: "generic", url: `https://github.com/${options.feed!.owner}/${options.feed!.repo}/releases/download/v${encodeURIComponent(selected.info.version)}`,
-          });
+          }), ...(process.platform === "win32" && process.arch === "arm64" ? { channel: "latest-arm64" } : {}) });
         }
         await updater.checkForUpdates();
       } catch (error) {

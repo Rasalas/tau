@@ -242,7 +242,8 @@ export function Shell({ context, initial }: { context: AppContext; initial: AppR
       pairingRef.current = undefined;
       if (outcome.state === "approved") {
         await book.save(outcome.host, outcome.token, target.connect);
-        openWorkbench(outcome.host, outcome.token, undefined, target.connect);
+        // A pairing over the host's own address keeps the relay it had (HostBook.save).
+        openWorkbench(outcome.host, outcome.token, undefined, target.connect ?? await book.connect(outcome.host.id));
         return;
       }
       const message = abort.signal.aborted ? undefined : outcome.state === "failed" ? outcome.message : pairingNotice(outcome);
