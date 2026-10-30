@@ -4,8 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 
 // The host's sources as Node runs them: one JavaScript file per TypeScript file in
-// dist-electron/, as `tsc -p tooling/tsconfig.electron.json` emits them, in a second
-// instead of half a minute. `npm run typecheck` checks the same project.
+// dist-electron/, using the production config's roots without test entrypoints.
+// `npm run typecheck` checks the full project, including its tests.
 const root = fileURLToPath(new URL("..", import.meta.url));
 const TSCONFIG = "tooling/tsconfig.electron-build.json";
 

@@ -2492,9 +2492,16 @@ standalone clients use them. No timing or size limit changes accompany this
 build correction. Regression coverage checks both the removed test roots and
 the retained runtime, preload, worker and smoke-helper entries.
 
-A clean local output contained no compiled test modules and retained the
-standalone smoke helper. All 395 emitted runtime JavaScript modules were
-byte-identical to the prior output. The clean build passed the existing
+A clean local output from the initial tsc-based correction contained no compiled
+test modules and retained the standalone smoke helper. All 395 runtime JavaScript
+modules were byte-identical to the prior output. The clean build passed the existing
 budgets, and the isolated host/runtime/browser webhook and sharing smoke
 passed without relying on stale output. The Linux CI rerun supplies the
 release-gate measurement; local timing is not substituted for it.
+
+After integration with main's esbuild emitter from PR #481, the emitter reads
+that production configuration's file list instead of keeping a separate list
+of source folders. Parsing the file list constructs no TypeScript program;
+esbuild still discovers imported modules and emits the host. The regression
+checks compare the emitter's actual roots with the production configuration.
+Main's desktop and web time caps remain 40,000 and 25,000 ms respectively.
