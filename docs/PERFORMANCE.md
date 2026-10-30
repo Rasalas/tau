@@ -2186,6 +2186,12 @@ that commit explicitly, checks out both subjects as detached worktrees, installs
 each lockfile once, and builds each production renderer and benchmark renderer
 once. Product components, build configuration and dependencies come from their
 respective commits. No dependency tree or build output is shared across subjects.
+The measurement processes for both bundles use the same Electron binary from
+the head's locked installation. Its source commit, version, executable path and
+SHA-256 fingerprint are recorded in the comparison provenance. This holds the
+browser engine constant when a pull request upgrades Electron, while preserving
+each subject's product code and dependencies. An ambient
+`TAU_BENCHMARK_ELECTRON` override cannot change the runner's selected binary.
 
 Both builds receive identical copies of the gate checkout's benchmark sources,
 including `RendererBenchmark*.tsx`, the Electron fixtures and fixture JSON.
@@ -2214,10 +2220,12 @@ and scenarios outside the subset can pass. Existing full structural checks and
 local absolute timing checks remain in place. No timing or bundle budget rises.
 
 Missing samples, invalid timings, different fixtures, different harness hashes,
-different Electron versions, machine changes and GPU backend changes fail before
-comparison. A dependency upgrade that changes Electron requires a compatible
-measurement plan, because the gate cannot attribute that difference to product
-code. The report keeps raw paired values and policy, commit and dependency-lock
+different Electron versions or executables, machine changes and GPU backend
+changes fail before comparison. Every report must match the selected head
+runtime. This comparison measures product-code changes on the updated browser
+engine; it does not measure the performance effect of the Electron upgrade
+itself. Each subject's ordinary structural reports still use its own runtime.
+The report keeps raw paired values and policy, commit and dependency-lock
 hashes, benchmark build hashes and the frozen measurement sources. CI uploads
 these as the `timing-comparison` artifact, including an error report after a
 partial run. The runner script has a 24-minute deadline and the job a 30-minute

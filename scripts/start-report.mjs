@@ -2,11 +2,12 @@ import { spawnSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { benchmarkElectron } from "./performance-comparison.mjs";
 
 // Bundle-only renderer fixture. Real app startup is measured by compare/run.mjs.
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const ELECTRON = join(ROOT, "node_modules", ".bin", "electron");
+const ELECTRON = benchmarkElectron(ROOT);
 const REPORT_PATH = join(ROOT, "reports", "start-report.json");
 const BUDGET_PATH = join(ROOT, "scripts", "performance-budgets.json");
 
@@ -59,6 +60,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     execution: {
       electronVersion: measurements.electronVersion,
+      electronExecutable: ELECTRON,
       profileMode: process.env.TAU_BENCHMARK_PROFILE_ROOT ? "fresh-per-process" : "default",
     },
     firstPaintMs: measurements.firstPaintMs,

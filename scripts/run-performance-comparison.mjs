@@ -87,6 +87,19 @@ try {
     run(root, process.execPath, [vite, "build"]);
     run(root, process.execPath, [vite, "build", "--mode", "benchmark", "--outDir", join(root, "dist-benchmark"), "--emptyOutDir"]);
   }
+  // Electron is measurement infrastructure here. Use the head's exact installed
+  // binary for both bundles, including when the product upgrades Electron.
+  // Each subject still builds against its own untouched dependency lockfile.
+  const runtimeEnv = { ...process.env };
+  delete runtimeEnv.ELECTRON_OVERRIDE_DIST_PATH;
+  const electronExecutable = run(subjects.head, process.execPath, ["-e", "process.stdout.write(require('electron'))"], { env: runtimeEnv });
+  const electronPackage = JSON.parse(await readFile(join(subjects.head, "node_modules/electron/package.json"), "utf8"));
+  provenance.measurementRuntime = {
+    sourceCommit: headCommit,
+    electronVersion: electronPackage.version,
+    executable: electronExecutable,
+    binarySha256: createHash("sha256").update(await readFile(electronExecutable)).digest("hex"),
+  };
   await writeFile(join(outputDirectory, "timing-comparison-provenance.json"), `${JSON.stringify(provenance, null, 2)}\n`);
   for (let round = 0; round < comparisonPolicy.pairs; round += 1) {
     // Alternate AB/BA order so a warming or slowing runner does not always
@@ -94,7 +107,7 @@ try {
     for (const side of round % 2 === 0 ? ["base", "head"] : ["head", "base"]) {
       console.log(`Measuring pair ${round + 1}/${comparisonPolicy.pairs}, ${side}`);
       const root = subjects[side];
-      const env = { ...process.env, TAU_RENDERER_SCENARIOS: comparisonPolicy.scenarios.join(","), TAU_BENCHMARK_SUBJECT_COMMIT: provenance[`${side}Commit`], TAU_BENCHMARK_HARNESS_COMMIT: provenance.harnessCommit, TAU_BENCHMARK_PROFILE_ROOT: join(temporary, "profiles", `${round}-${side}`) };
+      const env = { ...process.env, TAU_BENCHMARK_ELECTRON: electronExecutable, TAU_RENDERER_SCENARIOS: comparisonPolicy.scenarios.join(","), TAU_BENCHMARK_SUBJECT_COMMIT: provenance[`${side}Commit`], TAU_BENCHMARK_HARNESS_COMMIT: provenance.harnessCommit, TAU_BENCHMARK_PROFILE_ROOT: join(temporary, "profiles", `${round}-${side}`) };
       // Ignore ambient archive/historical harness settings. This series owns
       // all of its reports and their metadata.
       for (const key of ["TAU_BENCHMARK_ARCHIVE", "TAU_BENCHMARK_HARNESS_PATCH_FILE", "TAU_BENCHMARK_HARNESS_PATCH_SHA256", "TAU_BENCHMARK_SERIES_ID", "TAU_BENCHMARK_SERIES_SIDE"]) delete env[key];
