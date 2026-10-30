@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { mergeThreadBranch, readThreadBranch, readThreadBranches, readThreadConflicts, removeThreadBranch, mergedWorkIntegrated, threadWorkIntegrated, updateTargetBranch } from "./thread-branches.js";
 import { applyPicks, parseConflictText } from "./merge-picks.js";
-import { runAgentGit, type AgentGitRunner } from "./agent-worktrees.js";
+import { runAgentGit, withRepositoryWorktreeMutation, type AgentGitRunner } from "./agent-worktrees.js";
 
 const created: string[] = [];
 
@@ -588,6 +588,35 @@ describe("a branch the target holds under other commits", () => {
 });
 
 describe("removing a merged thread's branch", () => {
+  it("rechecks the branch tip after waiting for another worktree mutation", async () => {
+    const repo = await repository();
+    const dir = repo.worktree("tau/queued-removal");
+    const tip = repo.run(dir, "rev-parse", "HEAD");
+    let entered!: () => void;
+    const holding = new Promise<void>((resolve) => { entered = resolve; });
+    let queued!: () => void;
+    const waiting = new Promise<void>((resolve) => { queued = resolve; });
+    const previous = withRepositoryWorktreeMutation(repo.cwd, runAgentGit, async () => {
+      entered();
+      await waiting;
+      await repo.commit(dir, "follow-up.txt", "keep this new commit\n");
+    });
+    await holding;
+    const runGit: AgentGitRunner = async (cwd, args, options) => {
+      const result = await runAgentGit(cwd, args, options);
+      if (args.length === 3 && args[2] === "--git-common-dir") queued();
+      return result;
+    };
+    try {
+      await expect(removeThreadBranch(dir, { expectedTip: tip, runGit })).rejects.toThrow(/moved since/u);
+      expect(await readFile(join(dir, "follow-up.txt"), "utf8")).toBe("keep this new commit\n");
+      expect(repo.run(repo.cwd, "branch", "--list", "tau/queued-removal")).not.toBe("");
+    } finally {
+      queued();
+      await previous;
+    }
+  });
+
   it("removes the worktree and the branch once the target holds it, and refuses before", async () => {
     const repo = await repository();
     const dir = repo.worktree("tau/cleanup");

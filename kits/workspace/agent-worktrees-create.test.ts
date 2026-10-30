@@ -1,9 +1,15 @@
 import { execFileSync } from "node:child_process";
+import * as fs from "node:fs/promises";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentBranchName, createAgentWorktree, readBranchBase, runAgentGit, type AgentGitRunner } from "./agent-worktrees.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof fs>();
+  return { ...original, realpath: vi.fn(original.realpath) };
+});
 
 const roots: string[] = [];
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
@@ -22,67 +28,214 @@ async function repository() {
   return { root, cwd, worktreeParent: join(root, "children") };
 }
 
+function sharedMutation(args: string[]): boolean {
+  return args[0] === "worktree" && ["add", "remove", "prune"].includes(args[1])
+    || args[0] === "config" && !args[1].startsWith("--")
+    || args[0] === "branch" && args[1] === "-D";
+}
+
+async function alignPreparations(parent: string, count: number): Promise<() => void> {
+  const { realpath } = await vi.importActual<typeof fs>("node:fs/promises");
+  let prepared = 0;
+  let release!: () => void;
+  const allPrepared = new Promise<void>((resolve) => { release = resolve; });
+  vi.mocked(fs.realpath).mockImplementation(async (...args) => {
+    const canonical = await realpath(...args);
+    if (args[0] === parent) {
+      if (++prepared === count) release();
+      await allPrepared;
+    }
+    return canonical;
+  });
+  return release;
+}
+
 afterEach(async () => {
+  vi.mocked(fs.realpath).mockImplementation((await vi.importActual<typeof fs>("node:fs/promises")).realpath);
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
 describe("parallel worktree creation", () => {
   it("records the base and target of every concurrent child across the repository's checkouts", async () => {
     const { root, cwd, worktreeParent } = await repository();
-    // The barrier forces contention; more children only add Git subprocess load.
     const childCount = 8;
     const linked = join(root, "linked");
     git(cwd, "worktree", "add", "-b", "feature/parent", linked);
-    let addAttemptsFinished = 0;
-    let writing = false;
-    let collisions = 0;
-    let release!: () => void;
-    const allAdded = new Promise<void>((resolve) => { release = resolve; });
+    await writeFile(join(cwd, "README.md"), "main advanced\n");
+    git(cwd, "commit", "-qam", "advance main");
+    const startPoint = git(cwd, "rev-parse", "HEAD");
+    await writeFile(join(linked, "draft.txt"), "parent draft\n");
+    vi.resetModules();
+    const copy = await import("./agent-worktrees.js");
+    expect(copy.createAgentWorktree).not.toBe(createAgentWorktree);
+
+    // Align callers after their private preparation, before any shared Git
+    // mutations. Unlike a barrier inside a config write, this does not require
+    // another mutation to enter while the first one holds the queue.
+    const release = await alignPreparations(worktreeParent, childCount);
+    let mutating = false;
+    const collisions: string[] = [];
     const runGit: AgentGitRunner = async (path, args, options) => {
-      if (args[0] === "config" && !args[1].startsWith("--")) {
-        // Hold the first write until every child can contend for the same config.
-        if (writing) {
-          collisions += 1;
-          throw new Error("could not lock config file: File exists");
-        }
-        writing = true;
-        try {
-          await allAdded;
-          return await runAgentGit(path, args, options);
-        } finally {
-          writing = false;
-        }
+      if (!sharedMutation(args)) return runAgentGit(path, args, options);
+      if (mutating) {
+        collisions.push(args.join(" "));
+        throw new Error(`Overlapping worktree metadata mutation: ${args.join(" ")}`);
       }
+      mutating = true;
       try {
+        // The preparation barrier has released every caller. One event-loop
+        // turn lets all of their ready continuations attempt admission.
+        await new Promise<void>((resolve) => setImmediate(resolve));
         return await runAgentGit(path, args, options);
       } finally {
-        // A failed add must release the barrier too: otherwise successful
-        // children wait forever and hide the actual Git failure as a timeout.
-        if (args[0] === "worktree" && args[1] === "add" && ++addAttemptsFinished === childCount) release();
+        mutating = false;
       }
     };
-    const results = await Promise.allSettled(Array.from({ length: childCount }, (_, index) => createAgentWorktree({
+    const results = await Promise.allSettled(Array.from({ length: childCount }, (_, index) => (index % 2 ? copy.createAgentWorktree : createAgentWorktree)({
       parentCwd: index % 2 ? linked : cwd,
       agentId: index.toString(16).padStart(8, "0"),
       worktreeParent,
+      ...(index === 3 ? { startPoint } : {}),
       runGit,
     }).catch((error: unknown) => {
-      // A failure before worktree add must also unblock the successful
-      // children, so allSettled reports the original failure.
       release();
       throw error;
     })));
     expect(results.filter((result) => result.status === "rejected")).toEqual([]);
-    expect(collisions).toBe(0);
+    expect(collisions).toEqual([]);
     for (const [index, result] of results.entries()) {
       if (result.status !== "fulfilled") continue;
       const child = result.value;
+      const inheritedDraft = index % 2 === 1 && index !== 3;
+      expect(child.withUncommitted).toBe(inheritedDraft);
+      if (inheritedDraft) expect(git(child.path, "show", "HEAD:draft.txt")).toBe("parent draft");
+      else expect(child.baseCommit).toBe(startPoint);
       expect(await readBranchBase(child.path, child.branch)).toBe(child.baseCommit);
       expect(git(child.path, "config", "--get", `branch.${child.branch}.tau-review-target`)).toBe(index % 2 ? "feature/parent" : "main");
     }
+    expect(git(cwd, "status", "--porcelain")).toBe("");
+    expect(git(linked, "status", "--porcelain")).toBe("?? draft.txt");
     expect(git(cwd, "worktree", "list", "--porcelain").match(/^worktree /gmu)).toHaveLength(childCount + 2);
     expect(await readdir(worktreeParent)).toHaveLength(childCount);
   }, 60_000);
+
+  it.each(["add", "metadata", "rollback"])("releases queued creations after a failure in %s", async (failure) => {
+    const { cwd, worktreeParent } = await repository();
+    const release = await alignPreparations(worktreeParent, 2);
+    vi.resetModules();
+    const copy = await import("./agent-worktrees.js");
+    const mutations: string[][] = [];
+    let failedBranch = "";
+    const runGit: AgentGitRunner = async (path, args, options) => {
+      if (sharedMutation(args)) mutations.push(args);
+      if (args[0] === "worktree" && args[1] === "add" && !failedBranch) {
+        failedBranch = args[3];
+        if (failure === "add") throw new Error("injected add failure");
+      }
+      if (args[0] === "config" && args[1] === `branch.${failedBranch}.tau-review-target`) throw new Error("injected metadata failure");
+      if (failure === "rollback" && args[0] === "worktree" && args[1] === "remove") throw new Error("injected rollback failure");
+      return runAgentGit(path, args, options);
+    };
+    const results = await Promise.allSettled([createAgentWorktree, copy.createAgentWorktree].map((create, index) => create({
+      parentCwd: cwd, agentId: `0000000${index}`, worktreeParent, runGit,
+    }).catch((error: unknown) => { release(); throw error; })));
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const failed = results.find((result) => result.status === "rejected");
+    expect(failed?.reason.message).toContain(`injected ${failure === "add" ? "add" : "metadata"} failure`);
+    if (failure === "rollback") expect(failed?.reason).toBeInstanceOf(AggregateError);
+    const successful = results.find((result) => result.status === "fulfilled");
+    expect(successful).toBeDefined();
+    if (!successful) return;
+    expect(await readBranchBase(successful.value.path, successful.value.branch)).toBe(successful.value.baseCommit);
+    expect(git(cwd, "config", "--get", `branch.${successful.value.branch}.tau-review-target`)).toBe("main");
+    const nextAdd = mutations.findIndex((args) => args[0] === "worktree" && args[1] === "add" && args[3] !== failedBranch);
+    if (failure !== "add") {
+      expect(mutations.findIndex((args) => args[0] === "worktree" && args[1] === "remove")).toBeLessThan(nextAdd);
+      if (failure !== "rollback") expect(mutations.findIndex((args) => args[0] === "branch" && args[1] === "-D")).toBeLessThan(nextAdd);
+    }
+    if (failure === "rollback") expect(git(cwd, "branch", "--list", failedBranch)).toContain(failedBranch);
+    else expect(git(cwd, "branch", "--list", failedBranch)).toBe("");
+    expect(git(cwd, "worktree", "list", "--porcelain").match(/^worktree /gmu)).toHaveLength(failure === "rollback" ? 3 : 2);
+    expect(await readdir(worktreeParent)).toHaveLength(failure === "rollback" ? 2 : 1);
+  });
+
+  it("allows another repository to create while an add is held", async () => {
+    const repo = await repository();
+    const other = await repository();
+    vi.resetModules();
+    const copy = await import("./agent-worktrees.js");
+    let entered!: () => void;
+    const adding = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const runGit: AgentGitRunner = async (path, args, options) => {
+      if (args[0] === "worktree" && args[1] === "add") { entered(); await held; }
+      return runAgentGit(path, args, options);
+    };
+    const first = Promise.allSettled([createAgentWorktree({ parentCwd: repo.cwd, agentId: "11111111", worktreeParent: repo.worktreeParent, runGit })]);
+    await adding;
+    try {
+      const child = await copy.createAgentWorktree({ parentCwd: other.cwd, agentId: "11111111", worktreeParent: other.worktreeParent });
+      expect(await readBranchBase(child.path, child.branch)).toBe(child.baseCommit);
+    } finally {
+      release();
+      expect((await first)[0].status).toBe("fulfilled");
+    }
+  });
+
+  it("queues removal and picker pruning behind an add, across linked and aliased checkouts", async () => {
+    const { cwd, root, worktreeParent } = await repository();
+    const linked = join(root, "linked");
+    git(cwd, "worktree", "add", "-b", "feature/parent", linked);
+    const alias = join(root, "alias");
+    await fs.symlink(cwd, alias, process.platform === "win32" ? "junction" : "dir");
+    const old = await createAgentWorktree({ parentCwd: cwd, agentId: "00000000", worktreeParent });
+    vi.resetModules();
+    const copy = await import("./agent-worktrees.js");
+    const { readWorktreeStatuses } = await import("./workspace-worktrees.js");
+    let entered!: () => void;
+    const adding = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let released = false;
+    const overlaps: string[][] = [];
+    const runGit: AgentGitRunner = async (path, args, options) => {
+      if (args[0] === "worktree" && args[1] === "add") { entered(); await held; }
+      else if (sharedMutation(args) && !released) overlaps.push(args);
+      return runAgentGit(path, args, options);
+    };
+    const first = Promise.allSettled([createAgentWorktree({ parentCwd: cwd, agentId: "11111111", worktreeParent, runGit })]);
+    await adding;
+    // Observe each contender finishing canonical resolution. Their continuation
+    // can now enqueue without further filesystem reads before admission.
+    const { realpath } = await vi.importActual<typeof fs>("node:fs/promises");
+    const common = await realpath(join(cwd, ".git"));
+    let resolved = 0;
+    let ready!: () => void;
+    const contendersReady = new Promise<void>((resolve) => { ready = resolve; });
+    vi.mocked(fs.realpath).mockImplementation(async (...args) => {
+      const canonical = await realpath(...args);
+      if (canonical === common && ++resolved === 2) ready();
+      return canonical;
+    });
+    const contenders = Promise.allSettled([
+      copy.removeAgentWorktree({ parentCwd: alias, worktree: old, runGit }),
+      readWorktreeStatuses([{ path: linked, name: "parent", isMain: false, isCurrent: true }], [], [], (path, args) => runGit(path, args)),
+    ]);
+    try {
+      await contendersReady;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(overlaps).toEqual([]);
+    } finally {
+      released = true;
+      release();
+      expect((await first)[0].status).toBe("fulfilled");
+      expect((await contenders).map((result) => result.status)).toEqual(["fulfilled", "fulfilled"]);
+    }
+    expect(git(cwd, "branch", "--list", old.branch)).toBe("");
+    expect(git(cwd, "worktree", "list", "--porcelain").match(/^worktree /gmu)).toHaveLength(3);
+    expect(await readdir(worktreeParent)).toEqual(["tau-agent-11111111"]);
+  });
 
   it("retries actual config lock errors for both required metadata writes", async () => {
     const { cwd, worktreeParent } = await repository();

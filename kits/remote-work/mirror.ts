@@ -4,7 +4,7 @@ import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/prom
 import { renameReplacing } from "../_shared/atomic-rename.js";
 import { join } from "node:path";
 import { assertAllowedCloneSource, HostCommandError, tauHomeDir } from "tau/host-extension";
-import { branchBaseConfigKey, branchReviewTargetConfigKey } from "../workspace/agent-worktrees.js";
+import { branchBaseConfigKey, branchReviewTargetConfigKey, withRepositoryWorktreeMutation } from "../workspace/agent-worktrees.js";
 import { gitMessage, receivingGitRunner, type GitRunner } from "./git.js";
 import { REPO_KEY, folderName, readRepoIdentity, slugOf } from "./identity.js";
 import { DOWNLOAD_PIECE_BYTES, REMOTE_WORK_PROTOCOL, type PrepareResult, type RepoIdentity, type ResultAnswer, type TransferStepId, type TransferStepState } from "./protocol.js";
@@ -249,15 +249,18 @@ export class MirrorStore {
       if (arrived !== base) throw new Error(`The bundle carried ${arrived.slice(0, 12)}, not ${base.slice(0, 12)}.`);
       step("unpack", "done", input.bundle ? "Bundle verified and fetched" : "The mirror had every commit");
 
-      const { worktree, branch } = await this.placeFor(mirror, input);
-      step("worktree", "running", "Checking out");
-      await mkdir(join(worktree, ".."), { recursive: true });
-      await this.git(mirror, [...gitDir, "worktree", "add", "--quiet", "--no-track", "-b", branch, worktree, base], { timeoutMs: 30 * 60_000 });
-      await this.git(mirror, [...gitDir, "config", branchBaseConfigKey(branch), base]);
-      if (input.repository) {
-        const target = (await this.git(mirror, [...gitDir, "symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
-        if (target) await this.git(mirror, [...gitDir, "config", branchReviewTargetConfigKey(branch), target]);
-      }
+      const { worktree, branch } = await withRepositoryWorktreeMutation(mirror, (cwd, args) => this.git(cwd, [...gitDir, ...args]), async () => {
+        const placement = await this.placeFor(mirror, input);
+        step("worktree", "running", "Checking out");
+        await mkdir(join(placement.worktree, ".."), { recursive: true });
+        await this.git(mirror, [...gitDir, "worktree", "add", "--quiet", "--no-track", "-b", placement.branch, placement.worktree, base], { timeoutMs: 30 * 60_000 });
+        await this.git(mirror, [...gitDir, "config", branchBaseConfigKey(placement.branch), base]);
+        if (input.repository) {
+          const target = (await this.git(mirror, [...gitDir, "symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
+          if (target) await this.git(mirror, [...gitDir, "config", branchReviewTargetConfigKey(placement.branch), target]);
+        }
+        return placement;
+      });
       step("worktree", "done", worktree);
       const entry: ReceivedWorktree = {
         transfer, key: repo.key, name: repo.name, worktree, branch, base, createdAt: (this.options.now ?? Date.now)(),
@@ -337,10 +340,12 @@ export class MirrorStore {
     const mirror = entry.repository ?? this.mirrorPath(entry.key);
     const gitDir = entry.repository ? [] : ["--git-dir", mirror];
     await this.serial(entry.key, async () => {
-      if (await exists(entry.worktree)) await this.git(mirror, [...gitDir, "worktree", "remove", "--force", "--force", entry.worktree]).catch(() => "");
-      await rm(entry.worktree, { recursive: true, force: true });
-      await this.git(mirror, [...gitDir, "worktree", "prune"]).catch(() => "");
-      await this.git(mirror, [...gitDir, "branch", "-D", entry.branch]).catch(() => "");
+      await withRepositoryWorktreeMutation(mirror, (cwd, args) => this.git(cwd, [...gitDir, ...args]), async () => {
+        if (await exists(entry.worktree)) await this.git(mirror, [...gitDir, "worktree", "remove", "--force", "--force", entry.worktree]).catch(() => "");
+        await rm(entry.worktree, { recursive: true, force: true });
+        await this.git(mirror, [...gitDir, "worktree", "prune"]).catch(() => "");
+        await this.git(mirror, [...gitDir, "branch", "-D", entry.branch]).catch(() => "");
+      });
       for (const ref of [incomingRef(transfer), resultRef(transfer)]) await this.git(mirror, [...gitDir, "update-ref", "-d", ref]).catch(() => "");
       await rm(this.outgoingPath(transfer), { force: true });
       this.book = (await this.load()).filter((candidate) => candidate.transfer !== transfer);

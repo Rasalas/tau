@@ -10,17 +10,43 @@ import { HostCommandError, gitExecutable, tauHomeDir } from "tau/host-extension"
 
 const execFileAsync = promisify(execFile);
 const PATCH_BUFFER = 64 * 1024 * 1024;
-const configWrites = new Map<string, Promise<unknown>>();
+// Bundled kits carry separate copies of this leaf, but mutate the same Git
+// worktree registry. Share admission within the host, keyed by canonical common
+// directory, rather than by the caller's checkout. External processes and other
+// JS realms do not participate; Git's own locks still apply there.
+const worktreeMutationQueueKey = Symbol.for("tau.workspace.worktree-mutation-queue");
+const mutationScope = globalThis as typeof globalThis & { [worktreeMutationQueueKey]?: Map<string, Promise<unknown>> };
+const worktreeMutations = mutationScope[worktreeMutationQueueKey] ??= new Map<string, Promise<unknown>>();
 
-async function withConfigWrite<T>(commonDir: string, write: () => Promise<T>): Promise<T> {
-  const previous = configWrites.get(commonDir) ?? Promise.resolve();
+async function withWorktreeMutation<T>(commonDir: string, write: () => Promise<T>): Promise<T> {
+  const previous = worktreeMutations.get(commonDir) ?? Promise.resolve();
   const writing = previous.catch(() => undefined).then(write);
-  configWrites.set(commonDir, writing);
+  worktreeMutations.set(commonDir, writing);
   try {
     return await writing;
   } finally {
-    if (configWrites.get(commonDir) === writing) configWrites.delete(commonDir);
+    if (worktreeMutations.get(commonDir) === writing) worktreeMutations.delete(commonDir);
   }
+}
+
+/**
+ * Serialize a shared worktree mutation sequence, including its metadata and
+ * rollback. The callback must not re-enter this queue or acquire the Apply
+ * queue. Apply may acquire this queue, so that lock order must stay one-way.
+ */
+export async function withRepositoryWorktreeMutation<T>(
+  cwd: string,
+  runGit: (cwd: string, args: string[]) => Promise<string>,
+  mutate: () => Promise<T>,
+): Promise<T> {
+  const commonDir = await repositoryCommonDir(cwd, runGit);
+  return withWorktreeMutation(commonDir, mutate);
+}
+
+async function repositoryCommonDir(cwd: string, runGit: (cwd: string, args: string[]) => Promise<string>): Promise<string> {
+  const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
+  const absolute = resolve(cwd, commonDir);
+  return realpath(absolute).catch(() => absolute);
 }
 
 async function retryConfigLock(write: () => Promise<string>): Promise<string> {
@@ -31,7 +57,7 @@ async function retryConfigLock(write: () => Promise<string>): Promise<string> {
       const stderr = (error as { stderr?: unknown })?.stderr;
       const message = `${gitFailure(error).message}\n${typeof stderr === "string" ? stderr : ""}`;
       if (attempt >= 4 || !/could not lock config file[^\n]*: File exists/iu.test(message)) throw error;
-      // Other processes and separately bundled callers still share Git's lock.
+      // Other processes still share Git's config lock.
       await delay(25 * (attempt + 1));
     }
   }
@@ -43,9 +69,7 @@ const hostScope = globalThis as typeof globalThis & { [repositoryApplyQueueKey]?
 const repositoryApplies = hostScope[repositoryApplyQueueKey] ??= new Map<string, Promise<void>>();
 
 async function withRepositoryApply<T>(cwd: string, runGit: AgentGitRunner, apply: () => Promise<T>): Promise<T> {
-  const commonDir = (await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
-  const absolute = resolve(cwd, commonDir);
-  const key = await realpath(absolute).catch(() => absolute);
+  const key = await repositoryCommonDir(cwd, runGit);
   const previous = repositoryApplies.get(key) ?? Promise.resolve();
   const result = previous.then(apply);
   const settled = result.then(() => undefined, () => undefined);
@@ -343,12 +367,11 @@ export async function createAgentWorktree(options: {
   const branch = agentBranchName(options.agentId);
   const parent = options.worktreeParent ?? await worktreeParentOf(parentCwd, runGit);
   const path = join(parent, branch.replace(/[^a-z0-9._-]+/giu, "-"));
-  const commonPath = resolve(parentCwd, (await runGit(parentCwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim());
-  const commonDir = await realpath(commonPath).catch(() => commonPath);
+  const commonDir = await repositoryCommonDir(parentCwd, runGit);
   const worktree = { path, branch, baseCommit, withUncommitted: state.dirty };
   await prepareWorktreeParent(parent, { defaultParent: resolveWorktreeParent(dirname(commonDir)) });
-  await runGit(parentCwd, ["worktree", "add", "-b", branch, path, baseCommit]);
-  return withConfigWrite(commonDir, async () => {
+  return withWorktreeMutation(commonDir, async () => {
+    await runGit(parentCwd, ["worktree", "add", "-b", branch, path, baseCommit]);
     try {
       // The base records only the child's changes, excluding the parent's prior work.
       await retryConfigLock(() => runGit(parentCwd, ["config", branchBaseConfigKey(branch), baseCommit]));
@@ -501,6 +524,11 @@ export async function removeAgentWorktree(options: {
   runGit?: AgentGitRunner;
   discard?: { force?: boolean };
 }): Promise<string | undefined> {
+  const runGit = options.runGit ?? runAgentGit;
+  return withRepositoryWorktreeMutation(options.parentCwd, runGit, () => removeAgentWorktreeUnlocked(options));
+}
+
+async function removeAgentWorktreeUnlocked(options: Parameters<typeof removeAgentWorktree>[0]): Promise<string | undefined> {
   const runGit = options.runGit ?? runAgentGit;
   const { parentCwd, worktree } = options;
   const exists = await stat(worktree.path).then((entry) => entry.isDirectory()).catch(() => false);
