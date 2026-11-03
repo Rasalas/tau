@@ -55,6 +55,7 @@ describe("QueuedMessages", () => {
     const retry = await restarted.queue.submit("t", { ...text("one"), identity });
     expect(retry).toMatchObject({ id: queued.id, identity });
     expect(restarted.queue.list("t")).toHaveLength(1);
+    await restarted.queue.flush();
   });
 
   it("admits one queued copy for concurrent retries of the same submitted message", async () => {
