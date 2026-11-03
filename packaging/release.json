@@ -1,256 +1,304 @@
 {
-  "tag_name": "v0.7.38",
-  "name": "v0.7.38",
+  "tag_name": "v0.7.43",
+  "name": "v0.7.43",
   "draft": false,
   "prerelease": false,
-  "published_at": "2026-10-02T23:03:58Z",
-  "html_url": "https://github.com/Rasalas/tau-releases/releases/tag/v0.7.38",
+  "published_at": "2026-11-03T10:21:27Z",
+  "html_url": "https://github.com/Rasalas/tau-releases/releases/tag/v0.7.43",
   "assets": [
+    {
+      "name": "latest-arm64.yml",
+      "size": 350,
+      "digest": "sha256:9aff334cea62d740a3e321e2a9c5e7b05fd11ca1dfbb1bd6bfece88c646e06aa",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-arm64.yml"
+    },
+    {
+      "name": "latest-arm64.yml.sig",
+      "size": 89,
+      "digest": "sha256:9eacc7fa476279a212733f10179d2226734a3351a2b75f6c6771cd5125007829",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-arm64.yml.sig"
+    },
     {
       "name": "latest-host-darwin-arm64.yml",
       "size": 189,
-      "digest": "sha256:85a426616c1d3461b54d7c5f3691242287232ea24a350562962b78e1855f05a1",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-darwin-arm64.yml"
+      "digest": "sha256:3850f7181a0549433e19ba9f7d1c782343a772f3fd68381c862a669dfaae38bb",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-darwin-arm64.yml"
     },
     {
       "name": "latest-host-darwin-arm64.yml.sig",
       "size": 89,
-      "digest": "sha256:5a8b8e56146ef79d68d873df3e14c7743c8a0bbbe9a9805345cc209b5c32c931",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-darwin-arm64.yml.sig"
+      "digest": "sha256:267d6d95f7bb69d03c9980499e358febea83009c5f93b3b0145a3dc490338d78",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-darwin-arm64.yml.sig"
     },
     {
       "name": "latest-host-darwin-x64.yml",
       "size": 187,
-      "digest": "sha256:42af62c6cba2d8428b37fc57cec64ffb9b5e596e53c33ee3fdea30cd69fb487d",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-darwin-x64.yml"
+      "digest": "sha256:47aebed428869846d0463a6c0d7146e6b4b41cd3c371e8e2f06981e0489c11fa",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-darwin-x64.yml"
     },
     {
       "name": "latest-host-darwin-x64.yml.sig",
       "size": 89,
-      "digest": "sha256:9357b424f6b8d203264e5688987c9ba1fc4a9937ca5f62cbfa8ba61fc057b005",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-darwin-x64.yml.sig"
+      "digest": "sha256:ce4eec08e65b15635931a7402630d23be65675a52e9b0a248030f12c4efee7e7",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-darwin-x64.yml.sig"
     },
     {
       "name": "latest-host-linux-arm64.yml",
       "size": 188,
-      "digest": "sha256:9aebd282aff5a0101a76b7861a157b0208861663c00ad0961401bd324728cf76",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-linux-arm64.yml"
+      "digest": "sha256:ab97d751c9bcd57812234c7b01ce8eb0c756d03df64acb25093c058d1645f357",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-linux-arm64.yml"
     },
     {
       "name": "latest-host-linux-arm64.yml.sig",
       "size": 89,
-      "digest": "sha256:0258e273650020f80b89e955c69396ac07cd6d7a378f2c9cd2705f6975f0d56b",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-linux-arm64.yml.sig"
+      "digest": "sha256:f62f57e39b203a30c3213ec3e2b3589b41e57d4ef94a330b15135cfa997de5a8",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-linux-arm64.yml.sig"
     },
     {
       "name": "latest-host-linux-x64.yml",
       "size": 186,
-      "digest": "sha256:df608c06d7199aa176980f01577a9c127b927e3b26222761c8e0654445249b3f",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-linux-x64.yml"
+      "digest": "sha256:534d2034ec6236f9a9679b675da0968ae31a2ec67cf28a3a1cc5d7b525061af4",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-linux-x64.yml"
     },
     {
       "name": "latest-host-linux-x64.yml.sig",
       "size": 89,
-      "digest": "sha256:c816ffcb5eef2d18e3fd8f5c99f2577fcbebdb03db6ef3ff738a111c4cb4d084",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-linux-x64.yml.sig"
+      "digest": "sha256:8d895a7156ce860ff12d5fd7480b71bfdca007551a02a6bf3d00e1c9d06115a8",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-linux-x64.yml.sig"
+    },
+    {
+      "name": "latest-host-win32-arm64.yml",
+      "size": 185,
+      "digest": "sha256:ed9d884b8706cae435e77fc2c5b67736d9863dfa7d741c700dba64ee8d39eb29",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-win32-arm64.yml"
+    },
+    {
+      "name": "latest-host-win32-arm64.yml.sig",
+      "size": 89,
+      "digest": "sha256:b71656303c6f8a5e87bed33606d32239272fbe89d6c8901140544e73cae9cec7",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-win32-arm64.yml.sig"
     },
     {
       "name": "latest-host-win32-x64.yml",
       "size": 183,
-      "digest": "sha256:b1642bf7683a1d1c2057b90d8d3fe201466c92164078993bb01328ef353e8341",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-win32-x64.yml"
+      "digest": "sha256:59cb2a23d6552a64b1c4c84ed727aa3830fe4d6e14068ab1e62be9cc6299c4ee",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-win32-x64.yml"
     },
     {
       "name": "latest-host-win32-x64.yml.sig",
       "size": 89,
-      "digest": "sha256:8c948dd25d5f72dc796f8168f62afc5f524dd63a0a6aff8649af246c9aee1f05",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-host-win32-x64.yml.sig"
+      "digest": "sha256:65efefa96ee02dbaf56ddb39c65aa85e7bcff98c43c7afcc61cbfa006c07609b",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-host-win32-x64.yml.sig"
     },
     {
       "name": "latest-linux.yml",
       "size": 512,
-      "digest": "sha256:e9711fb2e379dbdfee066e2fea6fe3a2a4dd438d1eff97a6ea290768eed422af",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-linux.yml"
+      "digest": "sha256:3451e5e22484253a3be73a62583cfcf935f68f5f518be7265c3dd8332166ee88",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-linux.yml"
     },
     {
       "name": "latest-linux.yml.sig",
       "size": 89,
-      "digest": "sha256:39c6b8b08f9ec77c1c01611b687730ec8360c5347e3dbb3dbd8fe2e4ae67f8ee",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-linux.yml.sig"
+      "digest": "sha256:acd51c1119388cf9dd3cce2838c10f566742a4067ba99bded56d6ae6638ace1f",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-linux.yml.sig"
     },
     {
       "name": "latest-mac.yml",
       "size": 785,
-      "digest": "sha256:2f422a11ec8000ea8a80d26e1166473b253985aa7b9e9af6a9e269f999f259e5",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-mac.yml"
+      "digest": "sha256:fed3503ddab01077df4baccb80a0344edc2f90b1c8fd48608c9eb15c789c5fae",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-mac.yml"
     },
     {
       "name": "latest-mac.yml.sig",
       "size": 89,
-      "digest": "sha256:bbee5cd83518ae64db33c09f0385c62575af5b263bf8824dc529e7e9961e66d7",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest-mac.yml.sig"
+      "digest": "sha256:a6428f01018cb902360e2e7e1c1a13dbe8cd77d49ee0264181a3c810409ee893",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest-mac.yml.sig"
     },
     {
       "name": "latest.yml",
       "size": 338,
-      "digest": "sha256:e09764fc4b5b7def5deb582ef6a5efda95d8e18b3e9aa246b781d531c1de4e1b",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest.yml"
+      "digest": "sha256:68ec6030ead6fd7879d0fb965cba029fa40d13b6ecf417652e6325718da6c3a7",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest.yml"
     },
     {
       "name": "latest.yml.sig",
       "size": 89,
-      "digest": "sha256:72edb1d6c2e072ad3807cf9c653b220decd22a19884f4eb4c9b668fe84e488cd",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/latest.yml.sig"
+      "digest": "sha256:a9f7a86ec308043ce322dc6e0971d7da08fd2ff6a72911b9116b78edaf95a63a",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/latest.yml.sig"
     },
     {
       "name": "LICENSE",
       "size": 1068,
       "digest": "sha256:0fa5f57f09e2e9ba3b07d5c0c9f342bfb03d8fbb13e416565ae195430fb35e8f",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/LICENSE"
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/LICENSE"
     },
     {
-      "name": "Tau-0.7.38-arm64-mac.zip",
-      "size": 215365667,
-      "digest": "sha256:aedd9033dd519ce063961388d1a3e0e3962f8b3e2637600e5e35086a6a3596ee",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38-arm64-mac.zip"
+      "name": "Tau-0.7.43-arm64-mac.zip",
+      "size": 226401522,
+      "digest": "sha256:8a4d921c8705ecf5d116fc454869d43898678d9ed4336fb2a29c3ef017cec6d5",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43-arm64-mac.zip"
     },
     {
-      "name": "Tau-0.7.38-arm64-mac.zip.blockmap",
-      "size": 225913,
-      "digest": "sha256:12039d1a7ed3afd147e702b9f7624bcdcdae1095c8205b1af70bc01d3d73c063",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38-arm64-mac.zip.blockmap"
+      "name": "Tau-0.7.43-arm64-mac.zip.blockmap",
+      "size": 237461,
+      "digest": "sha256:700bc113977603ab855b4ca29e80d1baa49cee77ee478109d616fd681ac9b182",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43-arm64-mac.zip.blockmap"
     },
     {
-      "name": "Tau-0.7.38-arm64.dmg",
-      "size": 208512494,
-      "digest": "sha256:86b594544ff6d77a8563c5551e2b39d55c3f2c5d1848b504f07cf3a621817063",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38-arm64.dmg"
+      "name": "Tau-0.7.43-arm64.dmg",
+      "size": 222045748,
+      "digest": "sha256:195ce055ed8be93ff5fd5b2319f53375dfcebda6132e6784fb0071beb97941c3",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43-arm64.dmg"
     },
     {
-      "name": "Tau-0.7.38-arm64.dmg.blockmap",
-      "size": 219473,
-      "digest": "sha256:57e3adbb294f516a2da28c692ccedd6fce4ece5ebd5faf03d327e3af158d5037",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38-arm64.dmg.blockmap"
+      "name": "Tau-0.7.43-arm64.dmg.blockmap",
+      "size": 232066,
+      "digest": "sha256:a927d5f2c905183366b230fe5c94f3fce0d589e1204658a10133cefefd4aae52",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43-arm64.dmg.blockmap"
     },
     {
-      "name": "Tau-0.7.38-mac.zip",
-      "size": 223373423,
-      "digest": "sha256:1824f0b16b38dd8bc88e8f57b11b7d8cb53457718b9f90c8d11d3e393796a144",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38-mac.zip"
+      "name": "Tau-0.7.43-mac.zip",
+      "size": 234206222,
+      "digest": "sha256:d6ef1ad2cd35d5c00957b527e92dce4439c798acfd74ce852de9bb9efcbd5345",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43-mac.zip"
     },
     {
-      "name": "Tau-0.7.38-mac.zip.blockmap",
-      "size": 234002,
-      "digest": "sha256:190baf3752874f0b31d817d0ded744eb1b5ad197a114cc9bec03a93094d8e8b3",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38-mac.zip.blockmap"
+      "name": "Tau-0.7.43-mac.zip.blockmap",
+      "size": 244418,
+      "digest": "sha256:b66b5021a7d6d7441b87cd806bb15c42d838edfa25c1edeb325070723692d5b8",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43-mac.zip.blockmap"
     },
     {
-      "name": "Tau-0.7.38.apk",
-      "size": 8171536,
-      "digest": "sha256:00bf269dc0f0a2650d60db639f5edaa8c050c6d4fdf78c8c2032673ed71f9dff",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38.apk"
+      "name": "Tau-0.7.43.apk",
+      "size": 12505997,
+      "digest": "sha256:9ed0dab8e11d69e5700043d18ba1378696bbb4fdecfca865fedb78d08d2979f9",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43.apk"
     },
     {
-      "name": "Tau-0.7.38.AppImage",
-      "size": 367869551,
-      "digest": "sha256:cdf5cfaf0863b5ea592979c3701293213d0b7a1530665b81d8c0922bce85255b",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38.AppImage"
+      "name": "Tau-0.7.43.AppImage",
+      "size": 369338591,
+      "digest": "sha256:f2adf34939a545ae7eca749d42b571a87235d0968843b08167b62315943ec1ae",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43.AppImage"
     },
     {
-      "name": "Tau-0.7.38.dmg",
-      "size": 216510429,
-      "digest": "sha256:93e10b6961017738cbbb2864d807883a00cba3c5d335bc2c735af54729ebf7d9",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38.dmg"
+      "name": "Tau-0.7.43.dmg",
+      "size": 229841783,
+      "digest": "sha256:a2ae69040c1fdeeae8c46bc5a70ae7a1bd94dd8fcb5b843bddfc14f0f2f18976",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43.dmg"
     },
     {
-      "name": "Tau-0.7.38.dmg.blockmap",
-      "size": 227313,
-      "digest": "sha256:abeeaad7b15bd2487f63f130c2d5cf74a7f877cceff422d8e6893f94526c82d8",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-0.7.38.dmg.blockmap"
+      "name": "Tau-0.7.43.dmg.blockmap",
+      "size": 240590,
+      "digest": "sha256:a05dabf1aabee7663d3924e489ec43137750ff692e9fa0f00af71bcd4e84ebd4",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-0.7.43.dmg.blockmap"
     },
     {
       "name": "Tau-android.apk",
-      "size": 8171536,
-      "digest": "sha256:00bf269dc0f0a2650d60db639f5edaa8c050c6d4fdf78c8c2032673ed71f9dff",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-android.apk"
+      "size": 12505997,
+      "digest": "sha256:9ed0dab8e11d69e5700043d18ba1378696bbb4fdecfca865fedb78d08d2979f9",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-android.apk"
     },
     {
-      "name": "Tau-host-0.7.38-darwin-arm64.tar.gz",
-      "size": 209072087,
-      "digest": "sha256:15a3dd7dbf4db7b4aa006f4cd3a865afdffb4baf1ffadf19d9ea34b5784cdd9a",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-host-0.7.38-darwin-arm64.tar.gz"
+      "name": "Tau-host-0.7.43-darwin-arm64.tar.gz",
+      "size": 222772870,
+      "digest": "sha256:327a32226e375c7205d3e55f0f1cf7b62140cf7a2a89c917e26e8bb1b8631bd3",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-host-0.7.43-darwin-arm64.tar.gz"
     },
     {
-      "name": "Tau-host-0.7.38-darwin-x64.tar.gz",
-      "size": 217229198,
-      "digest": "sha256:b086cc7e9c1c3a6b360577743d1240576e90a53eb99b464e5fcba2358b9786e8",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-host-0.7.38-darwin-x64.tar.gz"
+      "name": "Tau-host-0.7.43-darwin-x64.tar.gz",
+      "size": 230721542,
+      "digest": "sha256:00d6224e29de3a5eb71a114da80738446a53f8a66970d44a3a16009c6aafd45a",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-host-0.7.43-darwin-x64.tar.gz"
     },
     {
-      "name": "Tau-host-0.7.38-linux-arm64.tar.gz",
-      "size": 205357675,
-      "digest": "sha256:266b6fbcf92791eb3fa1ed9a464ef7a7e133ab4807d14c87b3aae860bdc8a252",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-host-0.7.38-linux-arm64.tar.gz"
+      "name": "Tau-host-0.7.43-linux-arm64.tar.gz",
+      "size": 204952815,
+      "digest": "sha256:36e5e3583a4360aeb1ad0e3ec01998e194ec3013777f3945e1e2d6cdb0f17ece",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-host-0.7.43-linux-arm64.tar.gz"
     },
     {
-      "name": "Tau-host-0.7.38-linux-x64.tar.gz",
-      "size": 360035070,
-      "digest": "sha256:d305c76210f3bc3fb4ce7f25e1e8021b9e02e0ae2354418dd855a5f0affdf505",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-host-0.7.38-linux-x64.tar.gz"
+      "name": "Tau-host-0.7.43-linux-x64.tar.gz",
+      "size": 360074698,
+      "digest": "sha256:9de52bcf16ab215ef2d0cd1e7aaf58e37e7da9eee37f1bb6dba7d8c8bbaa6a9d",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-host-0.7.43-linux-x64.tar.gz"
     },
     {
-      "name": "Tau-host-0.7.38-win32-x64.zip",
-      "size": 259897195,
-      "digest": "sha256:fa09112895a8a8ff4ac6790694d105e14ff8a102ff0e1c3a97179a52d891650a",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-host-0.7.38-win32-x64.zip"
+      "name": "Tau-host-0.7.43-win32-arm64.zip",
+      "size": 253867996,
+      "digest": "sha256:26158f49dc6add3e514836bab79f5155f8c5969d27f18811225f89d0266e60e5",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-host-0.7.43-win32-arm64.zip"
+    },
+    {
+      "name": "Tau-host-0.7.43-win32-x64.zip",
+      "size": 258990918,
+      "digest": "sha256:5061eaeb788a4457c38b7da46f867d1b8433250ade538b5cc54877b14d182fb2",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-host-0.7.43-win32-x64.zip"
     },
     {
       "name": "Tau-linux-amd64.deb",
-      "size": 240392932,
-      "digest": "sha256:f92b14bdc8b91fab394dd1cd7f43bb96f886ecee6b8cca71b987b6b5d4a0091e",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-linux-amd64.deb"
+      "size": 241266528,
+      "digest": "sha256:cf6f466679087e1e68d743a97f93c5849b5f52be2be9f9352086cf110fcbd430",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-linux-amd64.deb"
     },
     {
       "name": "Tau-linux-x86_64.AppImage",
-      "size": 367869551,
-      "digest": "sha256:cdf5cfaf0863b5ea592979c3701293213d0b7a1530665b81d8c0922bce85255b",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-linux-x86_64.AppImage"
+      "size": 369338591,
+      "digest": "sha256:f2adf34939a545ae7eca749d42b571a87235d0968843b08167b62315943ec1ae",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-linux-x86_64.AppImage"
     },
     {
       "name": "Tau-mac-arm64.dmg",
-      "size": 208512494,
-      "digest": "sha256:86b594544ff6d77a8563c5551e2b39d55c3f2c5d1848b504f07cf3a621817063",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-mac-arm64.dmg"
+      "size": 222045748,
+      "digest": "sha256:195ce055ed8be93ff5fd5b2319f53375dfcebda6132e6784fb0071beb97941c3",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-mac-arm64.dmg"
     },
     {
       "name": "Tau-mac-x64.dmg",
-      "size": 216510429,
-      "digest": "sha256:93e10b6961017738cbbb2864d807883a00cba3c5d335bc2c735af54729ebf7d9",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-mac-x64.dmg"
+      "size": 229841783,
+      "digest": "sha256:a2ae69040c1fdeeae8c46bc5a70ae7a1bd94dd8fcb5b843bddfc14f0f2f18976",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-mac-x64.dmg"
     },
     {
-      "name": "Tau-Setup-0.7.38.exe",
-      "size": 196162303,
-      "digest": "sha256:9c33bb2751f7b22624ebc135f50496e85583c41c1f3c515f4a37c77f03602285",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-Setup-0.7.38.exe"
+      "name": "Tau-Setup-0.7.43-arm64.exe",
+      "size": 189693606,
+      "digest": "sha256:1f624789ae2427f0352c49853ed5d80fb0381e118801f38232ec428300fadae8",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-Setup-0.7.43-arm64.exe"
     },
     {
-      "name": "Tau-Setup-0.7.38.exe.blockmap",
-      "size": 205382,
-      "digest": "sha256:8c4363354b9d7069b05ec1fe3c7f96de70c65f5ccb0cfe2c41b8bb7d23ab108c",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-Setup-0.7.38.exe.blockmap"
+      "name": "Tau-Setup-0.7.43-arm64.exe.blockmap",
+      "size": 197511,
+      "digest": "sha256:b6c6465d984e45fca8ee6f0ecbeb07ed964fa0d24713d9cb06d21ec9f12d4ef0",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-Setup-0.7.43-arm64.exe.blockmap"
+    },
+    {
+      "name": "Tau-Setup-0.7.43.exe",
+      "size": 197435773,
+      "digest": "sha256:b0722abee156b53d3522cde5dade21653607adfb26e41efa0c82d78da65a3cd3",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-Setup-0.7.43.exe"
+    },
+    {
+      "name": "Tau-Setup-0.7.43.exe.blockmap",
+      "size": 206467,
+      "digest": "sha256:39f0f23019487e0fc03cda56341693cd6ce90e55886dc84bc29fd03496eb489d",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-Setup-0.7.43.exe.blockmap"
+    },
+    {
+      "name": "Tau-windows-arm64.exe",
+      "size": 189693606,
+      "digest": "sha256:1f624789ae2427f0352c49853ed5d80fb0381e118801f38232ec428300fadae8",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-windows-arm64.exe"
     },
     {
       "name": "Tau-windows-x64.exe",
-      "size": 196162303,
-      "digest": "sha256:9c33bb2751f7b22624ebc135f50496e85583c41c1f3c515f4a37c77f03602285",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau-windows-x64.exe"
+      "size": 197435773,
+      "digest": "sha256:b0722abee156b53d3522cde5dade21653607adfb26e41efa0c82d78da65a3cd3",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau-windows-x64.exe"
     },
     {
-      "name": "Tau_0.7.38_amd64.deb",
-      "size": 240392932,
-      "digest": "sha256:f92b14bdc8b91fab394dd1cd7f43bb96f886ecee6b8cca71b987b6b5d4a0091e",
-      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.38/Tau_0.7.38_amd64.deb"
+      "name": "Tau_0.7.43_amd64.deb",
+      "size": 241266528,
+      "digest": "sha256:cf6f466679087e1e68d743a97f93c5849b5f52be2be9f9352086cf110fcbd430",
+      "browser_download_url": "https://github.com/Rasalas/tau-releases/releases/download/v0.7.43/Tau_0.7.43_amd64.deb"
     }
   ]
 }
