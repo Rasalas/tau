@@ -43,6 +43,7 @@ function fixture() {
     git: vi.fn((...args) => {
       if (args[0] === "rev-parse") return args[1].endsWith("^1") ? "parent" : sha;
       if (args[0] === "fetch") return "";
+      if (args[0] === "diff" && args.includes("parent")) return "package.json\npackage-lock.json";
       if (args[0] === "diff" || args[0] === "diff-tree") return "src/app.ts";
       if (args[0] === "rev-list") return sha;
       if (args[0] === "show") return "fix: preserve thread model selection (#128)";
@@ -158,6 +159,13 @@ describe("weekly notifications and preparation", () => {
 });
 
 describe("merging is the stable approval", () => {
+  it("validates the merge delta when GitHub's PR files still include changes from an older base", async () => {
+    const f = fixture();
+    f.github.rest.pulls.listFiles.mockResolvedValue({ data: [{ filename: "src/app.ts" }, { filename: "package.json" }, { filename: "package-lock.json" }] });
+    await expect(publishCandidate({ ...f, pr })).resolves.toEqual({ tag: "v0.7.41", sha: merge });
+    expect(f.checkout.git).toHaveBeenCalledWith("diff", "--name-only", "--no-renames", "parent", merge);
+    expect(f.github.rest.pulls.listFiles).not.toHaveBeenCalled();
+  });
   it("tags the exact merge commit and dispatches the release on that tag", async () => {
     const f = fixture();
     await expect(publishCandidate({ ...f, pr })).resolves.toEqual({ tag: "v0.7.41", sha: merge });
@@ -178,11 +186,21 @@ describe("merging is the stable approval", () => {
   it("rejects non-version files and hidden dependency changes before tagging", async () => {
     for (const nonVersionFile of [true, false]) {
       const f = fixture();
-      if (nonVersionFile) f.github.rest.pulls.listFiles.mockResolvedValue({ data: [{ filename: "src/app.ts" }] });
+      if (nonVersionFile) {
+        const git = f.checkout.git.getMockImplementation();
+        f.checkout.git.mockImplementation((...args) => args[0] === "diff" ? "package.json\nsrc/app.ts" : git(...args));
+      }
       else f.checkout.read.mockImplementation((ref, file) => ref === merge && file === "package.json" ? bumped[file].replace('"pi":"1"', '"pi":"2"') : (ref === merge ? bumped : old)[file]);
       await expect(publishCandidate({ ...f, pr })).rejects.toThrow();
       expect(f.github.rest.git.createRef).not.toHaveBeenCalled();
     }
+  });
+  it("rejects an empty merge delta before tagging", async () => {
+    const f = fixture();
+    const git = f.checkout.git.getMockImplementation();
+    f.checkout.git.mockImplementation((...args) => args[0] === "diff" ? "" : git(...args));
+    await expect(publishCandidate({ ...f, pr })).rejects.toThrow(/only version files/u);
+    expect(f.github.rest.git.createRef).not.toHaveBeenCalled();
   });
   it("refuses to replace another commit's tag or publish behind a newer stable", async () => {
     const f = fixture();

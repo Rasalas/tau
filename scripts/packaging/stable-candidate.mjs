@@ -115,20 +115,22 @@ export async function publishCandidate({ github, repo, pr, checkout = { git, rea
   if (!pr.merged || !isCandidate(pr, `${repo.owner}/${repo.repo}`)) return { skipped: true };
   const sha = pr.merge_commit_sha;
   if (!/^[0-9a-f]{40}$/u.test(sha)) throw new Error("The merged candidate has no commit SHA.");
-  const files = await github.paginate(github.rest.pulls.listFiles, { ...repo, pull_number: pr.number, per_page: 100 });
-  if (!files.length || files.some((file) => !VERSION_FILES.includes(file.filename))) throw new Error("A release candidate may change only version files.");
+  const previous = checkout.git("rev-parse", `${sha}^1`);
+  // GitHub's PR file list can retain an older base after main was merged into
+  // the candidate. Validate what the approved merge actually added to main.
+  const files = checkout.git("diff", "--name-only", "--no-renames", previous, sha).split("\n").filter(Boolean);
+  if (!files.length || files.some((file) => !VERSION_FILES.includes(file))) throw new Error("A release candidate may change only version files.");
   // Contents and workflows come from the merged main commit, never a fork's checkout.
   const app = JSON.parse(checkout.read(sha, "package.json"));
   const lock = JSON.parse(checkout.read(sha, "package-lock.json"));
   parts(app.version);
   if (!pr.head.ref.startsWith(`${CANDIDATE_PREFIX}${app.version}-`) || lock.version !== app.version || lock.packages?.[""]?.version !== app.version) throw new Error("The merged candidate's versions do not match its branch.");
-  const previous = checkout.git("rev-parse", `${sha}^1`);
   for (const file of files) {
-    const before = JSON.parse(checkout.read(previous, file.filename));
-    const after = JSON.parse(checkout.read(sha, file.filename));
+    const before = JSON.parse(checkout.read(previous, file));
+    const after = JSON.parse(checkout.read(sha, file));
     delete before.version; delete after.version;
-    if (file.filename === "package-lock.json") { delete before.packages[""].version; delete after.packages[""].version; }
-    if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error(`The candidate changed more than a version in ${file.filename}.`);
+    if (file === "package-lock.json") { delete before.packages[""].version; delete after.packages[""].version; }
+    if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error(`The candidate changed more than a version in ${file}.`);
   }
   const tag = `v${app.version}`;
   const latest = (await github.rest.repos.getLatestRelease(repo)).data;
