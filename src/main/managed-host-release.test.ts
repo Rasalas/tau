@@ -27,7 +27,8 @@ it("checks the signed platform manifest and archive before preserving a download
   const bytes = Buffer.from("portable archive"); const fixture = feed(bytes);
   const release = await prepareManagedHostRelease("linux", "x64", dir(), undefined, fixture.fetch, [publicKey]);
   expect(readFileSync(release.path)).toEqual(bytes);
-  expect(fixture.calls.at(-1)).toContain("/download/v1.2.3/Tau-host-1.2.3-linux-x64.tar.gz");
+  expect(fixture.calls[0]).toBe("https://github.com/Rasalas/tau/releases/latest/download/latest-host-linux-x64.yml");
+  expect(fixture.calls.at(-1)).toBe("https://github.com/Rasalas/tau/releases/download/v1.2.3/Tau-host-1.2.3-linux-x64.tar.gz");
 });
 
 it("refuses tampered signatures, wrong platforms and path-bearing artifact names before download", async () => {

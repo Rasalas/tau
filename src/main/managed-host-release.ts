@@ -5,7 +5,7 @@ import { downloadVerified, readReleaseInfo, safeReleaseName, type Fetch } from "
 
 export type ManagedHostPlatform = "linux" | "darwin" | "win32";
 export type ManagedHostArch = "x64" | "arm64";
-export const MANAGED_HOST_FEED = "https://github.com/Rasalas/tau-releases/releases/latest/download/";
+export const MANAGED_HOST_FEED = "https://github.com/Rasalas/tau/releases/latest/download/";
 
 /** The exact signed portable release, checked on the desktop before any upload. */
 export async function prepareManagedHostRelease(platform: ManagedHostPlatform, arch: ManagedHostArch, cacheDir: string, signal?: AbortSignal, fetchUrl: Fetch = fetch, keys: readonly string[] = RELEASE_PUBLIC_KEYS) {
@@ -18,7 +18,7 @@ export async function prepareManagedHostRelease(platform: ManagedHostPlatform, a
   if (!file) throw new Error(`The signed Tau release has no portable host for ${platform}/${arch}.`);
   await mkdir(cacheDir, { recursive: true, mode: 0o700 });
   const path = join(cacheDir, safeReleaseName(file.url)!);
-  await downloadVerified(fetchUrl, `https://github.com/Rasalas/tau-releases/releases/download/v${encodeURIComponent(info.version)}/${safeReleaseName(file.url)!}`, path, file, signal);
+  await downloadVerified(fetchUrl, `https://github.com/Rasalas/tau/releases/download/v${encodeURIComponent(info.version)}/${safeReleaseName(file.url)!}`, path, file, signal);
   return { path, sha512: file.sha512, version: info.version };
 }
 

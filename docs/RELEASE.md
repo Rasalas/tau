@@ -323,7 +323,7 @@ matches the SVGs.
 ## How an update reaches a user
 
 `publish:` in `tooling/electron-builder.yml` names the GitHub repository,
-`Rasalas/tau-releases`, and electron-builder writes it into
+`Rasalas/tau` for new builds, and electron-builder writes it into
 `resources/app-update.yml` inside the app. The window's updater, the host's,
 the AppImage's `.deb` offer, the release notes and the `.deb`'s update helper
 all read it from there (`scripts/packaging/public-feed.test.mjs` follows it
@@ -489,18 +489,28 @@ only an update signed like the running app.
 
 ## Where releases are published
 
-Installed apps read releases from `Rasalas/tau-releases`, a public repository
-that holds nothing but releases; `publish:` in `tooling/electron-builder.yml` writes
-its name into every app. It was created while the source was private, and it
-stays the one place installed apps look, so the source repository can move
-or be renamed without breaking an update. Every release and every nightly
-goes to both repositories:
+New builds read releases from the public source repository `Rasalas/tau`.
+`publish:` in `tooling/electron-builder.yml` writes that name into every app.
+The managed-host bootstrap and release-note fallback use it too.
+
+`Rasalas/tau-releases` was created while the source was private. Older builds
+still have that repository embedded, so every stable release and nightly is
+published in both repositories during the migration. Both stable releases now
+carry the fixed installer names. Source releases are uploaded as drafts and
+published only after every required asset arrived, just like the bridge.
+
+Website links, `install:mac`, package-manager metadata and the download report
+still use `tau-releases` in this first phase. They move in the follow-up after
+the transition release has been available for at least seven days. See
+[the migration checklist](release-repository-migration.md). The week starts
+when that stable version is published in both repositories, not when this
+change is merged. A nightly alone does not migrate Stable installations.
 
 | | `Rasalas/tau` | `Rasalas/tau-releases` |
 |---|---|---|
-| what | tag on the built commit, notes GitHub generates from the pull requests, every file | the same files and the same notes, plus the [fixed download names](#fixed-download-names) of a stable release; the tag sits on the repository's default branch, which holds only a README |
-| who reads it | people reading the source, builds of 0.7.13 and older | installed apps (window, host, Linux helper), `install:mac`, the package managers, the website |
-| written with | the workflow's `GITHUB_TOKEN` | a token from the GitHub App *Tau Releases (Rasalas)*, installed on this repository only with `contents: write` |
+| what | tag on the built commit, generated notes, every file and stable fixed names | the same files and notes; the tag sits on its README-only default branch |
+| who reads it | new installed apps and source readers | older installed apps, current download links and package managers |
+| written with | the workflow's `GITHUB_TOKEN` | the GitHub App *Tau Releases (Rasalas)*, scoped to this repository with `contents: write` |
 
 Files in both: the installers (`.dmg`, `.zip`, `.AppImage`, `.deb`, `.exe`),
 the Android APK (`Tau-<version>.apk`), their `.blockmap` files, `latest-mac.yml`, `latest.yml`, `latest-linux.yml`,
@@ -517,11 +527,12 @@ The `release` job in `.github/workflows/release.yml`:
    folder is complete: every feed with its `.sig`, every file a feed names, a
    blockmap for each `.dmg`, `.zip` and `.exe`, and `LICENSE`
    (`scripts/packaging/publish-release.mjs check`);
-3. publishes the release in `Rasalas/tau` with generated notes;
+3. copies the installers to their fixed names and checks with `--stable`,
+   then uploads a draft in `Rasalas/tau` with generated notes and publishes it
+   only once every file is uploaded;
 4. reads that release's notes back, since GitHub would write them for
    `tau-releases` from a history it does not have;
-5. copies the installers to their fixed names and checks the folder again
-   with `--stable` (`publish-release.mjs copy-stable`, then `check --stable`);
+5. keeps the same complete folder, including the fixed names, for the bridge;
 6. asks `actions/create-github-app-token` (pinned to a commit) for a token
    limited to `Rasalas/tau-releases` and `contents: write`, from the secrets
    `TAU_RELEASES_APP_ID` (the app's ID) and `TAU_RELEASES_APP_KEY` (its private
@@ -541,7 +552,7 @@ same name.
 The website and the README link the newest stable installer as
 `https://github.com/Rasalas/tau-releases/releases/latest/download/<name>`,
 which needs a name without a version. Every stable release in
-`tau-releases` carries a copy of each installer under one:
+Both repositories carry a copy of each stable installer under one:
 
 | File in the release | Fixed name |
 |---|---|
@@ -580,7 +591,7 @@ switch checks at once.
 
 | | Stable | Nightly |
 |---|---|---|
-| feed | the GitHub provider from `app-update.yml`: the latest release, never a prerelease | `https://github.com/Rasalas/tau-releases/releases/download/nightly/latest*.yml`, read as a generic feed |
+| feed | the GitHub provider from `app-update.yml`: the latest release, never a prerelease | `https://github.com/Rasalas/tau/releases/download/nightly/latest*.yml` in new builds, read as a generic feed |
 | `allowPrerelease` | off | on |
 | `allowDowngrade` | on only when the running build is a nightly | off |
 
@@ -691,9 +702,10 @@ The desktop jobs replace `package.json`'s version with
 tag, then deletes the previous release (only if it is a prerelease) and the tag.
 It publishes the new build and those notes as a prerelease under the same tag,
 never marked latest. It does so in `Rasalas/tau`, whose tag the `gate` compares
-with `main`, and in `Rasalas/tau-releases`, which installed apps read; there the
-new nightly is a draft until every file is uploaded, and its tag sits on the
-default branch because the built commit is not in that repository. The stable
+with `main`, and in `Rasalas/tau-releases` for older installed apps. In both
+repositories the new nightly is a draft until every file is uploaded. In
+`tau-releases` its tag sits on the default branch because the built commit
+is not in that repository. The stable
 `release` job never runs for a nightly. The moving tag is published only after
 both mobile upload jobs succeed, so a failed upload does not suppress the next
 scheduled attempt.

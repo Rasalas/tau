@@ -243,4 +243,4 @@ nsis:
 publish:
   provider: github
   owner: Rasalas
-  repo: tau-releases
+  repo: tau

@@ -67,7 +67,8 @@ use electron-updater, which needs Electron's `app`. It reads the same release
 feed electron-builder publishes (`latest-mac.yml`, `latest.yml`,
 `latest-linux*.yml`, `src/main/release-feed.ts`) on the channel in
 `updates.channel` of the machine's config, from the repository the app's
-`resources/app-update.yml` names, the public `Rasalas/tau-releases`
+`resources/app-update.yml` names: `Rasalas/tau` for new builds, or
+`Rasalas/tau-releases` for builds from before the repository migration
 ([RELEASE.md](RELEASE.md#where-releases-are-published)). Nothing needs a token.
 
 Stable reads only the stable feed. Nightly compares the stable and nightly

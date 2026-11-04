@@ -18,17 +18,26 @@ function appUpdateYml() {
   return `${block.replace(/^[ \t]+/gmu, "")}updaterCacheDirName: tau-pi-desktop-prototype-updater\n`;
 }
 
-const PUBLIC = "https://github.com/Rasalas/tau-releases/releases";
+const PUBLIC = "https://github.com/Rasalas/tau/releases";
 
 describe("the update feed an installed Tau reads", () => {
-  it("is the public releases repository, not the private source", () => {
-    expect(readUpdateFeed(appUpdateYml())).toEqual({ owner: "Rasalas", repo: "tau-releases" });
-    expect(readFeed(appUpdateYml())).toEqual({ owner: "Rasalas", repo: "tau-releases" });
+  it("keeps older apps on their embedded feed until they install the migration build", () => {
+    const oldConfig = "provider: github\nowner: Rasalas\nrepo: tau-releases\n";
+    const oldFeed = readUpdateFeed(oldConfig);
+    expect(feedFor("stable", oldFeed)).toEqual({ provider: "github", owner: "Rasalas", repo: "tau-releases" });
+    expect(feedFor("nightly", oldFeed)).toEqual({ provider: "generic", url: "https://github.com/Rasalas/tau-releases/releases/download/nightly" });
+    expect(releaseBase(readFeed(oldConfig), "0.7.44", "stable")).toBe("https://github.com/Rasalas/tau-releases/releases/download/v0.7.44/");
+    expect(releaseFeedBase("stable", oldFeed)).toBe("https://github.com/Rasalas/tau-releases/releases/latest/download/");
+  });
+
+  it("uses the public source repository for new builds", () => {
+    expect(readUpdateFeed(appUpdateYml())).toEqual({ owner: "Rasalas", repo: "tau" });
+    expect(readFeed(appUpdateYml())).toEqual({ owner: "Rasalas", repo: "tau" });
   });
 
   it("sends the window's updater, the host, the AppImage's offer and the helper there", () => {
     const feed = readUpdateFeed(appUpdateYml());
-    expect(feedFor("stable", feed)).toEqual({ provider: "github", owner: "Rasalas", repo: "tau-releases" });
+    expect(feedFor("stable", feed)).toEqual({ provider: "github", owner: "Rasalas", repo: "tau" });
     expect(feedFor("nightly", feed)).toEqual({ provider: "generic", url: `${PUBLIC}/download/nightly` });
     expect(releaseFeedBase("stable", feed)).toBe(`${PUBLIC}/latest/download/`);
     expect(releaseFeedBase("nightly", feed)).toBe(`${PUBLIC}/download/nightly/`);
@@ -42,6 +51,6 @@ describe("the update feed an installed Tau reads", () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ body: "- one", html_url: `${PUBLIC}/tag/v0.7.15` })));
     const notes = await githubReleaseNotes(readUpdateFeed(appUpdateYml()), fetchImpl).read("0.7.15");
     expect(notes).toEqual({ body: "- one", url: `${PUBLIC}/tag/v0.7.15` });
-    expect(fetchImpl).toHaveBeenCalledWith("https://api.github.com/repos/Rasalas/tau-releases/releases/tags/v0.7.15", expect.not.objectContaining({ headers: expect.objectContaining({ authorization: expect.anything() }) }));
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.github.com/repos/Rasalas/tau/releases/tags/v0.7.15", expect.not.objectContaining({ headers: expect.objectContaining({ authorization: expect.anything() }) }));
   });
 });
