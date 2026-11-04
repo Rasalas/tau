@@ -26,6 +26,19 @@ const needs = (job) => /^ {4}needs: (?:\[(.*)\]|(\S+))$/mu.exec(JOBS[job])?.slic
 const condition = (job) => /^ {4}if: (.*)$/mu.exec(JOBS[job])?.[1] ?? "";
 
 describe("the release workflow", () => {
+  it("publishes complete source feeds and mirrors the migration build for older apps", () => {
+    for (const job of [JOBS.release, JOBS.nightly]) {
+      expect(job).toContain("RELEASE_ID: ${{ steps.source.outputs.id }}");
+      expect(job).toContain("...context.repo, releaseId: Number(process.env.RELEASE_ID), names: releaseFiles(\"artifacts\")");
+      expect(job).toContain("repository: Rasalas/tau-releases");
+      expect(job).toContain("...PUBLIC_REPO, releaseId: Number(process.env.RELEASE_ID)");
+      expect(job.match(/draft: true/gu)).toHaveLength(2);
+    }
+    expect(JOBS.release.indexOf("copy-stable artifacts")).toBeLessThan(JOBS.release.indexOf("- id: source"));
+    expect(JOBS.release).toContain("names: releaseFiles(\"artifacts\"), latest: true");
+    expect(JOBS.nightly).toContain("names: releaseFiles(\"artifacts\"), latest: false");
+  });
+
   it("publishes signed portable feeds and builds ARM Linux without replacing the desktop installer feed", () => {
     expect(JOBS.build).toContain("runner: ubuntu-24.04-arm");
     expect(JOBS.build).toContain("platform: --linux --arm64 --dir");

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { parseReleaseInfo } from "../../bin/tau-update-helper.mjs";
 import { isMain, main } from "./release.mjs";
 
-/** Where installed apps read releases from (`publish:` in tooling/electron-builder.yml). */
+/** Migration bridge for older installed apps. New builds read Rasalas/tau. */
 export const PUBLIC_REPO = { owner: "Rasalas", repo: "tau-releases" };
 
 /** One feed per platform the release builds. */
@@ -22,7 +22,7 @@ export const HOST_FEEDS = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm
 export const LICENSE = "LICENSE";
 
 /**
- * Names without a version, so `releases/latest/download/<name>` in tau-releases
+ * Names without a version, so `releases/latest/download/<name>` in either repo
  * always finds the newest stable installer (the website links them). Copies of
  * the versioned files; the feeds keep naming those.
  */

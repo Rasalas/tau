@@ -135,15 +135,15 @@ jobs:
             echo "::error::The secret TAU_RELEASE_SIGNING_KEY is not set; a release without signed update feeds would be refused by every installed Tau."
             exit 1
           fi
-      # Installed apps read releases from the public Rasalas/tau-releases; the
-      # GitHub App "Tau Releases (Rasalas)" is what may write there.
+      # Older apps still read Rasalas/tau-releases during the migration.
+      # The GitHub App "Tau Releases (Rasalas)" may write that bridge.
       - name: Require the app that publishes to tau-releases
         if: needs.gate.outputs.nightly == 'true' || startsWith(github.ref, 'refs/tags/v') || inputs.publish
         env:
           HAS_APP: ${{ secrets.TAU_RELEASES_APP_ID != '' && secrets.TAU_RELEASES_APP_KEY != '' }}
         run: |
           if [ "$HAS_APP" != true ]; then
-            echo "::error::The secrets TAU_RELEASES_APP_ID and TAU_RELEASES_APP_KEY are not both set; installed Tau reads releases from Rasalas/tau-releases only."
+            echo "::error::The secrets TAU_RELEASES_APP_ID and TAU_RELEASES_APP_KEY are not both set; older Tau builds still need the migration release in Rasalas/tau-releases."
             exit 1
           fi
       # Releases and nightlies upload signed phone apps to the test channels.
@@ -681,9 +681,8 @@ jobs:
           retention-days: 1
           path: feed/latest*
 
-  # The release goes to two places: Rasalas/tau (tag, generated notes, every
-  # file), and the public Rasalas/tau-releases, where installed apps and
-  # install:mac read. Only tau-releases gets the fixed download names.
+  # New builds update from Rasalas/tau. Keep publishing the same migration
+  # release to tau-releases for older apps; both get fixed installer names.
   release:
     needs: [gate, sign, android]
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.android.result == 'success' && needs.gate.outputs.nightly != 'true' && (startsWith(github.ref, 'refs/tags/v') || inputs.publish) }}
@@ -715,12 +714,27 @@ jobs:
       # them installs fine and then never updates.
       - name: Require every file the feeds name, their blockmaps and the license
         run: node scripts/packaging/publish-release.mjs check artifacts
+      # Tau-mac-arm64.dmg and the others, for releases/latest/download/<name> links.
+      - name: Add the fixed download names
+        run: |
+          node scripts/packaging/publish-release.mjs copy-stable artifacts
+          node scripts/packaging/publish-release.mjs check artifacts --stable
       - id: source
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: artifacts/*
           fail_on_unmatched_files: true
           generate_release_notes: true
+          draft: true
+      - name: Publish the source release after every asset arrived
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          RELEASE_ID: ${{ steps.source.outputs.id }}
+        with:
+          script: |
+            const { publishDraft, releaseFiles } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
+            const url = await publishDraft(github, { ...context.repo, releaseId: Number(process.env.RELEASE_ID), names: releaseFiles("artifacts"), latest: true });
+            core.notice(`Published ${url}`);
       # GitHub writes the notes from this repository's history; tau-releases has none.
       - name: Take the notes along
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
@@ -731,11 +745,6 @@ jobs:
             const { releaseBody } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
             const body = await releaseBody(github, { ...context.repo, releaseId: Number(process.env.RELEASE_ID) });
             require("node:fs").writeFileSync("release-notes.md", body);
-      # Tau-mac-arm64.dmg and the others, for releases/latest/download/<name> links.
-      - name: Add the fixed download names
-        run: |
-          node scripts/packaging/publish-release.mjs copy-stable artifacts
-          node scripts/packaging/publish-release.mjs check artifacts --stable
       - id: token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -769,8 +778,8 @@ jobs:
 
   # One prerelease under the moving tag `nightly`, in both repositories: the
   # previous one and its tag go first, so no stale asset stays behind. The gate
-  # reads Rasalas/tau's tag; an installed Tau on the nightly channel reads
-  # tau-releases' latest*.yml.
+  # reads Rasalas/tau's tag; new apps read its feeds too. Older apps still
+  # read the mirrored nightly in tau-releases during the migration.
   nightly:
     needs: [gate, sign, ios, play]
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.ios.result == 'success' && needs.play.result == 'success' && needs.gate.outputs.nightly == 'true' }}
@@ -815,16 +824,27 @@ jobs:
           script: |
             const { removeNightly } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
             await removeNightly(github, context.repo);
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+      - id: source
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: nightly
           target_commitish: ${{ github.sha }}
           name: Nightly ${{ needs.gate.outputs.version }}
           body_path: release-notes.md
           prerelease: true
+          draft: true
           make_latest: false
           files: artifacts/*
           fail_on_unmatched_files: true
+      - name: Publish the source nightly after every asset arrived
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          RELEASE_ID: ${{ steps.source.outputs.id }}
+        with:
+          script: |
+            const { publishDraft, releaseFiles } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/packaging/publish-release.mjs`);
+            const url = await publishDraft(github, { ...context.repo, releaseId: Number(process.env.RELEASE_ID), names: releaseFiles("artifacts"), latest: false });
+            core.notice(`Published ${url}`);
       - id: token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:

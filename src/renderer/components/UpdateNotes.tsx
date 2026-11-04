@@ -32,6 +32,6 @@ export function ReleaseNotesContent({ version, notes, onRetry, onOpen }: { versi
 }
 
 function ChangelogLink({ version, url, onOpen }: { version: string; url?: string | undefined; onOpen(url: string): void }) {
-  const target = url && /^https:\/\//u.test(url) ? url : `https://github.com/Rasalas/tau-releases/releases/tag/${isNightlyVersion(version) ? "nightly" : `v${version}`}`;
+  const target = url && /^https:\/\//u.test(url) ? url : `https://github.com/Rasalas/tau/releases/tag/${isNightlyVersion(version) ? "nightly" : `v${version}`}`;
   return <button type="button" className="update-link" onClick={() => onOpen(target)}>Full changelog <ExternalLink size={12} /></button>;
 }
