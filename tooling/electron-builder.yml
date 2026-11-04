@@ -238,8 +238,8 @@ nsis:
   artifactName: ${productName}-Setup-${version}.${ext}
 
 # Written into the app as `app-update.yml`: the window's updater, the host's and
-# the .deb's helper all read releases from here. The source repository is
-# private; release.yml publishes every release to this public one as well.
+# the .deb's helper all read releases from here. Older builds still use
+# tau-releases, which release.yml mirrors during the repository migration.
 publish:
   provider: github
   owner: Rasalas

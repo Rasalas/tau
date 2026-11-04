@@ -75,7 +75,7 @@ describe("install-mac", () => {
     expect(config.directories.output.startsWith("release/")).toBe(true);
     // The released app keeps its feed; only the dev configuration drops it.
     const builder = readFileSync(new URL("../tooling/electron-builder.yml", import.meta.url), "utf8");
-    expect(builder).toMatch(/^publish:\n  provider: github\n  owner: Rasalas\n  repo: tau-releases$/mu);
+    expect(builder).toMatch(/^publish:\n  provider: github\n  owner: Rasalas\n  repo: tau$/mu);
   });
 
   it.each([
