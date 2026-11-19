@@ -13,6 +13,7 @@ import { click, connect, evaluate, insertText, pressEnter, waitFor, waitForPage 
 import { openForbiddenFiles } from "./isolation.mjs";
 import { FIND_SCROLLER, INSTALL_PROBE, INSTALL_STARTUP_PROBE, PAINT_TIMINGS, START_BLANK_SAMPLER, STOP_BLANK_SAMPLER, STOP_RECORDING, startRecording } from "./page-probe.mjs";
 import { descendants, measureIdleCpu, processTable, stopTree, treeMemory } from "./processes.mjs";
+import { measureHistorySearch } from "./history-search.mjs";
 import { writeCodexSessions, sessionPlan } from "./sessions-fixture.mjs";
 import { aggregateRuns, frameStats, longTaskStats, round } from "./stats.mjs";
 import { buildTurn, END_SENTINEL, FIRST_SENTINEL, summarizeTurn } from "./turn-fixture.mjs";
@@ -270,8 +271,9 @@ async function measureRun(app, root, options, turn) {
     const replay = await replayTurn(app, session, wire, turn);
     await wait(options.idleMs);
     const afterTurnMemory = await memory(session, child.pid);
+    const historySearch = app.id === "tau" ? await measureHistorySearch(session) : undefined;
     checkIsolation(child.pid, app.label);
-    return { loadAtStart, startup, idleCpu, idleMemory, openLarge: { ms: openLargeMs, history, wire: openLargeWire }, scroll, replay, afterTurnMemory, processes };
+    return { loadAtStart, startup, idleCpu, idleMemory, openLarge: { ms: openLargeMs, history, wire: openLargeWire }, scroll, replay, afterTurnMemory, historySearch, processes };
   } finally {
     session.close();
     const stopped = await stopTree([child.pid]);
@@ -583,6 +585,7 @@ export function markdownTable(report) {
     ["turn: messages sent", "replay.wire.sent"],
     ["memory after turn, whole tree (MiB)", "afterTurnMemory.totalMiB"],
     ["renderer JS heap after turn (MiB)", "afterTurnMemory.rendererHeapMiB"],
+    ["older message search: result · visible match (ms)", "historySearch.resultMs", "historySearch.totalMs"],
     ...threadSwitchRows(),
     ["load average (1 min) at run start", "loadAtStart"],
     ["load average (1 min) at the switch launch", "switchLoadAtStart"],

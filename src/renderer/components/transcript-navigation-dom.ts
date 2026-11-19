@@ -7,7 +7,6 @@ import {
   setAnchor,
   startTurn,
   stopFollowing,
-  type TranscriptMessageLookup,
   type TranscriptNavigationOptions,
   type TranscriptNavigationState,
 } from "../../workbench/transcript-navigation";
@@ -53,9 +52,8 @@ export function useTranscriptNavigation(
   const [canJumpToLatest, setCanJumpToLatest] = useState(false);
   const latest = useRef<{
     messages: readonly UiMessage[];
-    lookup: TranscriptMessageLookup | undefined;
     onAnchorChange: (id?: string) => void;
-  }>({ messages: options.messages, lookup: options.lookup, onAnchorChange: options.onAnchorChange });
+  }>({ messages: options.messages, onAnchorChange: options.onAnchorChange });
   const [{ navigation, controller }] = useState(() => {
     const state = initialNavigationState(options);
     return {
@@ -63,7 +61,6 @@ export function useTranscriptNavigation(
       controller: new TranscriptScrollController(state, {
         getNode: () => ref.current,
         getMessages: () => latest.current.messages,
-        getLookup: () => latest.current.lookup,
         onAnchorChange: (id) => latest.current.onAnchorChange(id),
         onJumpAvailabilityChange: (canJump) => setCanJumpToLatest((current) => current === canJump ? current : canJump),
       }),
@@ -71,7 +68,7 @@ export function useTranscriptNavigation(
   });
 
   useLayoutEffect(() => {
-    latest.current = { messages: options.messages, lookup: options.lookup, onAnchorChange: options.onAnchorChange };
+    latest.current = { messages: options.messages, onAnchorChange: options.onAnchorChange };
   });
 
   useEffect(() => {

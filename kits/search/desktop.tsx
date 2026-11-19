@@ -28,6 +28,14 @@ export function createSearchExtension(options: { threadContentDelayMs?: number }
       const messages = new ThreadSearchFeed(host, feed);
       const dialogs = new SearchDialogs();
       void feed.load();
+      let disconnected = false;
+      context.events.on("host-connection", ({ state }) => {
+        if (state !== "connected") disconnected = true;
+        else if (disconnected) {
+          disconnected = false;
+          messages.reconnect();
+        }
+      });
       context.registerSettingsSection({ id: "search.settings", page: "threads", card: "search", profiles: ["desktop", "web", "compact"],
         rows: [{ id: "setting-index-message-text", label: "Index message text", keywords: ["search", "messages", "index"] }, { id: "setting-message-index", label: "Message index", keywords: ["search", "rebuild", "bytes"] }], Component: createSearchSettings(feed) });
       const archived = new Set<string>();

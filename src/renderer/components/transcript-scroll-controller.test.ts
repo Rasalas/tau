@@ -15,6 +15,7 @@ import {
   ScrollIntentTracker,
   TranscriptScrollController,
   transcriptScrollMode,
+  virtualMessageOffsets,
 } from "./transcript-scroll-controller";
 
 const messages: UiMessage[] = [
@@ -58,7 +59,6 @@ function harness(navigation: TranscriptNavigationState, scrollHeight = 1_000, cl
   const controller = new TranscriptScrollController(navigation, {
     getNode: () => node,
     getMessages: () => messages,
-    getLookup: () => undefined,
     onAnchorChange: (id) => anchors.push(id),
     onJumpAvailabilityChange: (canJump) => jumps.push(canJump),
   });
@@ -333,6 +333,19 @@ describe("TranscriptScrollController", () => {
     }
   });
 
+  it("uses the virtual row's offset to reach a message below a tall answer", async () => {
+    const test = harness(state(), 4_000, 450);
+    addRow(test.node, "b", 90, 2_000);
+    virtualMessageOffsets.set(test.node, id => id === "c" ? 2_100 : undefined);
+    try {
+      test.controller.jumpToMessage("c");
+      expect(test.node.scrollTop).toBe(2_100);
+      addRow(test.node, "c", 2_140, 60);
+      await test.frame();
+      expect(test.node.scrollTop).toBe(2_140);
+    } finally { test.dispose(); }
+  });
+
   it("opens completed work when search targets its commentary, then places the original message", async () => {
     const test = harness(state(), 1000, 200);
     try {
@@ -431,7 +444,6 @@ describe("TranscriptScrollController", () => {
     const controller = new TranscriptScrollController(state({ following: false }), {
       getNode: () => node,
       getMessages: () => messages,
-      getLookup: () => undefined,
       onAnchorChange: () => {},
       onJumpAvailabilityChange: (canJump) => {
         if (canJump === jumpShown) return;

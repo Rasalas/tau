@@ -456,3 +456,35 @@ it("cancels an in-flight legacy palette query when its signal aborts", async () 
   expect(await pending).toEqual([]);
   registry.deactivate(SEARCH_KIT_ID);
 });
+
+it("retries the open palette query after reconnect and ignores the old continuation", async () => {
+  const ready = { enabled: true, state: "ready", done: 2, total: 2, bytes: 0, threads: 2, revision: 1 };
+  let rejectOld!: (error: Error) => void;
+  let reconnected = false;
+  const invoke = vi.fn(async (_id: string, command: string, input: unknown) => {
+    if (command === "index-status") return ready;
+    if (command !== "thread-search") return;
+    if ((input as { continuation?: string }).continuation) return new Promise((_resolve, reject) => { rejectOld = reject; });
+    if (!reconnected) return { matches: [], complete: false, continuation: "old", status: ready };
+    return { matches: [{ sessionId: "a", path: "/sessions/a.jsonl", role: "user", snippet: "needle in an old thread" }], complete: true, status: ready };
+  });
+  const { registry } = createKitHarness(invoke);
+  registry.activate(createSearchExtension({ threadContentDelayMs: 0 }));
+  const source = registry.getPaletteSources().find(entry => entry.id === "search.thread-content")!;
+  const context = searchContext();
+  const refreshed = vi.fn();
+  const stop = source.subscribeStatus!(refreshed);
+  try {
+    expect(await source.search("needle", context)).toEqual([]);
+    await waitFor(() => expect(rejectOld).toBeTypeOf("function"));
+    refreshed.mockClear();
+    registry.dispatchWorkbenchEvent({ type: "host-connection", state: "reconnecting" });
+    reconnected = true;
+    registry.dispatchWorkbenchEvent({ type: "host-connection", state: "connected" });
+    expect(refreshed).toHaveBeenCalled();
+    expect(await source.search("needle", context)).toMatchObject([{ id: "a" }]);
+    rejectOld(new Error("Old socket closed"));
+    expect(await source.search("needle", context)).toMatchObject([{ id: "a" }]);
+    expect(invoke.mock.calls.filter(([, command]) => command === "index-status")).toHaveLength(2);
+  } finally { stop(); registry.deactivate(SEARCH_KIT_ID); }
+});

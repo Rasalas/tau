@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { threadTextsDelta, THREAD_TEXTS_COMMAND, type HostConversationServices, type HostExtension, type HostExtensionServices } from "tau/host-extension";
 import { activateHostKit } from "../../src/main/test-support/host-kit-harness.js";
 import createSearchHostExtension from "./host.js";
-import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadFindResult, type ThreadMatch, type ThreadRequestMatch } from "./protocol.js";
+import { SEARCH_KIT_ID, type ContentSearchResult, type FileSearchResult, type ThreadFindResult, type ThreadMatch, type ThreadRequestMatch, type ThreadSearchPage } from "./protocol.js";
 import { THREAD_TEXT_LIMIT } from "./threads.js";
 
 vi.mock("node:fs/promises", async (original) => {
@@ -477,6 +477,42 @@ describe("Search host: threads", () => {
 });
 
 describe("message index host control", () => {
+  it("finishes a search started during rebuild against the replacement index", async () => {
+    const message = (content: string) => JSON.stringify({ type: "message", message: { role: "user", content } }) + "\n";
+    const root = await folder({ "old.jsonl": message("old beacon"), "new.jsonl": message("new beacon") });
+    let sessionIds = ["old"];
+    let release!: () => void;
+    const rebuild = new Promise<void>(resolve => { release = resolve; });
+    const registry = await activateHostKit({ id: "tau.codex", name: "Runtime", activate(context) {
+      context.registerCommand(THREAD_TEXTS_COMMAND, async input => {
+        if ((input as { protocol?: number }).protocol !== 2) return { threads: [], removed: [], more: false };
+        if (sessionIds.includes("new")) await rebuild;
+        return { protocol: 2, catalog: [], removed: [], more: false };
+      }, { callers: [SEARCH_KIT_ID] });
+    } }, {
+      cwd: () => root, stateDir: join(root, "state"),
+      sessions: { list: async () => sessionIds.map(sessionId => ({ sessionId, cwd: root, path: join(root, `${sessionId}.jsonl`) })) } as never,
+    } as Partial<HostExtensionServices>);
+    await registry.activate(createSearchHostExtension() as unknown as HostExtension);
+    const invoke = (command: string, input: unknown) => registry.invoke(SEARCH_KIT_ID, command, input);
+    const input = { query: "beacon", channel: "rebuild", sessionIds: ["old", "new"] };
+    try {
+      expect(await invoke("threads", input)).toMatchObject([{ sessionId: "old" }]);
+      sessionIds = ["old", "new"];
+      await invoke("index-rebuild", {});
+      const page = await invoke("thread-search", input) as ThreadSearchPage;
+      expect(page).toMatchObject({ complete: false, status: { state: "indexing" }, matches: [{ sessionId: "old" }] });
+      expect(page.continuation).toBeTypeOf("string");
+      release();
+      await vi.waitFor(async () => {
+        expect(await invoke("thread-search", { ...input, continuation: page.continuation })).toMatchObject({
+          complete: true, truncated: false, status: { state: "ready" },
+          matches: expect.arrayContaining([expect.objectContaining({ sessionId: "old" }), expect.objectContaining({ sessionId: "new" })]),
+        });
+      });
+    } finally { release(); await registry.deactivate(SEARCH_KIT_ID); }
+  });
+
   it("returns a resumable cold search with a live hit and cancels a stuck export when switched off", async () => {
     const root = await folder({ "sessions/one.jsonl": JSON.stringify({ type: "message", message: { role: "user", content: "disk beacon" } }) + "\n" });
     let unblock!: () => void;

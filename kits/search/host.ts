@@ -251,14 +251,15 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
       }, { access: "read" });
 
       const searchThreads = async (fields: Record<string, unknown>, fallback: boolean, cancelled: () => boolean, publish?: (matches: ThreadMatch[]) => void, budget: { bytesRead: number; matches?: ThreadMatch[] } = { bytesRead: 0 }): Promise<ThreadSearchResult> => {
+        const { state } = indexControl.snapshot();
         const generation = fallback ? undefined : indexControl.active;
+        const committed = generation && state === "indexing";
         const conversations = generation?.conversations ?? recentConversations;
         const work = async () => {
           const previousRevision = conversations.revision;
           await conversations.sync();
           if (previousRevision !== conversations.revision) await (generation?.runtime ?? recentRuntime).sync();
-          const state = indexControl.snapshot().state;
-          const result: ThreadSearchResult = { matches: [], truncated: Boolean(generation && state === "indexing" || state === "error" || state === "unavailable") };
+          const result: ThreadSearchResult = { matches: [], truncated: Boolean(committed || state === "error" || state === "unavailable") };
           if (cancelled()) return { ...result, cancelled: true };
           const query = text(fields.query);
           const tokens = queryTokens(query);
@@ -322,7 +323,7 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
             if (cancelled()) break;
             if (generation) {
               const identity = { source: "pi", id: session.sessionId, path: session.path };
-              const found = indexControl.snapshot().state === "indexing"
+              const found = committed
                 ? await generation.index.searchCommittedPi(identity, tokens).catch(() => { result.truncated = true; result.error = "Some thread files could not be read."; return undefined; })
                 : await generation.index.searchPi(identity, tokens);
               if (found) offer({ match: { sessionId: session.sessionId, path: session.path, ...found.match }, modifiedAt: found.updatedAt });
@@ -433,7 +434,20 @@ export function createSearchHostExtension(options: SearchHostOptions = {}): Work
               await indexControl.settled();
             }
             if (cancelled()) return;
-            await search(!indexControl.active);
+            const generation = indexControl.active;
+            const before = indexControl.snapshot();
+            const useRecent = () => {
+              const { state } = indexControl.snapshot();
+              return !indexControl.active || state === "disabled" || state === "error" || state === "unavailable";
+            };
+            await search(useRecent());
+            // Publish committed hits during a rebuild, then finish against the
+            // replacement generation before the palette considers the query done.
+            if (before.state === "indexing" || generation !== indexControl.active) {
+              await indexControl.settled();
+              if (cancelled()) return;
+              await search(useRecent());
+            }
             next.complete = true;
             indexControl.refresh();
           })().catch(error => {
