@@ -24,8 +24,7 @@ describe("TranscriptSearch", () => {
     const onJump = vi.fn();
     const onActive = vi.fn();
     render(<TranscriptSearch messages={[message("tail", "quartzite in moonlight")]} initialQuery="quartz moon" initialMode="all-words" find={find} onJump={onJump} onActive={onActive} onClose={() => undefined} />);
-    expect(onJump).not.toHaveBeenCalled();
-    await act(async () => { await vi.advanceTimersByTimeAsync(FIND_DEBOUNCE_MS); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(find).toHaveBeenCalledExactlyOnceWith("quartz moon", "all-words");
     expect(onJump).not.toHaveBeenCalled();
     await act(async () => { finish(["older-best"]); });

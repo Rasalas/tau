@@ -12,7 +12,7 @@ import {
   unanchoredTranscriptActivitiesForMessageCount,
   type TranscriptActivity,
 } from "./transcript-activity";
-import { RowViewportKeeper } from "./transcript-scroll-controller";
+import { contentTop, RowViewportKeeper, virtualMessageOffsets } from "./transcript-scroll-controller";
 import { useTranscriptViewportAnchor } from "./useTranscriptViewportAnchor";
 import { useLeadingRowAnchor } from "./useLeadingRowAnchor";
 import { TranscriptRowSizes, transcriptRowKind } from "./transcript-row-sizes";
@@ -157,7 +157,6 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     : { messages: collapsed, activities: allActivities, work: new Map(), aliases: NO_ALIASES },
   [collapsed, allActivities, completedCache, detail, isStreaming]);
   const messages = completed.messages as UiMessage[];
-  const messageAnchors = useMemo(() => JSON.stringify([...completed.aliases]), [completed.aliases]);
   const firstSourceId = transcriptMessages[0]?.id;
   const lastSourceId = transcriptMessages.at(-1)?.id;
   const sourcePositions = useMemo(
@@ -292,6 +291,18 @@ export const VirtualTranscript = memo(function VirtualTranscript({
   const measureRow = useRowMeasurement(virtualizer, resizeEntries);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    virtualMessageOffsets.set(scroll, (messageId) => {
+      const transcript = transcriptRef.current;
+      const index = messageIndex.positions.get(completed.aliases.get(messageId) ?? messageId);
+      if (!transcript || index === undefined) return undefined;
+      const offset = virtualizer.getOffsetForIndex(index, "start")?.[0];
+      return offset === undefined ? undefined : contentTop(scroll, transcript) + offset;
+    });
+    return () => { virtualMessageOffsets.delete(scroll); };
+  }, [completed.aliases, messageIndex, scrollRef, virtualizer]);
   const activityLayout = useRef<ActivityLayoutSnapshot>({
     activities: normalizedActivities,
     messageIds: messageIndex.ids,
@@ -559,7 +570,6 @@ export const VirtualTranscript = memo(function VirtualTranscript({
     data-visible-start-index={visibleRangeStart}
     data-visible-end-index={visibleRangeEnd}
     data-focused-index={focusedIndex}
-    data-message-anchors={messageAnchors}
   >
     {copyError ? <div role="alert">{copyError}</div> : null}
     {rows.map((row) => {

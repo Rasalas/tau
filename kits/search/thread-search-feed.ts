@@ -18,13 +18,22 @@ export class ThreadSearchFeed {
       const mode = (state: typeof next) => !state.enabled || state.state === "error" || state.state === "unavailable" ? "recent" : "full";
       const wasInitialized = initialized;
       initialized = true;
-      const changed = wasInitialized && !this.accepting && (mode(before) !== mode(next) || before.state === "indexing" && next.state === "ready" && this.run?.complete);
+      const changed = wasInitialized && !this.accepting && (mode(before) !== mode(next) || before.activation !== next.activation || before.state === "indexing" && next.state === "ready" && this.run?.complete);
       before = next;
-      if (!changed || !this.run) return;
-      this.run.cancel();
-      this.run = undefined;
-      this.listeners.forEach(listener => listener());
+      if (changed) this.invalidate();
     });
+  }
+  private invalidate(): void {
+    const run = this.run;
+    if (!run) return;
+    this.run = undefined;
+    if (run.signal.aborted) return;
+    run.cancel();
+    this.listeners.forEach(listener => listener());
+  }
+  reconnect(): void {
+    this.invalidate();
+    void this.index.load();
   }
   notice = (): string | undefined => this.index.notice() ?? (!this.run?.complete ? this.run?.pendingNotice : undefined);
   partial = (): string | undefined => this.run?.partial;
@@ -40,11 +49,13 @@ export class ThreadSearchFeed {
   async search(input: ThreadSearchInput, context: PaletteSearchContext): Promise<ThreadMatch[]> {
     const key = JSON.stringify(input);
     if (this.run?.signal === context.signal && this.run.key === key) { const held = this.run; return held.first.then(() => held.matches); }
+    if (this.run && !this.run.signal.aborted) this.run.cancel();
     const request = { ...input, channel: `messages-${Math.random().toString(36).slice(2)}` };
     const run = { pendingNotice: undefined as string | undefined, partial: undefined as string | undefined, complete: false, cancel: () => {}, signal: context.signal, key, matches: [] as ThreadMatch[], first: Promise.resolve([] as ThreadMatch[]) };
     this.run = run;
     let legacy = false;
     const cancel = () => {
+      context.signal.removeEventListener("abort", cancel);
       void this.host("thread-search-cancel", { channel: request.channel }).catch(() => undefined);
       if (legacy) void this.host("threads", { query: "", channel: request.channel }).catch(() => undefined);
     };
@@ -64,13 +75,14 @@ export class ThreadSearchFeed {
       try {
         while (!context.signal.aborted && this.run === run && !page.complete && page.continuation) {
           await settle(150, context.signal);
-          if (context.signal.aborted) return;
+          if (context.signal.aborted || this.run !== run) return;
           page = await this.host("thread-search", { ...request, continuation: page.continuation });
           accept(page);
         }
       } catch {
+        if (context.signal.aborted || this.run !== run) return;
+        run.complete = true;
         run.partial = "Some thread content could not be searched.";
-        this.unavailable();
         this.listeners.forEach(listener => listener());
       }
       finally { context.signal.removeEventListener("abort", cancel); }
@@ -82,7 +94,7 @@ export class ThreadSearchFeed {
         if (!page || !Array.isArray(page.matches)) throw new Error("Message index unavailable");
         accept(page);
         void poll(page);
-        return context.signal.aborted ? [] : page.matches;
+        return context.signal.aborted || this.run !== run ? [] : page.matches;
       } catch {
         if (context.signal.aborted || this.run !== run) return [];
         this.unavailable();

@@ -79,6 +79,7 @@ export function TranscriptSearch({ messages, find, onJump, onActive, onClose, fo
     if (!find || !needle) { setRemote(undefined); return; }
     let active = true;
     setRemote(undefined);
+    // The palette already has a selected match. Only typed queries need to wait.
     const timer = setTimeout(() => {
       (mode === "literal" ? find(needle) : find(needle, mode)).then(
         (answer) => {
@@ -88,7 +89,7 @@ export function TranscriptSearch({ messages, find, onJump, onActive, onClose, fo
         },
         () => { if (active) setRemote({ query: needle, mode, failed: true }); },
       );
-    }, FIND_DEBOUNCE_MS);
+    }, mode === "literal" ? FIND_DEBOUNCE_MS : 0);
     return () => { active = false; clearTimeout(timer); };
   }, [find, needle, mode, attempt]);
 

@@ -3,7 +3,6 @@ import {
   followTail,
   stopFollowing,
   type ScrollIntent,
-  type TranscriptMessageLookup,
   type TranscriptNavigationState,
 } from "../../workbench/transcript-navigation";
 
@@ -159,6 +158,8 @@ export function transcriptRows(node: ParentNode): HTMLElement[] {
   return [...node.querySelectorAll<HTMLElement>(".virtual-transcript-row")];
 }
 
+export const virtualMessageOffsets = new WeakMap<HTMLDivElement, (messageId: string) => number | undefined>();
+
 /** A single rAF slot. Chained frames replace the slot instead of adding one. */
 export class FrameLoop {
   private handle: number | undefined;
@@ -222,7 +223,6 @@ export class ScrollIntentTracker {
 export interface TranscriptScrollDeps {
   getNode(): HTMLDivElement | null;
   getMessages(): readonly UiMessage[];
-  getLookup(): TranscriptMessageLookup | undefined;
   onAnchorChange(id?: string): void;
   onJumpAvailabilityChange(canJump: boolean): void;
 }
@@ -410,20 +410,16 @@ export class TranscriptScrollController {
     return id ? findMessageElement(node, id) : undefined;
   }
 
-  private indexOfMessage(messageId: string): number {
-    return this.deps.getLookup()?.positions.get(messageId)
-      ?? this.deps.getMessages().findIndex((message) => message.id === messageId);
-  }
-
-  /** Seek to an estimated offset so the virtualizer mounts the wanted window. */
-  private seekEstimated(node: HTMLDivElement, messageId: string, minimumRowHeight = 0): boolean {
-    const count = this.deps.getMessages().length;
-    const aliases = node.querySelector<HTMLElement>(".virtual-transcript")?.dataset.messageAnchors;
-    const anchorId = aliases ? new Map<string, string>(JSON.parse(aliases)).get(messageId) : undefined;
-    const index = this.indexOfMessage(anchorId ?? messageId);
-    const estimatedRowHeight = count > 0 ? Math.max(minimumRowHeight, node.scrollHeight / count) : 0;
-    if (index < 0 || estimatedRowHeight <= 0) return false;
-    setScrollTopClamped(node, index * estimatedRowHeight - elementPaddingTop(node));
+  private seekUnmounted(node: HTMLDivElement, messageId: string): boolean {
+    // A mean row height can land inside a much taller preceding answer.
+    let offset = virtualMessageOffsets.get(node)?.(messageId);
+    if (offset === undefined) {
+      const messages = this.deps.getMessages();
+      const index = messages.findIndex((message) => message.id === messageId);
+      if (index < 0) return false;
+      offset = index * Math.max(1, node.scrollHeight / messages.length);
+    }
+    setScrollTopClamped(node, offset - elementPaddingTop(node));
     return true;
   }
 
@@ -439,10 +435,7 @@ export class TranscriptScrollController {
         disclosure.click();
         return false;
       }
-      // TanStack Virtual may not have mounted a distant row yet. Seeking to
-      // its estimated position mounts the relevant window; a later frame then
-      // uses the real row geometry without inventing transcript content.
-      this.seekEstimated(node, messageId, 1);
+      this.seekUnmounted(node, messageId);
       return false;
     }
     setScrollTopClamped(node, contentTop(node, message) - elementPaddingTop(node));
@@ -455,7 +448,7 @@ export class TranscriptScrollController {
       // The estimate is derived from the real virtualizer height, so it never
       // creates a synthetic spacer for a short transcript.
       const anchorId = this.state.anchorId;
-      if (!anchorId || !this.seekEstimated(node, anchorId)) scrollToTail(node);
+      if (!anchorId || !this.seekUnmounted(node, anchorId)) scrollToTail(node);
       return false;
     }
     const target = Math.max(0, contentTop(node, anchor) - elementPaddingTop(node));
