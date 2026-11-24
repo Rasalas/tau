@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { WorkbenchEvent, WorkbenchEvents } from "tau";
 import { createMemoryStorage } from "../../src/renderer/test-support/kit-harness.js";
 import { DailyUsage, DAILY_KEY, modelLabel, reasoningLabel, runtimeLabel, accessLabel } from "./daily.js";
-import { UsageStatistics, type SendEvent } from "./statistics.js";
+import { STATISTICS_KEY, UsageStatistics, type SendEvent } from "./statistics.js";
 import { watchUsage } from "./watch.js";
 
 const release = { version: "0.7.43", platform: "darwin" as const, channel: "stable" as const };
@@ -94,6 +94,40 @@ describe("daily usage", () => {
     await settled();
     expect(send).not.toHaveBeenCalled();
     expect(storage.get(DAILY_KEY)).toBeNull();
+  });
+});
+
+describe("daily usage under an earlier consent", () => {
+  it("counts nothing and drops what an older version counted until the daily counts are agreed to", async () => {
+    const storage = createMemoryStorage();
+    storage.set(STATISTICS_KEY, JSON.stringify({ enabled: true, id: "0123456789abcdef", sent: [] }));
+    storage.set(DAILY_KEY, JSON.stringify({ pending: { day: "2026-10-13", prompts: { "pi|other|default|full": 3 }, runs: {} } }));
+    const statistics = new UsageStatistics(storage, async () => undefined, () => DAY);
+    statistics.start(release);
+    const send = vi.fn<SendEvent>(async () => undefined);
+    const daily = new DailyUsage(storage, statistics, send, () => DAY);
+    daily.flush();
+    daily.prompt({ backendKind: "pi" });
+    await settled();
+    expect(send).not.toHaveBeenCalled();
+    expect(storage.get(DAILY_KEY)).toBeNull();
+    statistics.setEnabled(true);
+    daily.prompt({ backendKind: "pi" });
+    expect(storage.get(DAILY_KEY)).not.toBeNull();
+  });
+
+  it("aborts a summary already being sent when reporting is turned off", async () => {
+    const { statistics, send, daily, at } = setup();
+    const signals: AbortSignal[] = [];
+    send.mockImplementation((_report, signal) => { signals.push(signal); return new Promise<void>(() => {}); });
+    daily.prompt({ backendKind: "pi" });
+    at(DAY + 86_400_000);
+    daily.flush();
+    await settled();
+    expect(signals).toHaveLength(1);
+    statistics.setEnabled(false);
+    daily.clear();
+    expect(signals[0].aborted).toBe(true);
   });
 });
 

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClientEnvironmentProvider, createMemoryStorage, electronClientEnvironment } from "../../src/renderer/test-support/kit-harness.js";
 import type { ToastOptions } from "tau";
 import { StatisticsActivity, StatisticsSettings } from "./desktop.js";
-import { UsageStatistics, type SendActivity } from "./statistics.js";
+import { STATISTICS_KEY, UsageStatistics, type SendActivity } from "./statistics.js";
 
 afterEach(cleanup);
 
@@ -90,6 +90,29 @@ describe("usage statistics consent", () => {
     fourth.prompt();
     expect(fourth.toasts).toEqual([]);
     fourth.close();
+  });
+
+  it("asks a device that agreed before the daily counts once more, and Keep as before keeps its scope", () => {
+    const environment = electronClientEnvironment(new URLSearchParams("clientRelease=0.7.46&clientPlatform=darwin"));
+    const storage = createMemoryStorage();
+    storage.set(STATISTICS_KEY, JSON.stringify({ enabled: true, id: "0123456789abcdef", sent: [] }));
+    const statistics = new UsageStatistics(storage, async () => undefined);
+    const toasts: ToastOptions[] = [];
+    let prompt = () => {};
+    render(<ClientEnvironmentProvider environment={environment}>
+      <StatisticsActivity statistics={statistics} actions={{ toast: (options: ToastOptions) => { toasts.push(options); return { id: options.id!, update: vi.fn(), dismiss: vi.fn() }; }, openSettings: vi.fn() }}
+        onPrompt={(listener) => { prompt = listener; return () => {}; }} />
+      <StatisticsSettings statistics={statistics} />
+    </ClientEnvironmentProvider>);
+    expect(screen.getByRole("button", { name: "Include" })).toBeTruthy();
+    act(() => prompt());
+    expect(toasts).toEqual([expect.objectContaining({ title: "Share daily counts too?" })]);
+    act(() => toasts[0].actions!.find((action) => action.label === "Keep as before")!.run());
+    expect(statistics.getSnapshot()).toMatchObject({ enabled: true, answered: true, scope: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "Include" }));
+    expect(statistics.sharesDaily()).toBe(true);
+    expect(screen.queryByRole("button", { name: "Include" })).toBeNull();
+    statistics.dispose();
   });
 
   it("never asks in development and isolated instances", () => {

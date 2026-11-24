@@ -76,6 +76,42 @@ describe("device usage statistics", () => {
     statistics.dispose(); other.dispose();
   });
 
+  it("keeps a consent from before the daily counts at its scope until the person widens it", async () => {
+    const storage = createMemoryStorage();
+    // 0.7.40–0.7.42 wrote no `answered` and described activity reports only.
+    storage.set(STATISTICS_KEY, JSON.stringify({ enabled: true, id, sent: [] }));
+    const send = vi.fn<SendActivity>(async () => undefined);
+    const statistics = new UsageStatistics(storage, send, Date.now, () => "ffffffffffffffff");
+    statistics.start(release);
+    expect(statistics.getSnapshot()).toMatchObject({ enabled: true, scope: 1 });
+    expect(statistics.sharesDaily()).toBe(false);
+    statistics.record("workbench_used"); await settle();
+    expect(send).toHaveBeenCalledTimes(1);
+    // The scope is written down with the first report, so it survives the device's next write.
+    expect(JSON.parse(storage.get(STATISTICS_KEY)!)).toMatchObject({ scope: 1 });
+    expect(statistics.claimQuestion()).toBe("wider");
+    expect(statistics.claimQuestion()).toBeUndefined();
+
+    statistics.keepScope();
+    const next = new UsageStatistics(storage, send);
+    next.start(release);
+    expect(next.getSnapshot()).toMatchObject({ enabled: true, answered: true, scope: 1, id });
+    expect(next.claimQuestion()).toBeUndefined();
+    next.setEnabled(true);
+    expect(next.sharesDaily()).toBe(true);
+    statistics.dispose(); next.dispose();
+  });
+
+  it("reads a 0.7.43 consent, which already showed the daily counts, at the current scope", () => {
+    const storage = createMemoryStorage();
+    storage.set(STATISTICS_KEY, JSON.stringify({ enabled: true, answered: true, id, sent: [] }));
+    const statistics = new UsageStatistics(storage);
+    statistics.start(release);
+    expect(statistics.sharesDaily()).toBe(true);
+    expect(statistics.claimQuestion()).toBeUndefined();
+    statistics.dispose();
+  });
+
   it("bounds offline retries and does not mark failed delivery as sent", async () => {
     let now = Date.parse("2026-10-09T10:00:00Z");
     const send = vi.fn<SendActivity>(async () => { throw new Error("offline"); });

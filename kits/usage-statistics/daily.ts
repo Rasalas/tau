@@ -88,7 +88,7 @@ function read(storage: ClientStorage | undefined): Stored {
 }
 
 export class DailyUsage {
-  private sending = false;
+  private sending: AbortController | undefined;
   private retryAt = 0;
 
   constructor(private readonly storage: ClientStorage | undefined, private readonly statistics: UsageStatistics,
@@ -108,28 +108,36 @@ export class DailyUsage {
     const stored = this.roll(read(this.storage));
     const summary = stored.pending;
     if (!summary || this.sending || this.now() < this.retryAt) return;
-    const { enabled, id } = this.statistics.getSnapshot();
+    const { id } = this.statistics.getSnapshot();
     const release = this.statistics.getRelease();
-    if (!enabled || !id) { this.clear(); return; }
+    if (!this.statistics.sharesDaily() || !id) { this.clear(); return; }
     if (!release) return;
     const events = summaryEvents(summary).slice(0, MAX_ROWS);
     if (events.length === 0 || Date.parse(dayOf(this.now())) - Date.parse(summary.day) > MAX_AGE_DAYS * 86_400_000) {
       this.write({ current: stored.current });
       return;
     }
-    this.sending = true;
     const abort = new AbortController();
+    this.sending = abort;
     const timeout = setTimeout(() => abort.abort(), 10_000);
     void Promise.all(events.map((event) => this.send({ id, release, event }, abort.signal))).then(() => {
+      if (abort.signal.aborted) return;
       const now = read(this.storage);
       if (now.pending?.day === summary.day) this.write({ current: now.current });
-    }, () => { this.retryAt = this.now() + RETRY_MS; }).finally(() => { clearTimeout(timeout); this.sending = false; });
+    }, () => { if (this.sending === abort) this.retryAt = this.now() + RETRY_MS; })
+      .finally(() => { clearTimeout(timeout); if (this.sending === abort) this.sending = undefined; });
   };
 
-  clear = (): void => { try { this.storage?.remove(DAILY_KEY); } catch { /* nothing to keep */ } };
+  /** Withdrawn consent also stops a summary already on its way. */
+  clear = (): void => {
+    const abort = this.sending;
+    this.sending = undefined;
+    abort?.abort();
+    try { this.storage?.remove(DAILY_KEY); } catch { /* nothing to keep */ }
+  };
 
   private count(kind: "prompts" | "runs", key: string): void {
-    if (!this.statistics.getSnapshot().enabled || !this.statistics.getRelease()) return;
+    if (!this.statistics.sharesDaily() || !this.statistics.getRelease()) return;
     const stored = this.roll(read(this.storage));
     const summary = stored.current ?? { day: dayOf(this.now()), prompts: {}, runs: {} };
     const rows = summary[kind];

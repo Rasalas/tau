@@ -1,18 +1,21 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { getClientStorage, SettingRow, Switch, useClientEnvironment, type DesktopExtension, type RegionProps, type WorkbenchActions } from "tau";
+import { Button, getClientStorage, SettingRow, Switch, useClientEnvironment, type DesktopExtension, type RegionProps, type WorkbenchActions } from "tau";
 import { DailyUsage } from "./daily.js";
-import { UsageStatistics } from "./statistics.js";
+import { SCOPE, UsageStatistics } from "./statistics.js";
 import { watchUsage } from "./watch.js";
 
 /** General's Privacy card: the one choice about this device, and what taking part sends. */
 export function StatisticsSettings({ statistics }: { statistics: UsageStatistics }) {
-  const { enabled, id, error } = useSyncExternalStore(statistics.subscribe, statistics.getSnapshot);
+  const { enabled, id, error, scope } = useSyncExternalStore(statistics.subscribe, statistics.getSnapshot);
   const { release } = useClientEnvironment();
   return <>
       <SettingRow id="setting-share-usage-statistics" title="Share usage statistics"
         description="Help count active Tau desktop installations. Off until you choose to participate."
         help="A random device ID, activity type, app version, platform and release channel go to Torben Buck's self-hosted Matomo, and once a day the previous day's counts: prompts by runtime, model, reasoning level and access level, and how runs ended (finished, error, usage limit). Models of unknown providers are reported as other. The server timestamps each report. Prompts, files, projects and account identities are not included. IP addresses are fully masked in Matomo; the server still receives the connection's IP and browser headers."
         wholeMachine control={<Switch label="Share usage statistics" checked={enabled} disabled={!release} onChange={statistics.setEnabled} />} />
+      {enabled && scope < SCOPE ? <SettingRow id="setting-usage-statistics-daily" title="Include daily counts"
+        description="This device agreed before Tau added the daily counts and sends activity reports only."
+        control={<Button disabled={!release} onClick={() => statistics.setEnabled(true)}>Include</Button>} /> : null}
       {!release ? <p className="settings-group-note">Reporting is available in installed desktop releases. Development and test instances do not send statistics.</p> : null}
       {error ? <p className="settings-group-note" role="alert">{error}</p> : null}
       <p className="settings-group-note">Participating sends a random device ID, daily activity, app version, platform and release channel to Torben Buck's self-hosted Matomo, and once a day how many prompts went to which runtime and model, at which reasoning and access level, and how many runs ended with an error. Prompt text, files, project names and account identities stay out of these reports.</p>
@@ -24,7 +27,24 @@ export function StatisticsSettings({ statistics }: { statistics: UsageStatistics
 
 /** Asked once per window until this device chose; closed unanswered, the next window asks again. */
 export function askToShare(statistics: UsageStatistics, actions: Pick<WorkbenchActions, "toast" | "openSettings">): void {
-  if (!actions.toast || !statistics.claimQuestion()) return;
+  if (!actions.toast) return;
+  const question = statistics.claimQuestion();
+  if (question === "wider") {
+    actions.toast({
+      id: "usage-statistics:ask",
+      type: "question",
+      title: "Share daily counts too?",
+      description: "Tau now also counts prompts by agent, model, reasoning and access level, and how runs end. This device still sends only its earlier activity reports until you agree.",
+      timeoutMs: 0,
+      actions: [
+        { label: "Details", opens: true, keepOpen: true, run: () => actions.openSettings("general#setting-share-usage-statistics") },
+        { label: "Keep as before", run: () => statistics.keepScope() },
+        { label: "Share", run: () => statistics.setEnabled(true) },
+      ],
+    });
+    return;
+  }
+  if (question !== "first") return;
   actions.toast({
     id: "usage-statistics:ask",
     type: "question",
@@ -74,7 +94,7 @@ const extension: DesktopExtension = {
   activate(context) {
     const statistics = new UsageStatistics(getClientStorage());
     const daily = new DailyUsage(getClientStorage(), statistics);
-    const stopClearing = statistics.subscribe(() => { if (!statistics.getSnapshot().enabled) daily.clear(); });
+    const stopClearing = statistics.subscribe(() => { if (!statistics.sharesDaily()) daily.clear(); });
     context.events.on("prompt-accepted", () => statistics.record("human_prompt_accepted"));
     const onPrompt = (listener: () => void) => context.events.on("prompt-accepted", listener);
     let seen: RegionProps | undefined;
