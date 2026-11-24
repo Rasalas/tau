@@ -4,6 +4,10 @@ The optional `tau.usage-statistics` kit counts participating desktop installatio
 
 Reporting is off until the person using the device enables **Settings → General → Privacy → Share usage statistics**. After the first accepted prompt in an installed release, a question toast asks once: **Share**, **Don't share**, or **Details**, which opens that setting. Either answer, or any choice in Settings, ends the question on that device. Closed without an answer, it comes back in the next window. Nothing is sent before **Share**. The choice and a cryptographically random 16-character hexadecimal ID live under `device:tau.usage-statistics.v1` in client storage. They are not host preferences and are not synced between devices. Different devices, user-data profiles and reinstalls can represent the same person more than once. These are installation counts, not registered users or verified people.
 
+### Consent scope
+
+The stored choice records the `scope` it covers. Scope 1 is the activity reports of 0.7.40–0.7.42; scope 2 adds the [daily summary](#daily-summary) from 0.7.43. Turning reporting on always agrees to the current scope. A record without `scope` counts as scope 2 only if it has `answered`, which 0.7.43 and later always wrote; otherwise it is scope 1. A device at scope 1 keeps sending activity reports, counts nothing daily and drops any summary an earlier version counted. After its next accepted prompt it is asked once **Share daily counts too?** with **Share**, **Keep as before** or **Details**, and Settings offers **Include daily counts** for it. A scope added later must raise `SCOPE` and be asked the same way.
+
 ## What is counted
 
 Each participating device reports at most one successful request of each kind per UTC day in a window:
@@ -29,7 +33,7 @@ The window also counts, per UTC day, what its prompts used and how runs ended. C
 - **Reasoning:** one of `default`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`, otherwise `other`.
 - **Access:** Access Kit's workbench level, `read-only`, `ask`, `auto` or `full`.
 - **Runs:** a run counts in the window that prompted its thread, when its runtime stops working; queued follow-ups in the same run do not add runs. `error` means the thread list reports a turn error, `limit` a usage or rate limit. A run the user stopped counts as `ok`.
-- **Limits:** a day holds at most 40 rows. A day older than seven days is dropped unsent. A failed send is retried at the next activity after five minutes. A new day that begins while an older one is still unsent replaces it. Turning reporting off deletes the unsent counts.
+- **Limits:** a day holds at most 40 rows. A day older than seven days is dropped unsent. A failed send is retried at the next activity after five minutes. A new day that begins while an older one is still unsent replaces it. Turning reporting off deletes the unsent counts and aborts a summary that is being sent.
 
 In Matomo they appear under Behaviour → Events. Installations per runtime are unique visitors with a segment such as `eventCategory==prompts;eventAction==claude-code`. Error rates divide the summed event values of `runs` by runtime. Because a day is sent the next day, it lands in Matomo on the day it was received.
 

@@ -6,11 +6,16 @@ export const ACTION_URL = "https://rasalas.github.io/tau/app";
 export type Activity = "workbench_used" | "human_prompt_accepted";
 const ACTIVITIES: readonly Activity[] = ["workbench_used", "human_prompt_accepted"];
 const RETRY_MS = 5 * 60_000;
+/** What a consent covers: 1 activity reports (0.7.40–0.7.42), 2 also daily counts (0.7.43). */
+export const SCOPE = 2;
+export const DAILY_SCOPE = 2;
 
 interface State {
   enabled: boolean;
   /** Set by any explicit choice, so the one-time question never comes back. */
   answered?: boolean;
+  /** The scope the person agreed to; a wider one needs a new answer. */
+  scope: number;
   error?: string;
   id?: string;
   day?: string;
@@ -30,9 +35,11 @@ function read(storage: ClientStorage | undefined): State {
     const value = JSON.parse(storage?.get(STATISTICS_KEY) ?? "null");
     const id = typeof value?.id === "string" && /^[0-9a-f]{16}$/u.test(value.id) ? value.id : undefined;
     const day = typeof value?.day === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value.day) ? value.day : undefined;
-    return { enabled: value?.enabled === true && Boolean(id), answered: value?.answered === true || undefined, id, day, sent: Array.isArray(value?.sent) ? ACTIVITIES.filter((event) => value.sent.includes(event)) : [] };
+    // Before scopes were stored, only 0.7.43 and later wrote `answered`, and they showed the daily counts.
+    const scope = Number.isSafeInteger(value?.scope) && value.scope >= 1 ? Math.min(value.scope, SCOPE) : value?.answered === true ? DAILY_SCOPE : 1;
+    return { enabled: value?.enabled === true && Boolean(id), answered: value?.answered === true || undefined, scope, id, day, sent: Array.isArray(value?.sent) ? ACTIVITIES.filter((event) => value.sent.includes(event)) : [] };
   } catch {
-    return { enabled: false, sent: [] };
+    return { enabled: false, scope: SCOPE, sent: [] };
   }
 }
 
@@ -106,6 +113,7 @@ export class UsageStatistics {
 
   getSnapshot = (): Readonly<State> => this.state;
   getRelease = (): ClientRelease | undefined => this.release;
+  sharesDaily = (): boolean => this.state.enabled && this.state.scope >= DAILY_SCOPE;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
 
   /** Installed release metadata comes from this client's shell; a host hello cannot turn reporting on. */
@@ -123,10 +131,21 @@ export class UsageStatistics {
     this.listeners.forEach((listener) => listener());
   };
 
+  /** Turning on always agrees to the current scope, which Settings and the question describe. */
   setEnabled = (enabled: boolean): void => {
     this.refresh();
-    const next = { ...this.state, error: undefined, enabled, answered: true, ...(enabled && !this.state.id ? { id: this.newId() } : {}) };
+    const next = { ...this.state, error: undefined, enabled, answered: true, ...(enabled ? { scope: SCOPE } : {}), ...(enabled && !this.state.id ? { id: this.newId() } : {}) };
     if (!enabled) this.cancel();
+    this.save(next);
+  };
+
+  /** An earlier consent stays as it was: reports continue in the scope agreed to then. */
+  keepScope = (): void => {
+    this.refresh();
+    this.save({ ...this.state, error: undefined, answered: true });
+  };
+
+  private save(next: State): void {
     // If durable storage fails, no consent is assumed and nothing is sent.
     try {
       if (!this.storage) throw new Error("No storage.");
@@ -141,14 +160,18 @@ export class UsageStatistics {
     this.unavailable = false;
     this.state = next;
     this.listeners.forEach((listener) => listener());
-  };
+  }
 
-  /** True once per window for an installed release whose device never chose; the caller then asks. */
-  claimQuestion = (): boolean => {
+  /**
+   * Once per window for an installed release: `first` when this device never chose,
+   * `wider` when it agreed to a narrower scope and was not asked about the current one.
+   */
+  claimQuestion = (): "first" | "wider" | undefined => {
     this.refresh();
-    if (this.asked || !this.release || this.unavailable || this.state.enabled || this.state.answered) return false;
+    if (this.asked || !this.release || this.unavailable || this.state.answered) return undefined;
+    if (this.state.enabled && this.state.scope >= SCOPE) return undefined;
     this.asked = true;
-    return true;
+    return this.state.enabled ? "wider" : "first";
   };
 
   record = (event: Activity): void => {
