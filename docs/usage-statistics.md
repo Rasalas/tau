@@ -57,8 +57,9 @@ Configured and verified on 9 October 2026:
 | Custom dimension 3 | Release channel, visit scope |
 | Site-specific privacy | Four-byte IP mask, enrichment uses the masked IP |
 | Rolling unique visitors | `[General] enable_processing_unique_visitors_range = 1` |
+| Raw-data deletion | After 60 days, weekly run (options `delete_logs_enable`, `delete_logs_older_than`), since 24 November 2026 |
 
-The site restricts tracking to its fixed action URL prefix. Requests are form POSTs with no cookies, referrer or privileged token. Matomo receives generic `ua=Tau` and `lang=und` parameters. The HTTPS connection still exposes the source IP and real browser headers to the server. Matomo's stored IP is fully masked; this does not govern proxy or webserver logs. Raw-data auto-deletion remains disabled in the existing installation. No global retention or logging settings were changed.
+The site restricts tracking to its fixed action URL prefix. Requests are form POSTs with no cookies, referrer or privileged token. Matomo receives generic `ua=Tau` and `lang=und` parameters. The HTTPS connection still exposes the source IP and real browser headers to the server. Matomo's stored IP is fully masked; this does not govern proxy or webserver logs. Raw visit data is deleted after 60 days. The setting is global, so it covers every site on this Matomo; their archived day, week and month reports stay. It was enabled on 24 November 2026 after a database dump to `/root/matomo-before-retention-20261124.sql.gz` on the server; the first run removed visits before 25 September.
 
 The range setting applies globally. A backup of the prior config exists inside the Matomo container at `config/config.ini.php.before-tau-usage-20261009`.
 
@@ -72,9 +73,13 @@ npm run stats
 
 The command defaults to the SSH alias `vps`. Pass another host with `npm run stats -- other-ssh-alias`. SSH uses the operator's local SSH configuration, private key or agent; none of these credentials are included in the repository or sent to GitHub.
 
-The script finds the running `matomo:5-apache` container and reads the counts through Matomo's internal Reporting API on that server: prompt and workbench installations over the last 7 and 30 UTC days. It needs administrative SSH access; it creates no app token or public reporting endpoint. The Docker image filter must be updated when the server moves to a different Matomo image.
+The script finds the running Matomo 5 container (the official `matomo:5-apache` image or the server's own `local/matomo:5.…` build) and reads the counts through Matomo's internal Reporting API on that server: prompt and workbench installations over the last 7 and 30 UTC days. It needs administrative SSH access; it creates no app token or public reporting endpoint. The image filter must be updated when the server moves to another Matomo major version.
 
-The same command adds the public download counters of `Rasalas/tau-releases` from the GitHub API, without a token. It splits them into installers (the fixed download links such as `Tau-mac-arm64.dmg`, plus versioned `.dmg` and `.apk`), app updates (the versioned `.zip`, `.exe`, `.AppImage` and `.deb` the update feeds name) and host archives. Feeds, signatures and blockmaps are left out. A table lists the ten newest releases. Because the fixed links always resolve to the newest release, a release's installer count covers the time it was newest. Downloads count files, not people, and the replaced nightly loses its counter.
+The same command adds the public download counters of `Rasalas/tau` and `Rasalas/tau-releases` from the GitHub API, without a token; a release published to both counts once with the downloads of both copies. It splits them into installers (the fixed download links such as `Tau-mac-arm64.dmg`, plus versioned `.dmg` and `.apk`), app updates (the versioned `.zip`, `.exe`, `.AppImage` and `.deb` the update feeds name) and host archives. Feeds, signatures and blockmaps are left out. A table lists the ten newest releases. Because the fixed links always resolve to the newest release, a release's installer count covers the time it was newest. Downloads count files, not people, and the replaced nightly loses its counter.
+
+The table also counts **update checks**, the downloads of each release's feed files (`latest-mac.yml`, `latest-linux*.yml`, `latest.yml`/`latest-arm64.yml`, and `latest-host-*.yml` for hosts). An installed app checks at start and hourly; Tau's signature check and electron-updater each fetch the feed, so a check counts about twice, and a nightly app also reads the stable feed once. Checks land on the release that was newest at the time. About two checks per hour an app ran on that platform is a rough number of running installations that needs no consent and no ID, since the app downloads these files anyway. The operator's own machines are in it.
+
+With a `gh` login that has push access, the command also prints the source repository's views, clones (CI checkouts included), stars and forks of the last 14 days. Without one that section says unavailable and the command still succeeds.
 
 The output is a readable summary; `npm run stats -- --json` prints the same data as JSON. If one source fails, the other still prints and the command exits with 1.
 
